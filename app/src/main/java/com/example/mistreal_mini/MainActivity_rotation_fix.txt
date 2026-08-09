@@ -1,0 +1,6 @@
+// Add this method before the closing brace of MainActivity class:
+
+    override fun onConfigurationChanged(newConfig: android.content.res.Configuration) {
+        super.onConfigurationChanged(newConfig)
+        // Composition redraws with new layout but preserves rememberSaveable state
+    }

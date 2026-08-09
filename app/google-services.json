@@ -1,0 +1,47 @@
+{
+  "project_info": {
+    "project_number": "558163236617",
+    "project_id": "minstreal",
+    "storage_bucket": "minstreal.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:558163236617:android:82116356e85e91742da5d8",
+        "android_client_info": {
+          "package_name": "com.example.mistreal_mini"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "558163236617-87febrmjroi409bgfoq2rb1qde8rhc0l.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.example.mistreal_mini",
+            "certificate_hash": "2061f35d2bf84eac423f51501949fe815dbc3f38"
+          }
+        },
+        {
+          "client_id": "558163236617-cq5the2sb90ibrcrr10cm9grdtqgt0dj.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyC6vwFeS7WxAuK9UOWZRXVZk9B0El2zf84"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "558163236617-cq5the2sb90ibrcrr10cm9grdtqgt0dj.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

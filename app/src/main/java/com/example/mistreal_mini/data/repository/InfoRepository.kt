@@ -4,7 +4,8 @@ import com.example.mistreal_mini.data.Resource
 import com.example.mistreal_mini.data.api.InfoApiService
 import com.example.mistreal_mini.data.api.WeatherResponse
 import com.example.mistreal_mini.data.api.NewsResponse
-import com.example.mistreal_mini.data.api.SocialSyncResponse
+import com.example.mistreal.data.models.SocialSyncResponse
+import com.example.mistreal_mini.data.api.SocialPlatformResponse
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -28,11 +29,58 @@ class InfoRepository @Inject constructor(
         }
     }
 
+    suspend fun getAvailablePlatforms(deviceId: String?): Resource<List<SocialPlatformResponse>> {
+        return try {
+            Resource.Success(api.getAvailablePlatforms(deviceId))
+        } catch (e: Exception) {
+            Resource.Error(e.message ?: "Failed to fetch platforms")
+        }
+    }
+
     suspend fun syncSocials(deviceId: String?): Resource<SocialSyncResponse> {
         return try {
             Resource.Success(api.syncSocials(deviceId))
         } catch (e: Exception) {
             Resource.Error(e.message ?: "Social sync error")
+        }
+    }
+
+    suspend fun getAppConfig(): Resource<com.example.mistreal_mini.data.api.AppConfigResponse> {
+        return try {
+            Resource.Success(api.getAppConfig())
+        } catch (e: Exception) {
+            Resource.Error("Failed to load pricing")
+        }
+    }
+
+    suspend fun verifyPayment(purchaseToken: String, productId: String): Resource<Boolean> {
+        return try {
+            val response = api.verifyPayment(com.example.mistreal_mini.data.api.PaymentVerifyRequest(purchaseToken, productId))
+            if (response.success) Resource.Success(true)
+            else Resource.Error(response.message ?: "Verification failed")
+        } catch (e: Exception) {
+            Resource.Error("Payment verification error")
+        }
+    }
+
+    suspend fun updateUserSettings(
+        deviceId: String,
+        userName: String?,
+        aiPersona: String?,
+        autoReplyDelay: Int?,
+        guardianEnabled: Boolean? = null,
+        emergencyContacts: List<com.example.mistreal_mini.data.api.EmergencyContact>? = null
+    ): Resource<Boolean> {
+        return try {
+            val response = api.updateUserSettings(
+                com.example.mistreal_mini.data.api.UserSettingsRequest(
+                    deviceId, userName, aiPersona, autoReplyDelay, guardianEnabled, emergencyContacts
+                )
+            )
+            if (response.success) Resource.Success(true)
+            else Resource.Error(response.error ?: "Failed to update settings")
+        } catch (e: Exception) {
+            Resource.Error(e.message ?: "Update settings error")
         }
     }
 
@@ -56,6 +104,53 @@ class InfoRepository @Inject constructor(
             else Resource.Error(response.error ?: "Action failed")
         } catch (e: Exception) {
             Resource.Error(e.message ?: "Action error")
+        }
+    }
+
+    suspend fun getContacts(deviceId: String, platform: String): Resource<List<com.example.mistreal_mini.data.api.SocialContact>> {
+        return try {
+            val response = api.getContacts(deviceId, platform)
+            if (response.success) Resource.Success(response.contacts)
+            else Resource.Error("Failed to fetch contacts")
+        } catch (e: Exception) {
+            Resource.Error(e.message ?: "Network error")
+        }
+    }
+
+    suspend fun getUnreadMessages(deviceId: String): Resource<List<com.example.mistreal_mini.data.api.UnreadItem>> {
+        return try {
+            val response = api.getUnreadMessages(deviceId)
+            if (response.success) Resource.Success(response.unreadItems)
+            else Resource.Error("Failed to fetch unread messages")
+        } catch (e: Exception) {
+            Resource.Error(e.message ?: "Network error")
+        }
+    }
+
+    suspend fun sendEmergencyAlert(
+        deviceId: String,
+        latitude: Double,
+        longitude: Double,
+        distressSignature: String
+    ): Resource<Boolean> {
+        return try {
+            val response = api.sendEmergencyAlert(
+                com.example.mistreal_mini.data.api.EmergencyAlertRequest(
+                    deviceId, latitude, longitude, distressSignature
+                )
+            )
+            if (response.success) Resource.Success(true)
+            else Resource.Error(response.error ?: "Emergency alert failed")
+        } catch (e: Exception) {
+            Resource.Error(e.message ?: "Emergency alert error")
+        }
+    }
+
+    suspend fun getCelestialVectors(bodyId: String): Resource<com.example.mistreal_mini.data.api.CelestialVectorResponse> {
+        return try {
+            Resource.Success(api.getCelestialVectors(bodyId))
+        } catch (e: Exception) {
+            Resource.Error(e.message ?: "Celestial data failure")
         }
     }
 }

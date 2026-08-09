@@ -2,14 +2,19 @@ package com.example.mistreal_mini.di
 
 import com.example.mistreal_mini.data.api.AiApiService
 import com.example.mistreal_mini.data.api.InfoApiService
+import com.example.mistreal_mini.data.repository.AuthRepository
 import dagger.Module
 import dagger.Provides
 import dagger.hilt.InstallIn
 import dagger.hilt.components.SingletonComponent
+import kotlinx.coroutines.runBlocking
+import okhttp3.CertificatePinner
 import okhttp3.Dns
+import okhttp3.Interceptor
 import okhttp3.OkHttpClient
 import okhttp3.logging.HttpLoggingInterceptor
 import retrofit2.Retrofit
+import timber.log.Timber
 import retrofit2.converter.gson.GsonConverterFactory
 import java.net.InetAddress
 import javax.inject.Singleton
@@ -28,16 +33,37 @@ object NetworkModule {
 
     @Provides
     @Singleton
-    fun provideOkHttpClient(loggingInterceptor: HttpLoggingInterceptor): OkHttpClient {
+    fun provideOkHttpClient(
+        loggingInterceptor: HttpLoggingInterceptor,
+        authRepository: AuthRepository
+    ): OkHttpClient {
+        val certificatePinner = CertificatePinner.Builder()
+            .add("mistreal-backend.onrender.com", "sha256/fizfE9JVlzlRpIEx7epXfqW9enrbLvwF/LU26XTPEG4=")
+            .add("mistreal-backend.onrender.com", "sha256/kldp6NNEd8wsugYyyIYFsi1yIMCED3hZbSR8ZFsa/A4=")
+            .add("mistreal-backend.onrender.com", "sha256/mEflZT5enoR1FuXLgYYGqnVEoZvmf9c2bVBpiOjYQ0c=")
+            .build()
+
         return OkHttpClient.Builder()
+            .certificatePinner(certificatePinner)
             .addInterceptor(loggingInterceptor)
+            .addInterceptor(Interceptor { chain ->
+                val token = runBlocking { authRepository.getIdToken() }
+                val request = if (token != null) {
+                    chain.request().newBuilder()
+                        .addHeader("Authorization", "Bearer $token")
+                        .build()
+                } else {
+                    chain.request()
+                }
+                chain.proceed(request)
+            })
             .dns(object : Dns {
                 override fun lookup(hostname: String): List<InetAddress> {
                     return try {
                         Dns.SYSTEM.lookup(hostname)
                     } catch (e: Exception) {
                         // Diagnostic log for the user
-                        android.util.Log.e("NetworkModule", "DNS Lookup failed for $hostname: ${e.message}")
+                        Timber.e("DNS Lookup failed for $hostname: ${e.message}")
                         throw e
                     }
                 }

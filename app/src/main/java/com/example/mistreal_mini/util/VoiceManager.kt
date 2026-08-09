@@ -2,8 +2,8 @@ package com.example.mistreal_mini.util
 
 import android.content.Context
 import android.speech.tts.TextToSpeech
-import android.util.Log
 import dagger.hilt.android.qualifiers.ApplicationContext
+import timber.log.Timber
 import java.util.*
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -20,7 +20,7 @@ class VoiceManager @Inject constructor(
         try {
             tts = TextToSpeech(context, this)
         } catch (e: Exception) {
-            Log.e("VoiceManager", "TTS Init failed", e)
+            Timber.e(e, "TTS Init failed")
         }
     }
 
@@ -28,16 +28,32 @@ class VoiceManager @Inject constructor(
         if (status == TextToSpeech.SUCCESS) {
             val result = tts?.setLanguage(Locale.US)
             if (result == TextToSpeech.LANG_MISSING_DATA || result == TextToSpeech.LANG_NOT_SUPPORTED) {
-                Log.e("VoiceManager", "Language not supported")
+                Timber.e("Language not supported")
             } else {
                 isInitialized = true
+                // 🚀 SPEED PATCH: Make AI sound more natural/conversational
+                tts?.setSpeechRate(1.2f)
+                tts?.setPitch(1.0f)
             }
         }
     }
 
-    fun speak(text: String) {
+    private var onComplete: (() -> Unit)? = null
+
+    fun speak(text: String, onComplete: (() -> Unit)? = null) {
         if (isInitialized) {
-            tts?.speak(text, TextToSpeech.QUEUE_FLUSH, null, "MistrealTTS")
+            this.onComplete = onComplete
+            val params = android.os.Bundle()
+            params.putString(TextToSpeech.Engine.KEY_PARAM_UTTERANCE_ID, "MistrealTTS")
+            tts?.speak(text, TextToSpeech.QUEUE_FLUSH, params, "MistrealTTS")
+            
+            tts?.setOnUtteranceProgressListener(object : android.speech.tts.UtteranceProgressListener() {
+                override fun onStart(utteranceId: String?) {}
+                override fun onDone(utteranceId: String?) {
+                    this@VoiceManager.onComplete?.invoke()
+                }
+                override fun onError(utteranceId: String?) {}
+            })
         }
     }
 

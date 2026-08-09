@@ -1,136 +1,177 @@
 package com.example.mistreal_mini.ui.subscription
 
+import android.app.Activity
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
-import androidx.compose.runtime.Composable
+import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
+import kotlinx.coroutines.flow.collectLatest
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SubscriptionScreen(
-    viewModel: SubscriptionViewModel = hiltViewModel(),
-    onDismiss: () -> Unit
+    onDismiss: () -> Unit,
+    viewModel: SubscriptionViewModel = hiltViewModel()
 ) {
-    val isLoading = viewModel.isLoading.value
+    val context = LocalContext.current
+    val config by viewModel.config
+    val isLoading by viewModel.isLoading
+    val snackbarHostState = remember { SnackbarHostState() }
+
+    LaunchedEffect(Unit) {
+        viewModel.purchaseSuccess.collectLatest {
+            onDismiss()
+        }
+    }
+
+    LaunchedEffect(Unit) {
+        viewModel.errorEvent.collectLatest { error ->
+            snackbarHostState.showSnackbar(error)
+        }
+    }
 
     Scaffold(
+        snackbarHost = { SnackbarHost(snackbarHostState) },
         topBar = {
-            CenterAlignedTopAppBar(
-                title = { Text("Choose Your Plan") },
+            TopAppBar(
+                title = { Text("Agent Upgrade", fontWeight = FontWeight.Bold) },
                 navigationIcon = {
-                    TextButton(onClick = onDismiss) { Text("Close") }
-                }
+                    IconButton(onClick = onDismiss) {
+                        Icon(Icons.Default.Close, contentDescription = "Close")
+                    }
+                },
+                colors = TopAppBarDefaults.topAppBarColors(containerColor = Color.Transparent)
             )
         }
     ) { padding ->
-        Column(
+        Box(
             modifier = Modifier
                 .fillMaxSize()
+                .background(
+                    Brush.verticalGradient(
+                        colors = listOf(
+                            MaterialTheme.colorScheme.surface,
+                            MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.3f)
+                        )
+                    )
+                )
                 .padding(padding)
-                .padding(16.dp)
-                .verticalScroll(rememberScrollState()),
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
-            Text(
-                "Unlock the full power of Mistreal AI",
-                style = MaterialTheme.typography.titleLarge,
-                fontWeight = FontWeight.Bold
-            )
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(24.dp),
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Diamond,
+                    contentDescription = null,
+                    modifier = Modifier.size(80.dp),
+                    tint = Color(0xFFFFD700) // Gold
+                )
+                
+                Spacer(modifier = Modifier.height(16.dp))
+                
+                Text(
+                    text = "Unlock the Big Intelligence",
+                    style = MaterialTheme.typography.headlineMedium,
+                    fontWeight = FontWeight.Bold,
+                    textAlign = TextAlign.Center
+                )
+                
+                Spacer(modifier = Modifier.height(32.dp))
 
-            SubscriptionCard(
-                title = "AI Plus",
-                price = "$9.99/mo",
-                features = listOf("Unlimited Gemini", "Proactive Rain & News Alerts", "High-Driven Images"),
-                color = MaterialTheme.colorScheme.primaryContainer,
-                onClick = { viewModel.subscribe("ai_plus") }
-            )
+                BenefitRow(Icons.Default.Psychology, "Pro Models", "Access GPT-4, Claude-3, and Gemini Ultra.")
+                BenefitRow(Icons.Default.Share, "15+ Platforms", "Full sync for Instagram, LinkedIn, Telegram, etc.")
+                BenefitRow(Icons.Default.Shield, "Guardian Plus", "Advanced distress sensing and emergency routing.")
+                BenefitRow(Icons.Default.CloudUpload, "Cloud Memory", "Unlimited chat history persistence.")
 
-            SubscriptionCard(
-                title = "Social Plus",
-                price = "$14.99/mo",
-                features = listOf("Full Social Sync (FB, IG, X)", "AI Social Summaries", "Automatic Posting"),
-                color = MaterialTheme.colorScheme.secondaryContainer,
-                onClick = { viewModel.subscribe("social_plus") }
-            )
+                Spacer(modifier = Modifier.weight(1f))
 
-            SubscriptionCard(
-                title = "Elite Assistant",
-                price = "$19.99/mo",
-                features = listOf("Everything in AI & Social", "GPT-4 & Claude 3.5 Access", "Priority Support"),
-                color = Color(0xFFFFD700).copy(alpha = 0.2f),
-                isElite = true,
-                onClick = { viewModel.subscribe("elite") }
-            )
-            
-            if (isLoading) {
-                CircularProgressIndicator()
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(24.dp),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
+                ) {
+                    Column(
+                        modifier = Modifier.padding(24.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally
+                    ) {
+                        val priceText = if (config != null) "$${config!!.proPrice}/month" else "Loading..."
+                        
+                        Text(
+                            text = priceText,
+                            style = MaterialTheme.typography.displaySmall,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.primary
+                        )
+                        
+                        if (config?.freeTrialDays != "0") {
+                            Text(
+                                text = "Include ${config?.freeTrialDays}-day free trial",
+                                style = MaterialTheme.typography.labelMedium,
+                                color = Color.Gray
+                            )
+                        }
+
+                        Spacer(modifier = Modifier.height(24.dp))
+
+                        Button(
+                            onClick = { viewModel.subscribe(context as Activity) },
+                            modifier = Modifier.fillMaxWidth().height(56.dp),
+                            shape = RoundedCornerShape(16.dp),
+                            enabled = config != null && !isLoading
+                        ) {
+                            if (isLoading) {
+                                CircularProgressIndicator(modifier = Modifier.size(24.dp), color = Color.White)
+                            } else {
+                                Text("Upgrade Now", fontSize = 18.sp, fontWeight = FontWeight.Bold)
+                            }
+                        }
+                    }
+                }
+                
+                Spacer(modifier = Modifier.height(16.dp))
+                
+                Text(
+                    text = "Cancel anytime in Google Play Store.",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = Color.Gray
+                )
             }
         }
     }
 }
 
 @Composable
-fun SubscriptionCard(
-    title: String,
-    price: String,
-    features: List<String>,
-    color: Color,
-    isElite: Boolean = false,
-    onClick: () -> Unit
-) {
-    Surface(
-        onClick = onClick,
-        modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(16.dp),
-        color = color,
-        tonalElevation = 4.dp
+fun BenefitRow(icon: androidx.compose.ui.graphics.vector.ImageVector, title: String, desc: String) {
+    Row(
+        modifier = Modifier.fillMaxWidth().padding(vertical = 12.dp),
+        verticalAlignment = Alignment.Top
     ) {
-        Column(modifier = Modifier.padding(20.dp)) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Text(title, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
-                if (isElite) {
-                    Surface(
-                        color = Color(0xFFFFD700),
-                        shape = RoundedCornerShape(8.dp)
-                    ) {
-                        Text("BEST VALUE", modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp), style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold)
-                    }
-                }
-            }
-            Text(price, style = MaterialTheme.typography.titleLarge, color = MaterialTheme.colorScheme.primary)
-            Spacer(modifier = Modifier.height(16.dp))
-            features.forEach { feature ->
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(Icons.Default.Check, contentDescription = null, modifier = Modifier.size(16.dp))
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text(feature, style = MaterialTheme.typography.bodyMedium)
-                }
-            }
-            Spacer(modifier = Modifier.height(16.dp))
-            Button(
-                onClick = onClick,
-                modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(12.dp)
-            ) {
-                Text("Select Plan")
-            }
+        Icon(
+            imageVector = icon,
+            contentDescription = null,
+            modifier = Modifier.size(28.dp),
+            tint = MaterialTheme.colorScheme.primary
+        )
+        Spacer(modifier = Modifier.width(16.dp))
+        Column {
+            Text(text = title, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.bodyLarge)
+            Text(text = desc, style = MaterialTheme.typography.bodySmall, color = Color.Gray)
         }
     }
 }

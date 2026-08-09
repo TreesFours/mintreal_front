@@ -28,11 +28,19 @@ class WeatherWorker @AssistedInject constructor(
             val result = infoRepository.getWeather(location.latitude, location.longitude)
             if (result is Resource.Success) {
                 val weather = result.data
-                if (weather != null && weather.rainExpected) {
-                    showNotification(
-                        "Rain Alert ☔",
-                        "Hey dude, grab your umbrella! Rain expected in ${weather.timeToRain ?: 60} minutes."
-                    )
+                if (weather != null) {
+                    if (weather.rainExpected) {
+                        showNotification(
+                            "Rain Alert ☔",
+                            "Intel reports precipitation in ${weather.timeToRain ?: 60}m. Gear up."
+                        )
+                    } else if (weather.summary.lowercase().contains("rain") && !weather.rainExpected) {
+                        // Logic to detect rain stopping (summary contains rain but expected is false)
+                        showNotification(
+                            "Weather Clear 🌤️",
+                            "Rain is clearing up. Expect clear skies in 30-60m."
+                        )
+                    }
                 }
             }
         }
