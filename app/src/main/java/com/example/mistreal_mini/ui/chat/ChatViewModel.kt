@@ -27,6 +27,7 @@ import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.launch
+import timber.log.Timber
 import javax.inject.Inject
 
 @HiltViewModel
@@ -137,7 +138,12 @@ class ChatViewModel @Inject constructor(
         viewModelScope.launch {
             preferenceManager.isSttEnabled.collect { _isSttEnabled.value = it }
         }
-        
+        viewModelScope.launch {
+            voiceManager.transcripts.collect { transcript ->
+                onHandsFreeTranscript(transcript)
+            }
+        }
+
         // Default: Load Main Chat (Global Timeline)
         observeMessages()
         observeUniqueTrends()
@@ -157,24 +163,24 @@ class ChatViewModel @Inject constructor(
     private fun observeMessages() {
         viewModelScope.launch {
             if (_isSocialChat.value) {
-                _messages.clear()
-                // Fetch social history logic would go here
+                // ... social chat logic
                 return@launch
             }
 
             repository.getAllMessages().collect { allMsgs ->
-                // Collect the current state value safely
                 val currentTitle = _currentTrendTitle.value
                 
                 val filtered = if (currentTitle == null) {
-                    // Main Chat: Filter OUT trend messages so they don't bleed in
                     allMsgs.filter { !it.isTrend }
                 } else {
-                    // Trend Chat: Only show messages matching this specific title
                     allMsgs.filter { it.isTrend && it.trendTitle == currentTitle }
                 }
+                
+                // CRITICAL: Ensure clear and re-add happens atomically in the UI state
                 _messages.clear()
                 _messages.addAll(filtered)
+                
+                Timber.d("📬 Chat Update: ${filtered.size} messages synced (Trend: $currentTitle)")
             }
         }
     }
@@ -221,19 +227,11 @@ class ChatViewModel @Inject constructor(
         viewModelScope.launch {
             val deviceId = android.provider.Settings.Secure.getString(context.contentResolver, android.provider.Settings.Secure.ANDROID_ID)
             when (val result = infoRepository.getAvailablePlatforms(deviceId)) {
-                is Resource.Success -> {
+                is Resource.Success<List<com.example.mistreal_mini.data.api.SocialPlatformResponse>> -> {
                     _availablePlatforms.clear()
-                    // Filter platforms based on tier (free tier only shows Twitter & WhatsApp)
+                    // Fixed: Show all connected platforms without hardcoded tier filters
                     result.data?.let { platforms ->
-                        val filteredPlatforms = if (_isPro.value) {
-                            platforms // Premium: show all
-                        } else {
-                            // Free: only Twitter/X and WhatsApp
-                            platforms.filter { 
-                                it.id.lowercase() in listOf("twitter", "x", "whatsapp", "whatsapp_business")
-                            }
-                        }
-                        _availablePlatforms.addAll(filteredPlatforms)
+                        _availablePlatforms.addAll(platforms)
                     }
                 }
                 else -> {}
@@ -312,12 +310,41 @@ class ChatViewModel @Inject constructor(
         _isLoading.value = true
         viewModelScope.launch {
             val deviceId = android.provider.Settings.Secure.getString(context.contentResolver, android.provider.Settings.Secure.ANDROID_ID)
-            // Note: We need a new endpoint for history or repurpose sync
-            // For now, we clear and wait for sync or use a placeholder
-            _messages.clear()
-            _messages.add(ChatMessage(role = "system", content = "Initializing secure link to $partner on $platform...", provider = "system"))
+            val contact = _socialContacts.value.find { it.name == partner && it.platform == platform }
             
-            // In a real implementation, we'd call infoRepository.getSocialHistory(deviceId, platform, partner)
+            if (contact != null) {
+                when (val result = infoRepository.getSocialHistory(deviceId, platform, contact.id)) {
+                    is Resource.Success<List<com.example.mistreal_mini.data.api.SocialHistoryMessage>> -> {
+                        _messages.clear()
+                        result.data?.forEach { msg ->
+                            _messages.add(
+                                ChatMessage(
+                                    role = if (msg.direction == "incoming") "user" else "assistant",
+                                    content = msg.text ?: "",
+                                    type = msg.attachments?.firstOrNull()?.type ?: "text",
+                                    attachmentUrl = msg.attachments?.firstOrNull()?.url,
+                                    provider = platform,
+                                    socialMetadata = com.example.mistreal_mini.data.model.SocialMetadata(
+                                        type = "Direct Message",
+                                        platform = platform,
+                                        targetId = contact.id
+                                    )
+                                )
+                            )
+                        }
+                        if (_messages.isEmpty()) {
+                            _messages.add(ChatMessage(role = "assistant", content = "No previous messages with $partner.", provider = "system"))
+                        }
+                    }
+                    is Resource.Error<List<com.example.mistreal_mini.data.api.SocialHistoryMessage>> -> {
+                        _errorEvents.emit("Failed to fetch history: ${result.message}")
+                    }
+                    else -> {}
+                }
+            } else {
+                _messages.clear()
+                _messages.add(ChatMessage(role = "system", content = "Could not find contact info for $partner.", provider = "system"))
+            }
             _isLoading.value = false
         }
     }
@@ -374,6 +401,17 @@ class ChatViewModel @Inject constructor(
             val deviceId = android.provider.Settings.Secure.getString(context.contentResolver, android.provider.Settings.Secure.ANDROID_ID)
             when (val result = infoRepository.getContacts(deviceId, platform)) {
                 is Resource.Success -> _socialContacts.value = result.data ?: emptyList()
+                else -> {}
+            }
+        }
+    }
+
+    fun searchContacts(platform: String, query: String) {
+        viewModelScope.launch {
+            val deviceId = android.provider.Settings.Secure.getString(context.contentResolver, android.provider.Settings.Secure.ANDROID_ID)
+            // Query backend for discovery search
+            when (val result = infoRepository.searchContacts(deviceId, platform, query)) {
+                is Resource.Success<List<com.example.mistreal_mini.data.api.SocialContact>> -> _socialContacts.value = result.data ?: emptyList()
                 else -> {}
             }
         }
@@ -438,6 +476,18 @@ class ChatViewModel @Inject constructor(
         }
     }
 
+    fun updateNote(message: ChatMessage, newContent: String) {
+        viewModelScope.launch {
+            message.id?.let { id ->
+                repository.updateMessage(id, newContent)
+                val index = _messages.indexOf(message)
+                if (index != -1) {
+                    _messages[index] = message.copy(content = newContent)
+                }
+            }
+        }
+    }
+
     fun approveSocialAction(draft: ChatMessage) {
         viewModelScope.launch {
             _isLoading.value = true
@@ -483,7 +533,15 @@ class ChatViewModel @Inject constructor(
         if (text.isBlank() && attachmentUris.isEmpty()) return
         
         val isVoiceRequest = attachmentType == "audio"
-        val activeTrend = trendTitle ?: _currentTrendTitle.value
+        
+        // 📍 Standardize Map Intel Trend Titles
+        val activeTrend = if (trendTitle?.startsWith("Tactical Map:") == true || trendTitle?.startsWith("MAP_INTEL:") == true) {
+             val rawLoc = trendTitle.replace("Tactical Map:", "").replace("MAP_INTEL:", "").trim()
+             if (rawLoc.contains(",")) "MAP_INTEL: COORDINATES" else "MAP_INTEL: $rawLoc"
+        } else {
+             trendTitle ?: _currentTrendTitle.value
+        }
+
         val isTrend = activeTrend != null
         
         if (_isSocialChat.value && _activeSocialContact.value != null) {
@@ -543,14 +601,14 @@ class ChatViewModel @Inject constructor(
         viewModelScope.launch {
             val deviceId = android.provider.Settings.Secure.getString(context.contentResolver, android.provider.Settings.Secure.ANDROID_ID)
             when (val result = syncSocialsUseCase(deviceId)) {
-                is Resource.Success -> {
+                is Resource.Success<com.example.mistreal.data.models.SocialSyncResponse> -> {
                     if (result.data?.summary == "CONNECTION_REQUIRED") {
                         _messages.add(ChatMessage(role = "assistant", content = "I don't have access to your social accounts yet. Please go to Settings and connect your profiles so I can sync your data.", provider = "system"))
                     } else {
                         _messages.add(ChatMessage(role = "assistant", content = "Sync Complete: ${result.data?.summary}", provider = "system"))
                     }
                 }
-                is Resource.Error -> {
+                is Resource.Error<com.example.mistreal.data.models.SocialSyncResponse> -> {
                     if (result.message?.contains("CONNECTION_REQUIRED", ignoreCase = true) == true) {
                         _messages.add(ChatMessage(role = "assistant", content = "It looks like your social accounts aren't connected. Head over to Settings to link them.", provider = "system"))
                     } else {
@@ -620,6 +678,17 @@ class ChatViewModel @Inject constructor(
 
     private suspend fun startListeningLoop() {
         _isListening.value = true
+        val intent = Intent(context, com.example.mistreal_mini.service.VoiceService::class.java).apply {
+            action = com.example.mistreal_mini.service.VoiceService.ACTION_RESUME_LISTENING
+        }
+        context.startForegroundService(intent)
+    }
+
+    private fun onHandsFreeTranscript(transcript: String) {
+        _isListening.value = false
+        if (_isHandsFreeActive.value) {
+            sendMessage(transcript)
+        }
     }
 
     fun onVoiceReplyRecorded(uri: Uri?) {
@@ -737,7 +806,8 @@ class ChatViewModel @Inject constructor(
                 fetchContacts(it)
             }
             // Background sync for Feeds and DMs
-            syncSocials()
+            val deviceId = android.provider.Settings.Secure.getString(context.contentResolver, android.provider.Settings.Secure.ANDROID_ID)
+            syncSocialsUseCase(deviceId)
         }
     }
 }

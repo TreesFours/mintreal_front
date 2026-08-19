@@ -72,6 +72,10 @@ class AiRepository @Inject constructor(
         chatDao.deleteMessageById(id)
     }
 
+    suspend fun updateMessage(id: Long, content: String) {
+        chatDao.updateContent(id, content)
+    }
+
     suspend fun deleteTrend(title: String) {
         chatDao.deleteTrend(title)
     }

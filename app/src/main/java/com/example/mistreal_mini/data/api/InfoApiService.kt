@@ -3,6 +3,7 @@ package com.example.mistreal_mini.data.api
 import retrofit2.http.Body
 import retrofit2.http.GET
 import retrofit2.http.POST
+import retrofit2.http.Path
 import retrofit2.http.Query
 import com.example.mistreal.data.models.SocialSyncResponse
 
@@ -25,6 +26,12 @@ interface InfoApiService {
     @GET("api/social/sync")
     suspend fun syncSocials(@Query("deviceId") deviceId: String?): SocialSyncResponse
 
+    @POST("api/social/disconnect/{platform}")
+    suspend fun disconnectPlatform(
+        @Path("platform") platform: String,
+        @Body request: Map<String, String>
+    ): Map<String, Boolean>
+
     @POST("api/social/action")
     suspend fun performSocialAction(@Body request: SocialActionRequest): SocialActionResponse
 
@@ -40,29 +47,58 @@ interface InfoApiService {
     @POST("api/payment/verify")
     suspend fun verifyPayment(@Body request: PaymentVerifyRequest): PaymentVerifyResponse
 
+    @POST("api/user/location")
+    suspend fun updateLocation(@Body request: LocationRequest): SocialActionResponse
+
     @POST("api/emergency/alert")
     suspend fun sendEmergencyAlert(@Body request: EmergencyAlertRequest): SocialActionResponse
 
     @GET("api/social/contacts")
     suspend fun getContacts(
         @Query("deviceId") deviceId: String,
-        @Query("platform") platform: String
+        @Query("platform") platform: String,
+        @Query("search") search: String? = null
     ): ContactsResponse
 
     @GET("api/social/unread")
     suspend fun getUnreadMessages(@Query("deviceId") deviceId: String): UnreadResponse
 
+    @GET("api/social/history")
+    suspend fun getSocialHistory(
+        @Query("deviceId") deviceId: String,
+        @Query("platform") platform: String,
+        @Query("targetId") targetId: String
+    ): SocialHistoryResponse
+
     @GET("api/celestial/vectors")
     suspend fun getCelestialVectors(@Query("bodyId") bodyId: String): CelestialVectorResponse
+
+    @GET("api/discovery/nearby")
+    suspend fun getNearbyPlaces(
+        @Query("lat") lat: Double,
+        @Query("lon") lon: Double,
+        @Query("radius") radius: Double,
+        @Query("category") category: String
+    ): DiscoveryNearbyResponse
 }
+
+data class DiscoveryNearbyResponse(
+    val results: List<com.example.mistreal_mini.data.model.DiscoveryResult>
+)
 
 data class CelestialVectorResponse(
     val success: Boolean,
     val body: String,
-    val x: Double,
-    val y: Double,
-    val z: Double,
-    val velocity: Double? = null
+    val azimuth: Double? = null,
+    val elevation: Double? = null,
+    val orientation: String? = null,
+    val status: String? = null
+)
+
+data class LocationRequest(
+    val deviceId: String,
+    val lat: Double,
+    val lon: Double
 )
 
 data class EmergencyAlertRequest(
@@ -175,4 +211,23 @@ data class SocialPlatformResponse(
     val icon: String,
     val isProOnly: Boolean,
     val isConnected: Boolean = false
+)
+
+data class SocialHistoryResponse(
+    val success: Boolean,
+    val messages: List<SocialHistoryMessage>
+)
+
+data class SocialHistoryMessage(
+    val id: String,
+    val platform: String,
+    val direction: String, // "incoming" or "outgoing"
+    val text: String?,
+    val timestamp: String,
+    val attachments: List<SocialAttachment>? = null
+)
+
+data class SocialAttachment(
+    val type: String, // "image", "video", "file", etc.
+    val url: String
 )

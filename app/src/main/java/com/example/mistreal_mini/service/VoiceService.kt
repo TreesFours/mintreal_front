@@ -32,6 +32,7 @@ class VoiceService : Service() {
     companion object {
         const val ACTION_START_RADIO = "ACTION_START_RADIO"
         const val ACTION_START_GUARDIAN = "ACTION_START_GUARDIAN"
+        const val ACTION_RESUME_LISTENING = "ACTION_RESUME_LISTENING"
         const val ACTION_STOP = "ACTION_STOP"
         const val EXTRA_FEED = "EXTRA_FEED"
     }
@@ -57,6 +58,9 @@ class VoiceService : Service() {
                 isGuardianMode = true
                 startForeground(1, createNotification("Guardian Active", "Monitoring for distress..."))
                 startListening()
+            }
+            ACTION_RESUME_LISTENING -> {
+                if (isGuardianMode) startListening()
             }
             ACTION_STOP -> {
                 stopSelf()
@@ -100,7 +104,16 @@ class VoiceService : Service() {
                     if (isGuardianMode) startListening()
                 }
                 override fun onResults(results: Bundle?) {
-                    if (isGuardianMode) startListening()
+                    val transcript = results?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)?.firstOrNull()
+                    if (isGuardianMode) {
+                        if (!transcript.isNullOrBlank()) {
+                            // Hand the recognized speech off to ChatViewModel and wait for
+                            // ACTION_RESUME_LISTENING once the AI has replied (see VoiceManager.transcripts).
+                            voiceManager.emitTranscript(transcript)
+                        } else {
+                            startListening()
+                        }
+                    }
                 }
                 override fun onPartialResults(partialResults: Bundle?) {}
                 override fun onEvent(eventType: Int, params: Bundle?) {}

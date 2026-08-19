@@ -37,6 +37,17 @@ class InfoRepository @Inject constructor(
         }
     }
 
+    suspend fun disconnectPlatform(deviceId: String, platform: String): Resource<Boolean> {
+        return try {
+            val response = api.disconnectPlatform(platform, mapOf("deviceId" to deviceId))
+            // The API returns success: true as a Boolean in the map
+            if (response["success"] == true) Resource.Success(true)
+            else Resource.Error("Platform disconnect failed")
+        } catch (e: Exception) {
+            Resource.Error(e.message ?: "Network error")
+        }
+    }
+
     suspend fun syncSocials(deviceId: String?): Resource<SocialSyncResponse> {
         return try {
             Resource.Success(api.syncSocials(deviceId))
@@ -60,6 +71,16 @@ class InfoRepository @Inject constructor(
             else Resource.Error(response.message ?: "Verification failed")
         } catch (e: Exception) {
             Resource.Error("Payment verification error")
+        }
+    }
+
+    suspend fun updateLocation(deviceId: String, lat: Double, lon: Double): Resource<Boolean> {
+        return try {
+            val response = api.updateLocation(com.example.mistreal_mini.data.api.LocationRequest(deviceId, lat, lon))
+            if (response.success) Resource.Success(true)
+            else Resource.Error(response.error ?: "Location update failed")
+        } catch (e: Exception) {
+            Resource.Error(e.message ?: "Network error")
         }
     }
 
@@ -117,11 +138,31 @@ class InfoRepository @Inject constructor(
         }
     }
 
+    suspend fun searchContacts(deviceId: String, platform: String, query: String): Resource<List<com.example.mistreal_mini.data.api.SocialContact>> {
+        return try {
+            val response = api.getContacts(deviceId, platform, query)
+            if (response.success) Resource.Success(response.contacts)
+            else Resource.Error("Search failed")
+        } catch (e: Exception) {
+            Resource.Error(e.message ?: "Network error")
+        }
+    }
+
     suspend fun getUnreadMessages(deviceId: String): Resource<List<com.example.mistreal_mini.data.api.UnreadItem>> {
         return try {
             val response = api.getUnreadMessages(deviceId)
             if (response.success) Resource.Success(response.unreadItems)
             else Resource.Error("Failed to fetch unread messages")
+        } catch (e: Exception) {
+            Resource.Error(e.message ?: "Network error")
+        }
+    }
+
+    suspend fun getSocialHistory(deviceId: String, platform: String, targetId: String): Resource<List<com.example.mistreal_mini.data.api.SocialHistoryMessage>> {
+        return try {
+            val response = api.getSocialHistory(deviceId, platform, targetId)
+            if (response.success) Resource.Success(response.messages)
+            else Resource.Error("Failed to fetch history")
         } catch (e: Exception) {
             Resource.Error(e.message ?: "Network error")
         }
@@ -151,6 +192,14 @@ class InfoRepository @Inject constructor(
             Resource.Success(api.getCelestialVectors(bodyId))
         } catch (e: Exception) {
             Resource.Error(e.message ?: "Celestial data failure")
+        }
+    }
+
+    suspend fun getNearbyPlaces(lat: Double, lon: Double, radius: Double, category: String): Resource<List<com.example.mistreal_mini.data.model.DiscoveryResult>> {
+        return try {
+            Resource.Success(api.getNearbyPlaces(lat, lon, radius, category).results)
+        } catch (e: Exception) {
+            Resource.Error(e.message ?: "Discovery lookup failed")
         }
     }
 }

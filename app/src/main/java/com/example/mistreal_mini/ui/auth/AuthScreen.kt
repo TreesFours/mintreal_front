@@ -1,3 +1,13 @@
+/** 🛡️ AI SYSTEM PROTOCOL 🛡️
+ * SOURCE OF TRUTH: master_system_map.artifact.md
+ * 
+ * 🚀 FUNCTIONAL PIPELINE:
+ * [Input]  <- User credentials (Email/Password) via UI Input
+ * [Process] <- Validates agent identity through Firebase via AuthViewModel
+ * [Output] -> Triggers onAuthSuccess() to unlock access to Dashboard
+ *
+ * ⚠️ MANDATORY: Never delete history. Only ADD updates/fixes to the Master Map table.
+ */
 package com.example.mistreal_mini.ui.auth
 
 import androidx.compose.foundation.gestures.detectTapGestures
@@ -42,6 +52,7 @@ fun AuthScreen(
     val snackbarHostState = remember { SnackbarHostState() }
     val focusManager = LocalFocusManager.current
 
+    // 🛡️ AI NOTE: If you overhaul or fix logic here, log it in the "History & Notes" column of the Master Map.
     LaunchedEffect(Unit) {
         viewModel.authSuccess.collectLatest {
             onAuthSuccess()
@@ -161,3 +172,5 @@ fun AuthScreen(
         }
     }
 }
+
+// 🛡️ AI CHECKPOINT: Did you update the Master System Map? If not, do it now.

@@ -1,3 +1,13 @@
+/** 🛡️ AI SYSTEM PROTOCOL 🛡️
+ * SOURCE OF TRUTH: master_system_map.artifact.md
+ * 
+ * 🚀 FUNCTIONAL PIPELINE:
+ * [Input]  <- Multi-modal commands (Text, Voice, Image, Files) via Operator
+ * [Process] <- Processes natural language, executes social drafts, and manages audio synthesis
+ * [Output] -> Encrypted chat records; triggers backend social actions and voice feedback
+ *
+ * ⚠️ MANDATORY: Never delete history. Only ADD updates/fixes to the Master Map table.
+ */
 package com.example.mistreal_mini.ui.chat
 
 import android.app.Activity
@@ -79,6 +89,7 @@ fun ChatScreen(
     val snackbarHostState = remember { SnackbarHostState() }
     val focusManager = LocalFocusManager.current
 
+    // 🛡️ AI NOTE: If you overhaul or fix logic here, log it in the "History & Notes" column of the Master Map.
     // Pagination logic
     val isScrollingUp = listState.isScrollInProgress && listState.firstVisibleItemIndex == 0
     LaunchedEffect(isScrollingUp) {
@@ -260,9 +271,6 @@ fun ChatScreen(
                         { viewModel.draftSocialReply(textState); textState = "" } 
                     } else null,
                     isLoading = isLoading,
-                    onClearClick = if (viewModel.currentTrendTitle.value != null) {
-                        { viewModel.deleteTrend(viewModel.currentTrendTitle.value!!) }
-                    } else null,
                     pendingAttachments = viewModel.pendingAttachments,
                     onRemoveAttachment = { viewModel.removePendingAttachment(it) }
                 )
@@ -363,6 +371,38 @@ fun ChatScreen(
                 }
             }
 
+            AnimatedVisibility(
+                visible = isHandsFree,
+                enter = fadeIn() + slideInVertically(),
+                exit = fadeOut() + slideOutVertically(),
+                modifier = Modifier.align(Alignment.TopCenter).padding(top = 8.dp)
+            ) {
+                Surface(
+                    color = MaterialTheme.colorScheme.primary,
+                    contentColor = MaterialTheme.colorScheme.onPrimary,
+                    shape = RoundedCornerShape(20.dp),
+                    tonalElevation = 8.dp,
+                    shadowElevation = 8.dp
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.padding(start = 16.dp, end = 8.dp, top = 8.dp, bottom = 8.dp)
+                    ) {
+                        Icon(Icons.Default.Mic, null, modifier = Modifier.size(18.dp))
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(
+                            if (isListening) "Conversation Mode — Listening…" else "Conversation Mode — Active",
+                            style = MaterialTheme.typography.labelMedium,
+                            fontWeight = FontWeight.Bold
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        IconButton(onClick = { viewModel.toggleHandsFree(false) }, modifier = Modifier.size(28.dp)) {
+                            Icon(Icons.Default.Close, "Stop Conversation Mode", tint = MaterialTheme.colorScheme.onPrimary)
+                        }
+                    }
+                }
+            }
+
             if (showNukeConfirm) {
                 AlertDialog(
                     onDismissRequest = { showNukeConfirm = false },
@@ -422,6 +462,7 @@ fun ChatScreen(
 
             if (showContactList) {
                 var selectedCategory by remember { mutableStateOf("ai") }
+                var searchPlatformQuery by remember { mutableStateOf("") }
                 val contacts by viewModel.socialContacts
                 val unreadItems by viewModel.unreadMessages
 
@@ -429,6 +470,7 @@ fun ChatScreen(
                     drawerContent = {
                         ModalDrawerSheet {
                             Row(modifier = Modifier.fillMaxSize()) {
+                                // 📱 Platform Sidebar
                                 Column(
                                     modifier = Modifier
                                         .fillMaxHeight()
@@ -450,6 +492,7 @@ fun ChatScreen(
                                                 isSelected = selectedCategory == platform.id
                                             ) {
                                                 selectedCategory = platform.id
+                                                searchPlatformQuery = ""
                                                 viewModel.fetchContacts(platform.id)
                                             }
                                         }
@@ -460,6 +503,7 @@ fun ChatScreen(
                                     }
                                 }
 
+                                // 🔍 Contextual Search & Results
                                 Column(modifier = Modifier.weight(1f).padding(16.dp)) {
                                     Text(
                                         text = selectedCategory.replace("_", " ").uppercase(),
@@ -467,7 +511,25 @@ fun ChatScreen(
                                         fontWeight = FontWeight.Bold,
                                         color = MaterialTheme.colorScheme.primary
                                     )
-                                    Spacer(modifier = Modifier.height(16.dp))
+                                    
+                                    if (selectedCategory != "ai" && selectedCategory != "unread") {
+                                        OutlinedTextField(
+                                            value = searchPlatformQuery,
+                                            onValueChange = { 
+                                                searchPlatformQuery = it
+                                                if (it.length >= 3) {
+                                                    viewModel.searchContacts(selectedCategory, it)
+                                                }
+                                            },
+                                            modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
+                                            placeholder = { Text("Search on ${selectedCategory}...", fontSize = 12.sp) },
+                                            leadingIcon = { Icon(Icons.Default.Search, null, modifier = Modifier.size(16.dp)) },
+                                            singleLine = true,
+                                            shape = RoundedCornerShape(8.dp)
+                                        )
+                                    }
+
+                                    Spacer(modifier = Modifier.height(8.dp))
                                     
                                     LazyColumn {
                                         if (selectedCategory == "unread") {
@@ -483,7 +545,6 @@ fun ChatScreen(
                                                     label = { 
                                                         Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
                                                             Text(model.name, modifier = Modifier.weight(1f))
-                                                            // Show tier badge for non-free models
                                                             if (model.price != "Free") {
                                                                 Badge(
                                                                     containerColor = MaterialTheme.colorScheme.primary,
@@ -504,7 +565,6 @@ fun ChatScreen(
                                                 )
                                             }
                                         } else {
-                                            // Social contact list with platform-specific info
                                             items(contacts) { contact ->
                                                 ContactListItem(contact) {
                                                     viewModel.switchChat(contact.name, contact.platform)
@@ -542,8 +602,8 @@ fun CategoryIcon(icon: Any, label: String, isSelected: Boolean, onClick: () -> U
                     Icon(icon, null, tint = if (isSelected) Color.White else Color.Gray, modifier = Modifier.size(24.dp))
                 }
                 is String -> {
-                    // Handle emoji or text
-                    Text(icon, fontSize = 24.sp, color = if (isSelected) Color.White else Color.White)
+                    // Handle emoji or text - FIXED COLOR logic
+                    Text(icon, fontSize = 24.sp, color = if (isSelected) Color.White else MaterialTheme.colorScheme.onSurface)
                 }
             }
         }
@@ -665,21 +725,27 @@ fun ChatBubble(
         ) {
             SelectionContainer {
                 Column(modifier = Modifier.padding(12.dp)) {
-                    if (message.type == "image" && !message.attachmentPaths.isNullOrEmpty()) {
-                        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                            message.attachmentPaths.forEach { path ->
-                                AsyncImage(
-                                    model = path,
-                                    contentDescription = "Image attachment",
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .heightIn(max = 240.dp)
-                                        .clip(RoundedCornerShape(12.dp)),
-                                    contentScale = ContentScale.Crop
-                                )
+                    if (message.type == "image") {
+                        val attachments = mutableListOf<String>()
+                        message.attachmentPaths?.let { attachments.addAll(it) }
+                        message.attachmentUrl?.let { attachments.add(it) }
+                        
+                        if (attachments.isNotEmpty()) {
+                            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                attachments.forEach { path ->
+                                    AsyncImage(
+                                        model = path,
+                                        contentDescription = "Image attachment",
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .heightIn(max = 240.dp)
+                                            .clip(RoundedCornerShape(12.dp)),
+                                        contentScale = ContentScale.Crop
+                                    )
+                                }
                             }
+                            Spacer(modifier = Modifier.height(8.dp))
                         }
-                        Spacer(modifier = Modifier.height(8.dp))
                     }
                     
                     if (message.content.isNotEmpty()) {
@@ -840,6 +906,8 @@ fun VoiceRecordingBar(
     }
 }
 
+// 🛡️ AI CHECKPOINT: Did you update the Master System Map? If not, do it now.
+
 @Composable
 fun ChatInputBar(
     text: String,
@@ -851,7 +919,6 @@ fun ChatInputBar(
     onVoiceClick: () -> Unit,
     onScribeClick: () -> Unit,
     isLoading: Boolean,
-    onClearClick: (() -> Unit)? = null,
     onDraftClick: (() -> Unit)? = null,
     pendingAttachments: List<Uri> = emptyList(),
     onRemoveAttachment: (Uri) -> Unit = {}
@@ -917,17 +984,12 @@ fun ChatInputBar(
                 IconButton(onClick = onScribeClick) { Icon(Icons.Default.HistoryEdu, "Scribe Alpha", tint = iconTint) }
                 
                 if (onDraftClick != null) {
-                    IconButton(onClick = onDraftClick) { 
-                        Icon(Icons.Default.AutoFixHigh, "Draft AI", tint = MaterialTheme.colorScheme.tertiary) 
+                    IconButton(onClick = onDraftClick) {
+                        Icon(Icons.Default.AutoFixHigh, "Draft AI", tint = MaterialTheme.colorScheme.tertiary)
                     }
                 }
 
                 Spacer(modifier = Modifier.weight(1f))
-                if (onClearClick != null) {
-                    IconButton(onClick = onClearClick) { 
-                        Icon(Icons.Default.DeleteSweep, "Purge Session", tint = Color.Red.copy(alpha = 0.6f)) 
-                    }
-                }
             }
             
             Row(
@@ -976,6 +1038,8 @@ fun ChatInputBar(
     }
 }
 
+// 🛡️ AI CHECKPOINT: Did you update the Master System Map? If not, do it now.
+
 @Composable
 fun TypingIndicator() {
     Row(
@@ -989,3 +1053,5 @@ fun TypingIndicator() {
         )
     }
 }
+
+// 🛡️ AI CHECKPOINT: Did you update the Master System Map? If not, do it now.

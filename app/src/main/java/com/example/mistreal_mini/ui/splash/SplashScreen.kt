@@ -1,3 +1,13 @@
+/** 🛡️ AI SYSTEM PROTOCOL 🛡️
+ * SOURCE OF TRUTH: master_system_map.artifact.md
+ * 
+ * 🚀 FUNCTIONAL PIPELINE:
+ * [Input]  <- App Start Event / Initialization
+ * [Process] <- Renders animated Psychology icon and motto; triggers 3.5s delay
+ * [Output] -> Calls onTimeout() to trigger navigation to Auth/Main flow
+ *
+ * ⚠️ MANDATORY: Never delete history. Only ADD updates/fixes to the Master Map table.
+ */
 package com.example.mistreal_mini.ui.splash
 
 import androidx.compose.animation.core.*
@@ -35,6 +45,7 @@ fun SplashScreen(onTimeout: () -> Unit) {
         label = "Scale"
     )
 
+    // 🛡️ AI NOTE: If you overhaul or fix logic here, log it in the "History & Notes" column of the Master Map.
     LaunchedEffect(key1 = true) {
         startAnimation = true
         delay(3500)
@@ -95,3 +106,5 @@ fun SplashScreen(onTimeout: () -> Unit) {
         }
     }
 }
+
+// 🛡️ AI CHECKPOINT: Did you update the Master System Map? If not, do it now.

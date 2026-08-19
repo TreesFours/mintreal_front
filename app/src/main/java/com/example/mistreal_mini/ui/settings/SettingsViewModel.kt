@@ -124,6 +124,22 @@ class SettingsViewModel @Inject constructor(
         }
     }
 
+    fun disconnectSocial(platform: String) {
+        viewModelScope.launch {
+            val deviceId = android.provider.Settings.Secure.getString(context.contentResolver, android.provider.Settings.Secure.ANDROID_ID)
+            when (val result = infoRepository.disconnectPlatform(deviceId, platform)) {
+                is Resource.Success<Boolean> -> {
+                    fetchPlatforms()
+                    _saveSuccess.emit(Unit)
+                }
+                is Resource.Error<Boolean> -> {
+                    _errorEvent.emit("Failed to disconnect $platform: ${result.message}")
+                }
+                else -> {}
+            }
+        }
+    }
+
     fun onSocialConnectionResult(platform: String, success: Boolean) {
         viewModelScope.launch {
             if (success) {

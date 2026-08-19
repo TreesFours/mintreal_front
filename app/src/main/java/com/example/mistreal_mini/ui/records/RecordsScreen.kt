@@ -36,11 +36,14 @@ fun RecordsScreen(
 ) {
     var selectedTab by remember { mutableIntStateOf(0) }
     val tabs = listOf("History", "Scribe Notes")
-    
+
     // 🛡️ Fix: Fetch ALL trends and main messages for the history view
-    val allMessages = chatViewModel.messages.reversed() 
+    val allMessages = chatViewModel.messages.reversed()
     val uniqueTrends = chatViewModel.uniqueTrends
     val scribeNotes = allMessages.filter { it.type == "scribe" }
+
+    var editingNote by remember { mutableStateOf<ChatMessage?>(null) }
+    var editText by remember { mutableStateOf("") }
 
     Scaffold(
         topBar = {
@@ -79,9 +82,34 @@ fun RecordsScreen(
                     trends = emptyList(),
                     onTrendClick = {},
                     onDeleteTrend = {},
-                    onDeleteMessage = { chatViewModel.deleteMessage(it) }
+                    onDeleteMessage = { chatViewModel.deleteMessage(it) },
+                    onEditMessage = { editingNote = it; editText = it.content }
                 )
             }
+        }
+
+        editingNote?.let { note ->
+            AlertDialog(
+                onDismissRequest = { editingNote = null },
+                title = { Text("Edit Scribe Note") },
+                text = {
+                    OutlinedTextField(
+                        value = editText,
+                        onValueChange = { editText = it },
+                        modifier = Modifier.fillMaxWidth(),
+                        minLines = 3
+                    )
+                },
+                confirmButton = {
+                    TextButton(onClick = {
+                        chatViewModel.updateNote(note, editText)
+                        editingNote = null
+                    }) { Text("Save") }
+                },
+                dismissButton = {
+                    TextButton(onClick = { editingNote = null }) { Text("Cancel") }
+                }
+            )
         }
     }
 }
@@ -93,7 +121,8 @@ fun RecordList(
     trends: List<ChatMessage>,
     onTrendClick: (String) -> Unit,
     onDeleteTrend: (String) -> Unit,
-    onDeleteMessage: (ChatMessage) -> Unit
+    onDeleteMessage: (ChatMessage) -> Unit,
+    onEditMessage: ((ChatMessage) -> Unit)? = null
 ) {
     val clipboardManager = LocalClipboardManager.current
     
@@ -184,6 +213,11 @@ fun RecordList(
                                     color = Color.Gray
                                 )
                                 Spacer(modifier = Modifier.weight(1f))
+                                if (onEditMessage != null) {
+                                    IconButton(onClick = { onEditMessage(msg) }, modifier = Modifier.size(24.dp)) {
+                                        Icon(Icons.Default.Edit, "Edit", modifier = Modifier.size(14.dp), tint = Color.Gray)
+                                    }
+                                }
                                 IconButton(onClick = { onDeleteMessage(msg) }, modifier = Modifier.size(24.dp)) {
                                     Icon(Icons.Default.Delete, "Delete", modifier = Modifier.size(14.dp), tint = Color.Gray)
                                 }

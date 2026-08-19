@@ -395,7 +395,11 @@ fun SettingsScreen(
                                             headlineContent = { Text(platform.name, style = MaterialTheme.typography.bodyMedium) },
                                             leadingContent = { Text(platform.icon, fontSize = 18.sp) },
                                             trailingContent = { 
-                                                Icon(Icons.Default.CheckCircle, null, tint = Color(0xFF81C784), modifier = Modifier.size(16.dp))
+                                                IconButton(onClick = { 
+                                                    viewModel.disconnectSocial(platform.id)
+                                                }) {
+                                                    Icon(Icons.Default.LinkOff, "Disconnect", tint = Color.Red.copy(alpha = 0.6f), modifier = Modifier.size(20.dp))
+                                                }
                                             },
                                             colors = ListItemDefaults.colors(containerColor = Color.Transparent)
                                         )

@@ -3,6 +3,9 @@ package com.example.mistreal_mini.util
 import android.content.Context
 import android.speech.tts.TextToSpeech
 import dagger.hilt.android.qualifiers.ApplicationContext
+import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.SharedFlow
+import kotlinx.coroutines.flow.asSharedFlow
 import timber.log.Timber
 import java.util.*
 import javax.inject.Inject
@@ -15,6 +18,15 @@ class VoiceManager @Inject constructor(
 
     private var tts: TextToSpeech? = null
     private var isInitialized = false
+
+    // 🎙️ Bridge for hands-free conversation mode: VoiceService emits recognized
+    // speech here; ChatViewModel collects it and forwards to the AI.
+    private val _transcripts = MutableSharedFlow<String>(extraBufferCapacity = 1)
+    val transcripts: SharedFlow<String> = _transcripts.asSharedFlow()
+
+    fun emitTranscript(text: String) {
+        _transcripts.tryEmit(text)
+    }
 
     init {
         try {

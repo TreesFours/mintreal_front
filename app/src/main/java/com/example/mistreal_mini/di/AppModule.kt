@@ -43,4 +43,14 @@ object AppModule {
     fun provideChatDao(db: MistrealDatabase): ChatDao {
         return db.chatDao()
     }
+
+    @Provides
+    fun provideLocationHistoryDao(db: MistrealDatabase): com.example.mistreal_mini.data.local.dao.LocationHistoryDao {
+        return db.locationHistoryDao()
+    }
+
+    @Provides
+    fun provideSavedIntelDao(db: MistrealDatabase): com.example.mistreal_mini.data.local.dao.SavedIntelDao {
+        return db.savedIntelDao()
+    }
 }

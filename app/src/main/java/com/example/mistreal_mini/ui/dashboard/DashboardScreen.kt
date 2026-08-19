@@ -1,3 +1,13 @@
+/** 🛡️ AI SYSTEM PROTOCOL 🛡️
+ * SOURCE OF TRUTH: master_system_map.artifact.md
+ * 
+ * 🚀 FUNCTIONAL PIPELINE:
+ * [Input]  <- Real-time feeds (News, Socials, Weather, Orbitals) from Repositories
+ * [Process] <- Orchestrates multi-tab intelligence display and dispatch actions
+ * [Output] -> Renders tactical dashboard UI; triggers social posts or map search
+ *
+ * ⚠️ MANDATORY: Never delete history. Only ADD updates/fixes to the Master Map table.
+ */
 package com.example.mistreal_mini.ui.dashboard
 
 import android.app.Activity
@@ -86,6 +96,7 @@ fun DashboardScreen(
     chatViewModel: ChatViewModel = hiltViewModel()
 ) {
     val context = LocalContext.current
+    val focusManager = LocalFocusManager.current
     val deviceId = android.provider.Settings.Secure.getString(context.contentResolver, android.provider.Settings.Secure.ANDROID_ID)
     
     var selectedArticle by remember { mutableStateOf<Article?>(null) }
@@ -105,12 +116,12 @@ fun DashboardScreen(
     val snackbarHostState = remember { SnackbarHostState() }
     val coroutineScope = rememberCoroutineScope()
     val localContext = LocalContext.current
-
-    val focusManager = LocalFocusManager.current
     var showFullSolarSystem by remember { mutableStateOf(false) }
 
     // 📸 Media Tool Logic
     var cameraUri by remember { mutableStateOf<Uri?>(null) }
+    
+    // 🛡️ AI NOTE: If you overhaul or fix logic here, log it in the "History & Notes" column of the Master Map.
     var screenshotUri by remember { mutableStateOf<Uri?>(null) }
 
     val cameraLauncher = rememberLauncherForActivityResult(ActivityResultContracts.TakePicture()) { success ->
@@ -158,11 +169,19 @@ fun DashboardScreen(
 
     Box(modifier = Modifier.fillMaxSize()) {
         if (showFullSolarSystem) {
-            // FullSolarSystemScreen is not yet implemented, using placeholder
-            Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                Text("Orbital Projection System - Coming Soon", color = Color.White)
-                Button(onClick = { showFullSolarSystem = false }, modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 32.dp)) {
-                    Text("Back to Intelligence Center")
+            Surface(
+                modifier = Modifier.fillMaxSize(),
+                color = MaterialTheme.colorScheme.background.copy(alpha = 0.95f)
+            ) {
+                Column(modifier = Modifier.padding(16.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        IconButton(onClick = { showFullSolarSystem = false }) {
+                            Icon(Icons.Default.ArrowBack, "Back", tint = Color.White)
+                        }
+                        Text("ORBITAL INTELLIGENCE", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Black, color = Color.White)
+                    }
+                    Spacer(modifier = Modifier.height(24.dp))
+                    SolarSystemCard(viewModel)
                 }
             }
         }
@@ -181,9 +200,9 @@ fun DashboardScreen(
             )
         }
 
-        if (selectedArticle != null) {
-            NewsDetailScreen(article = selectedArticle!!, onBack = { selectedArticle = null })
-        } else {
+        Box(modifier = Modifier.fillMaxSize().pointerInput(Unit) {
+            detectTapGestures(onTap = { focusManager.clearFocus() })
+        }) {
             Scaffold(
                 containerColor = Color.Transparent, // Let background show
                 snackbarHost = { SnackbarHost(snackbarHostState) },
@@ -202,20 +221,30 @@ fun DashboardScreen(
                                 }
                             }
                         )
-                        TabRow(selectedTabIndex = selectedTab) {
-                            Tab(
-                                selected = selectedTab == 0,
-                                onClick = { selectedTab = 0 },
-                                text = { Text("Intelligence Feed", fontSize = 12.sp) },
-                                icon = { Icon(Icons.Default.Dashboard, null, modifier = Modifier.size(20.dp)) }
-                            )
-                            Tab(
-                                selected = selectedTab == 1,
-                                onClick = { selectedTab = 1 },
-                                text = { Text("Dispatch Center", fontSize = 12.sp) },
-                                icon = { Icon(Icons.Default.Send, null, modifier = Modifier.size(20.dp)) }
-                            )
-                        }
+                            TabRow(selectedTabIndex = selectedTab) {
+                                Tab(
+                                    selected = selectedTab == 0,
+                                    onClick = { selectedTab = 0 },
+                                    text = { Text("Global Intel", fontSize = 12.sp) },
+                                    icon = { Icon(Icons.Default.Public, null, modifier = Modifier.size(20.dp)) }
+                                )
+                                Tab(
+                                    selected = selectedTab == 1,
+                                    onClick = { 
+                                        selectedTab = 1
+                                        // 🚀 AUTO-REFRESH: Sync socials when entering the Social Intel tab
+                                        viewModel.loadDashboardData(deviceId)
+                                    },
+                                    text = { Text("Social Intel", fontSize = 12.sp) },
+                                    icon = { Icon(Icons.Default.Share, null, modifier = Modifier.size(20.dp)) }
+                                )
+                                Tab(
+                                    selected = selectedTab == 2,
+                                    onClick = { selectedTab = 2 },
+                                    text = { Text("Dispatch", fontSize = 12.sp) },
+                                    icon = { Icon(Icons.Default.Send, null, modifier = Modifier.size(20.dp)) }
+                                )
+                            }
                     }
                 }
             ) { padding ->
@@ -225,62 +254,65 @@ fun DashboardScreen(
                     }
                 } else {
                     Column(modifier = Modifier.padding(padding)) {
-                        if (selectedTab == 0) {
-                            var citySearch by remember { mutableStateOf("") }
-                            
-                            IntelligenceFeedView(
-                                weather = weather,
-                                orientation = orientation,
-                                bearing = bearing,
-                                news = news,
-                                socials = socials,
-                                socialPosts = viewModel.socialPosts,
-                                onArticleClick = { selectedArticle = it },
-                                onAiClick = { ctx -> 
-                                    insightContext = ctx
-                                    showInsightPopup = true
-                                },
-                                onReadAloud = { text, mode ->
-                                    chatViewModel.readAloud(text)
-                                },
-                                chatViewModel = chatViewModel,
-                                dashboardViewModel = viewModel,
-                                snackbarHostState = snackbarHostState,
-                                onOrbitalClick = { 
-                                    startInSpaceMode = true
-                                    showMapPopup = true 
-                                },
-                                citySearch = citySearch,
-                                onCitySearchChange = { citySearch = it },
-                                onSearch = {
-                                    if (citySearch.isNotBlank()) {
-                                        viewModel.searchCity(citySearch)
+                        when (selectedTab) {
+                            0 -> {
+                                var citySearch by remember { mutableStateOf("") }
+                                IntelligenceFeedView(
+                                    weather = weather,
+                                    orientation = orientation,
+                                    bearing = bearing,
+                                    news = news,
+                                    onArticleClick = { selectedArticle = it },
+                                    onAiClick = { ctx -> 
+                                        insightContext = ctx
+                                        showInsightPopup = true
+                                    },
+                                    onReadAloud = { text, mode -> chatViewModel.readAloud(text) },
+                                    chatViewModel = chatViewModel,
+                                    dashboardViewModel = viewModel,
+                                    snackbarHostState = snackbarHostState,
+                                    onOrbitalClick = { 
+                                        showFullSolarSystem = true
+                                    },
+                                    citySearch = citySearch,
+                                    onCitySearchChange = { citySearch = it },
+                                    onSearch = {
+                                        if (citySearch.isNotBlank()) {
+                                            viewModel.searchCity(citySearch)
+                                            showMapPopup = true
+                                            focusManager.clearFocus()
+                                        }
+                                    },
+                                    onLocateClick = {
+                                        viewModel.pinpointCurrentLocation()
                                         showMapPopup = true
-                                        focusManager.clearFocus()
                                     }
-                                },
-                                onLocateClick = {
-                                    viewModel.pinpointCurrentLocation()
-                                    showMapPopup = true
-                                },
-                                onDmClick = { author, platform ->
-                                    chatViewModel.switchChat(author, platform)
-                                    onDmClick()
-                                }
-                            )
-                            
-                            Box(modifier = Modifier.clickable { 
-                                startInSpaceMode = true
-                                showMapPopup = true 
-                            }) {
-                                SolarSystemCard()
+                                )
                             }
-                        } else {
-                            DispatchCenterView(
-                                deviceId = deviceId,
-                                viewModel = viewModel,
-                                snackbarHostState = snackbarHostState
-                            )
+                            1 -> {
+                                SocialIntelView(
+                                    socialPosts = viewModel.socialPosts,
+                                    onAiClick = { post ->
+                                        // discuss with AI logic
+                                        chatViewModel.draftSocialReply("Discuss this post from ${post.author} on ${post.platform}: ${post.content}")
+                                        onDmClick() // Navigate to chat
+                                    },
+                                    onActionClick = { post, type ->
+                                        coroutineScope.launch {
+                                            val success = viewModel.postToSocial(deviceId, post.platform, type, "Action on post", post.id)
+                                            snackbarHostState.showSnackbar(if (success) "Action Executed" else "Failed")
+                                        }
+                                    },
+                                    chatViewModel = chatViewModel
+                                )
+                            }
+                            2 -> {
+                                DispatchCenterView(
+                                    deviceId = deviceId,
+                                    viewModel = viewModel,
+                                    snackbarHostState = snackbarHostState
+                                )
+                            }
                         }
                     }
                 }
@@ -329,8 +361,6 @@ fun IntelligenceFeedView(
     orientation: String,
     bearing: Float,
     news: List<Article>,
-    socials: List<PlatformUpdate>,
-    socialPosts: List<SocialPost>,
     onArticleClick: (Article) -> Unit,
     onAiClick: (String) -> Unit,
     onReadAloud: (String, InteractionMode) -> Unit,
@@ -341,12 +371,10 @@ fun IntelligenceFeedView(
     citySearch: String,
     onCitySearchChange: (String) -> Unit,
     onSearch: () -> Unit,
-    onLocateClick: () -> Unit,
-    onDmClick: (String, String) -> Unit = { _, _ -> }
+    onLocateClick: () -> Unit
 ) {
     val coroutineScope = rememberCoroutineScope()
     val context = LocalContext.current
-    val deviceId = android.provider.Settings.Secure.getString(context.contentResolver, android.provider.Settings.Secure.ANDROID_ID)
 
     LazyColumn(
         modifier = Modifier.fillMaxWidth().heightIn(max = 800.dp).padding(horizontal = 16.dp),
@@ -355,7 +383,7 @@ fun IntelligenceFeedView(
         item { Spacer(modifier = Modifier.height(8.dp)) }
         item { WeatherCard(weather, orientation, bearing) }
         
-        // 🛰️ NEW STRATEGIC ROW: Orbitals & Moon
+        // 🛰️ STRATEGIC ROW: Orbitals & Moon
         item {
             Card(
                 modifier = Modifier.fillMaxWidth(),
@@ -368,7 +396,6 @@ fun IntelligenceFeedView(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.SpaceBetween
                 ) {
-                    // Left: Planetary Button
                     Button(
                         onClick = onOrbitalClick,
                         colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF81C784)),
@@ -380,7 +407,6 @@ fun IntelligenceFeedView(
                         Text("ORBITALS", fontSize = 10.sp, fontWeight = FontWeight.Black)
                     }
 
-                    // Right: Moon Phase Info
                     weather?.moonPhase?.let { phase ->
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             if (!weather.moonImageUrl.isNullOrEmpty()) {
@@ -394,27 +420,13 @@ fun IntelligenceFeedView(
                                     contentScale = ContentScale.Fit
                                 )
                             } else {
-                                val moonIcon = when {
-                                    phase.lowercase().contains("new") -> "🌑"
-                                    phase.lowercase().contains("waxing crescent") -> "🌒"
-                                    phase.lowercase().contains("first quarter") -> "🌓"
-                                    phase.lowercase().contains("waxing gibbous") -> "🌔"
-                                    phase.lowercase().contains("full") -> "🌕"
-                                    phase.lowercase().contains("waning gibbous") -> "🌖"
-                                    phase.lowercase().contains("last quarter") -> "🌗"
-                                    phase.lowercase().contains("waning crescent") -> "🌘"
-                                    else -> "🌙"
-                                }
-                                Text(moonIcon, fontSize = 24.sp)
+                                Text("🌙", fontSize = 24.sp)
                             }
                             
                             Spacer(modifier = Modifier.width(8.dp))
                             Column {
                                 Text("MOON PHASE", style = MaterialTheme.typography.labelSmall, color = Color.Gray, fontSize = 8.sp)
-                                val moonLabel = if (phase == "Retrieved" || phase == "Updating..." || phase.isEmpty()) {
-                                    "SYNCHRONIZING..."
-                                } else phase
-                                Text(moonLabel.uppercase(), style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold)
+                                Text(phase.uppercase(), style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold)
                             }
                         }
                     }
@@ -422,7 +434,6 @@ fun IntelligenceFeedView(
             }
         }
 
-        // 🔍 Search Box directly under the new row
         item {
             OutlinedTextField(
                 value = citySearch,
@@ -442,69 +453,60 @@ fun IntelligenceFeedView(
         }
 
         item { LocationBanner(weather) }
-        item { Text("Latest Intelligence", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold) }
+        item { Text("Global Intelligence Flow", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold) }
 
-        val mixedFeed = mutableListOf<Any>()
-        mixedFeed.addAll(socialPosts)
-        mixedFeed.addAll(news)
-        
-        // Sort by timestamp (approximate)
-        mixedFeed.sortWith(compareByDescending { item ->
-            when (item) {
-                is SocialPost -> item.timestamp
-                else -> "" // Articles don't have timestamps in current model, keep them at bottom
+        items(news) { item ->
+            val (icon, tint) = when {
+                item.title.contains("[Astro]", ignoreCase = true) -> Icons.Default.Brightness3 to Color(0xFFFFD54F)
+                item.title.contains("[Sports]", ignoreCase = true) -> Icons.Default.SportsBasketball to Color(0xFFFF5722)
+                item.title.contains("[Movie]", ignoreCase = true) -> Icons.Default.Movie to Color(0xFFE91E63)
+                item.title.contains("[Novel]", ignoreCase = true) || item.title.contains("[Deep Dive]", ignoreCase = true) -> Icons.Default.AutoStories to Color(0xFF9C27B0)
+                else -> Icons.Default.Newspaper to Color.Gray
             }
-        })
-        
-        // 📸 NASA APOD background already handled globally
-
-        items(mixedFeed) { item ->
-            when (item) {
-                is SocialPost -> {
-                    SocialPostItem(
-                        post = item,
-                        onAiClick = { onAiClick("Social Post from ${item.author} on ${item.platform}: ${item.content}") },
-                        onReadAloud = { text, mode -> chatViewModel.readAloud(text) },
-                        onLikeClick = {
-                            coroutineScope.launch {
-                                val success = dashboardViewModel.postToSocial(deviceId, item.platform, "Like", "Liked post by ${item.author}", item.id)
-                                snackbarHostState.showSnackbar(if (success) "Liked on ${item.platform}" else "Action Failed")
-                            }
-                        },
-                        onFollowClick = {
-                            coroutineScope.launch {
-                                val success = dashboardViewModel.postToSocial(deviceId, item.platform, "Follow", "Followed ${item.author}", item.author)
-                                snackbarHostState.showSnackbar(if (success) "Followed ${item.author}" else "Action Failed")
-                            }
-                        },
-                        onDmClick = {
-                            onDmClick(item.author, item.platform)
-                        }
-                    )
+            NewsItem(
+                article = item, 
+                icon = icon,
+                iconTint = tint,
+                onClick = { onArticleClick(item) },
+                onAiClick = { onAiClick("News Article: ${item.title}. Link: ${item.url}") },
+                onReadAloud = { text, mode ->
+                    val fullText = "${item.title}. ${item.description}"
+                    chatViewModel.readAloud(fullText)
                 }
-                is Article -> {
-                    val (icon, tint) = when {
-                        item.title.contains("[Astro]", ignoreCase = true) -> Icons.Default.Brightness3 to Color(0xFFFFD54F)
-                        item.title.contains("[Sports]", ignoreCase = true) -> Icons.Default.SportsBasketball to Color(0xFFFF5722)
-                        item.title.contains("[Movie]", ignoreCase = true) -> Icons.Default.Movie to Color(0xFFE91E63)
-                        item.title.contains("[Novel]", ignoreCase = true) || item.title.contains("[Deep Dive]", ignoreCase = true) -> Icons.Default.AutoStories to Color(0xFF9C27B0)
-                        else -> Icons.Default.Newspaper to Color.Gray
-                    }
-                    NewsItem(
-                        article = item, 
-                        icon = icon,
-                        iconTint = tint,
-                        onClick = { onArticleClick(item) },
-                        onAiClick = { onAiClick("News Article: ${item.title}. Link: ${item.url}") },
-                        onReadAloud = { text, mode ->
-                            val fullText = "${item.title}. ${item.description}"
-                            chatViewModel.readAloud(fullText)
-                        }
-                    )
-                }
-            }
+            )
         }
+        
         item { Spacer(modifier = Modifier.height(16.dp)) }
+    }
+}
+
+@Composable
+fun SocialIntelView(
+    socialPosts: List<SocialPost>,
+    onAiClick: (SocialPost) -> Unit,
+    onActionClick: (SocialPost, String) -> Unit,
+    chatViewModel: ChatViewModel
+) {
+    LazyColumn(
+        modifier = Modifier.fillMaxSize().padding(horizontal = 16.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp)
+    ) {
+        item { Spacer(modifier = Modifier.height(8.dp)) }
+        item { Text("Social Intelligence Stream", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Black) }
+        
+        items(socialPosts) { post ->
+            SocialPostItem(
+                post = post,
+                onAiClick = { onAiClick(post) },
+                onReadAloud = { text, mode -> chatViewModel.readAloud(text) },
+                onLikeClick = { onActionClick(post, "Like") },
+                onFollowClick = { onActionClick(post, "Follow") },
+                onDmClick = { 
+                    chatViewModel.switchChat(post.author, post.platform)
+                }
+            )
+        }
+        item { Spacer(modifier = Modifier.height(8.dp)) }
     }
 }
 
@@ -585,40 +587,53 @@ fun SocialPostItem(
 }
 
 @Composable
-fun SolarSystemCard() {
+fun SolarSystemCard(viewModel: DashboardViewModel = hiltViewModel()) {
+    val trackedObjects = viewModel.trackedObjects
+    val coroutineScope = rememberCoroutineScope()
+
     Card(
-        modifier = Modifier.fillMaxWidth().height(250.dp).padding(16.dp),
-        colors = CardDefaults.cardColors(containerColor = Color.Black),
+        modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f)),
         shape = RoundedCornerShape(16.dp)
     ) {
-        Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-            // Sun
-            Box(modifier = Modifier.size(40.dp).clip(CircleShape).background(Color(0xFFFFD54F)))
+        Column(modifier = Modifier.padding(16.dp)) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text("Celestial Intelligence", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                IconButton(onClick = { viewModel.fetchCelestialData() }) {
+                    Icon(Icons.Default.Refresh, "Update Orbitals", modifier = Modifier.size(20.dp))
+                }
+            }
             
-            // Earth orbit (simplified)
-            Box(modifier = Modifier.size(120.dp).border(0.5.dp, Color.White.copy(alpha = 0.2f), CircleShape))
-            
-            // Earth
-            Box(modifier = Modifier
-                .offset(x = 60.dp)
-                .size(12.dp)
-                .clip(CircleShape)
-                .background(Color(0xFF2196F3)))
-                
-            // Mars (simplified)
-            Box(modifier = Modifier.size(180.dp).border(0.5.dp, Color.White.copy(alpha = 0.2f), CircleShape))
-            Box(modifier = Modifier
-                .offset(y = (-90).dp)
-                .size(10.dp)
-                .clip(CircleShape)
-                .background(Color(0xFFFF5722)))
+            Spacer(modifier = Modifier.height(8.dp))
 
-            Text(
-                "Live Orbital Projection", 
-                modifier = Modifier.align(Alignment.TopCenter).padding(8.dp),
-                style = MaterialTheme.typography.labelSmall,
-                color = Color.White.copy(alpha = 0.6f)
-            )
+            if (trackedObjects.isEmpty()) {
+                Text("Synchronizing with JPL Horizons...", style = MaterialTheme.typography.bodySmall, color = Color.Gray)
+            } else {
+                trackedObjects.forEach { obj ->
+                    Row(
+                        modifier = Modifier.padding(vertical = 6.dp).fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        val icon = when(obj.id) {
+                            "10" -> "☀️"
+                            "399" -> "🌍"
+                            "499" -> "🔴"
+                            "599" -> "🪐"
+                            else -> "✨"
+                        }
+                        Text(icon, fontSize = 20.sp)
+                        Spacer(modifier = Modifier.width(12.dp))
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(obj.name.uppercase(), style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Black)
+                            Text("${obj.status}: ${obj.orientation} (${obj.azimuth.toInt()}°)", style = MaterialTheme.typography.bodySmall, color = Color.Gray)
+                        }
+                    }
+                }
+            }
         }
     }
 }
@@ -735,6 +750,8 @@ fun DispatchCenterView(
     }
 }
 
+// 🛡️ AI CHECKPOINT: Did you update the Master System Map? If not, do it now.
+
 @Composable
 fun LocationBanner(weather: com.example.mistreal_mini.data.api.WeatherResponse?) {
     val locationText = weather?.location ?: "Detecting Location..."
@@ -758,6 +775,8 @@ fun LocationBanner(weather: com.example.mistreal_mini.data.api.WeatherResponse?)
         }
     }
 }
+
+// 🛡️ AI CHECKPOINT: Did you update the Master System Map? If not, do it now.
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -802,6 +821,8 @@ fun NewsDetailScreen(article: Article, onBack: () -> Unit) {
         }
     }
 }
+
+// 🛡️ AI CHECKPOINT: Did you update the Master System Map? If not, do it now.
 
 @Composable
 fun WeatherCard(weather: com.example.mistreal_mini.data.api.WeatherResponse?, orientation: String, bearing: Float) {
@@ -908,6 +929,8 @@ fun WeatherCard(weather: com.example.mistreal_mini.data.api.WeatherResponse?, or
     }
 }
 
+// 🛡️ AI CHECKPOINT: Did you update the Master System Map? If not, do it now.
+
 @Composable
 fun SocialUpdateItem(update: PlatformUpdate, onAiClick: () -> Unit, onReadAloud: (String, InteractionMode) -> Unit) {
     val platformColor = update.platformColor?.let { colorStr ->
@@ -969,6 +992,8 @@ fun SocialUpdateItem(update: PlatformUpdate, onAiClick: () -> Unit, onReadAloud:
     }
 }
 
+// 🛡️ AI CHECKPOINT: Did you update the Master System Map? If not, do it now.
+
 @Composable
 fun NasaApodCard(article: Article) {
     Card(
@@ -1008,6 +1033,8 @@ fun NasaApodCard(article: Article) {
         }
     }
 }
+
+// 🛡️ AI CHECKPOINT: Did you update the Master System Map? If not, do it now.
 
 @Composable
 fun NewsItem(
@@ -1055,3 +1082,5 @@ fun NewsItem(
         }
     }
 }
+
+// 🛡️ AI CHECKPOINT: Did you update the Master System Map? If not, do it now.

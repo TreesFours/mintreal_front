@@ -8,6 +8,8 @@ import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.runtime.saveable.listSaver
+import androidx.compose.runtime.toMutableStateList
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
@@ -31,6 +33,7 @@ import com.example.mistreal_mini.ui.records.RecordsScreen
 import com.example.mistreal_mini.util.FaceGuard
 import com.example.mistreal_mini.worker.WeatherWorker
 import com.example.mistreal_mini.worker.NewsWorker
+import com.example.mistreal_mini.worker.HistoryWorker
 import com.example.mistreal_mini.data.worker.CelestialWorker
 import dagger.hilt.android.AndroidEntryPoint
 import kotlinx.coroutines.delay
@@ -87,6 +90,14 @@ class MainActivity : FragmentActivity() {
                 // 🖱️ Double-Back-to-Exit logic (SURVIVES ROTATION)
                 var backPressedTime by rememberSaveable { mutableLongStateOf(0L) }
 
+                // 🧭 Navigation Stack (Survives Rotation)
+                val navStack = rememberSaveable(
+                    saver = listSaver(
+                        save = { it.toList() },
+                        restore = { it.toMutableStateList() }
+                    )
+                ) { mutableStateListOf("chat") }
+
                 Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
                     val authViewModel: AuthViewModel = hiltViewModel()
                     val chatViewModel: ChatViewModel = hiltViewModel()
@@ -95,6 +106,18 @@ class MainActivity : FragmentActivity() {
                     // 🔗 Deep Link Handler (Reactive to intentState)
                     val dashboardViewModel: com.example.mistreal_mini.ui.dashboard.DashboardViewModel = hiltViewModel()
                     val settingsViewModel: com.example.mistreal_mini.ui.settings.SettingsViewModel = hiltViewModel()
+
+                    fun navigateTo(screen: String) {
+                        if (navStack.lastOrNull() != screen) {
+                            navStack.add(screen)
+                        }
+                    }
+
+                    fun navigateBack() {
+                        if (navStack.size > 1) {
+                            navStack.removeAt(navStack.size - 1)
+                        }
+                    }
 
                     LaunchedEffect(intentState) {
                         intentState?.data?.let { uri ->
@@ -120,25 +143,15 @@ class MainActivity : FragmentActivity() {
 
                     // 🛡️ Back Navigation Handler (Survives Rotation & Clears State)
                     BackHandler(enabled = true) {
-                        when {
-                            showSubscription -> showSubscription = false
-                            showArchive -> showArchive = false
-                            showConnections -> showConnections = false
-                            showDashboard -> {
-                                showDashboard = false
-                                backPressedTime = 0L
-                            }
-                            showSettings -> {
-                                showSettings = false
-                                backPressedTime = 0L
-                            }
-                            else -> {
-                                if (backPressedTime + 2000 > System.currentTimeMillis()) {
-                                    finish() 
-                                } else {
-                                    Toast.makeText(this@MainActivity, "Press back again to exit", Toast.LENGTH_SHORT).show()
-                                    backPressedTime = System.currentTimeMillis()
-                                }
+                        if (navStack.size > 1) {
+                            navigateBack()
+                            backPressedTime = 0L
+                        } else {
+                            if (backPressedTime + 2000 > System.currentTimeMillis()) {
+                                finish() 
+                            } else {
+                                Toast.makeText(this@MainActivity, "Press back again to exit", Toast.LENGTH_SHORT).show()
+                                backPressedTime = System.currentTimeMillis()
                             }
                         }
                     }
@@ -166,46 +179,52 @@ class MainActivity : FragmentActivity() {
                                         )
                                     }
                                 } else {
-                                    if (showSubscription) {
-                                        SubscriptionScreen(onDismiss = { showSubscription = false })
-                                    } else if (showArchive) {
-                                        RecordsScreen(
-                                            onBack = { showArchive = false },
-                                            onTrendClick = { title ->
-                                                chatViewModel.loadTrend(title)
-                                                showArchive = false
-                                            },
-                                            chatViewModel = chatViewModel
-                                        )
-                                    } else if (showConnections) {
-                                        com.example.mistreal_mini.ui.settings.SocialConnectionsScreen(
-                                            onBack = { showConnections = false }
-                                        )
-                                    } else if (showDashboard) {
-                                        DashboardScreen(
-                                            onBack = { showDashboard = false },
-                                            onDmClick = { showDashboard = false }
-                                        )
-                                    } else if (showSettings) {
-                                        SettingsScreen(
-                                            onBack = { showSettings = false },
-                                            onUpgradeClick = { 
-                                                showSettings = false
-                                                showSubscription = true 
-                                            },
-                                            onConnectionsClick = {
-                                                showSettings = false
-                                                showConnections = true
-                                            }
-                                        )
-                                    } else {
-                                        ChatScreen(
-                                            viewModel = chatViewModel,
-                                            onSubscribeClick = { showSubscription = true },
-                                            onSettingsClick = { showSettings = true },
-                                            onDashboardClick = { showDashboard = true },
-                                            onArchiveClick = { showArchive = true }
-                                        )
+                                    val currentScreen = navStack.last()
+                                    when (currentScreen) {
+                                        "subscription" -> {
+                                            SubscriptionScreen(onDismiss = { navigateBack() })
+                                        }
+                                        "archive" -> {
+                                            RecordsScreen(
+                                                onBack = { navigateBack() },
+                                                onTrendClick = { title ->
+                                                    chatViewModel.loadTrend(title)
+                                                    navigateBack()
+                                                },
+                                                chatViewModel = chatViewModel
+                                            )
+                                        }
+                                        "connections" -> {
+                                            com.example.mistreal_mini.ui.settings.SocialConnectionsScreen(
+                                                onBack = { navigateBack() }
+                                            )
+                                        }
+                                        "dashboard" -> {
+                                            DashboardScreen(
+                                                onBack = { navigateBack() },
+                                                onDmClick = { navigateBack() }
+                                            )
+                                        }
+                                        "settings" -> {
+                                            SettingsScreen(
+                                                onBack = { navigateBack() },
+                                                onUpgradeClick = { 
+                                                    navigateTo("subscription")
+                                                },
+                                                onConnectionsClick = {
+                                                    navigateTo("connections")
+                                                }
+                                            )
+                                        }
+                                        else -> {
+                                            ChatScreen(
+                                                viewModel = chatViewModel,
+                                                onSubscribeClick = { navigateTo("subscription") },
+                                                onSettingsClick = { navigateTo("settings") },
+                                                onDashboardClick = { navigateTo("dashboard") },
+                                                onArchiveClick = { navigateTo("archive") }
+                                            )
+                                        }
                                     }
                                 }
                             }
@@ -246,6 +265,9 @@ class MainActivity : FragmentActivity() {
             .setConstraints(constraints)
             .build()
         WorkManager.getInstance(this).enqueueUniquePeriodicWork("CelestialTracking", ExistingPeriodicWorkPolicy.KEEP, celestialRequest)
+
+        val historyRequest = PeriodicWorkRequestBuilder<HistoryWorker>(1, TimeUnit.DAYS).build()
+        WorkManager.getInstance(this).enqueueUniquePeriodicWork("TrendHistoryExpiry", ExistingPeriodicWorkPolicy.KEEP, historyRequest)
     }
 
     override fun onConfigurationChanged(newConfig: android.content.res.Configuration) {

@@ -135,8 +135,7 @@ fun AiInsightPopup(
                     onFileClick = { },
                     onVoiceClick = { isRecording = true; recordedFile = voiceRecorder.startRecording() },
                     onScribeClick = { /* Not used in mini-chat */ },
-                    isLoading = isLoading,
-                    onClearClick = null
+                    isLoading = isLoading
                 )
             }
         }
