@@ -44,4 +44,7 @@ interface ChatDao {
 
     @Query("SELECT * FROM chats WHERE userId = :userId AND isTrend = 1 GROUP BY trendTitle ORDER BY timestamp DESC")
     fun getUniqueTrends(userId: String): Flow<List<ChatEntity>>
+
+    @Query("SELECT COUNT(DISTINCT trendTitle) FROM chats WHERE userId = :userId AND isTrend = 1")
+    suspend fun getUniqueTrendCount(userId: String): Int
 }

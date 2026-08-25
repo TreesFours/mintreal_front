@@ -16,6 +16,8 @@ import com.example.mistreal_mini.data.model.ChatMessage
 import com.example.mistreal_mini.data.model.ChatRequest
 import com.example.mistreal_mini.data.repository.AiRepository
 import com.example.mistreal_mini.data.repository.InfoRepository
+import com.example.mistreal_mini.data.local.dao.SocialContactDao
+import com.example.mistreal_mini.data.local.entity.SocialContactEntity
 import com.example.mistreal_mini.domain.usecase.SendMessageUseCase
 import com.example.mistreal_mini.domain.usecase.SyncSocialsUseCase
 import com.example.mistreal_mini.domain.usecase.HandleDistressUseCase
@@ -24,6 +26,7 @@ import com.example.mistreal_mini.util.VoiceManager
 import com.example.mistreal_mini.util.TextSanitizer
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.launch
@@ -35,6 +38,7 @@ class ChatViewModel @Inject constructor(
     private val repository: AiRepository,
     private val infoRepository: InfoRepository,
     private val preferenceManager: PreferenceManager,
+    private val socialContactDao: SocialContactDao,
     private val voiceManager: VoiceManager,
     private val sendMessageUseCase: SendMessageUseCase,
     private val syncSocialsUseCase: SyncSocialsUseCase,
@@ -106,6 +110,10 @@ class ChatViewModel @Inject constructor(
     private val _isSocialChat = mutableStateOf(false)
     val isSocialChat: State<Boolean> = _isSocialChat
 
+    // 🚀 Rolling Window & Emergency Contacts Logic
+    val recentContacts = socialContactDao.getRecentContacts()
+    val emergencyContacts = socialContactDao.getEmergencyContacts()
+
     private val _activeSocialContact = mutableStateOf<com.example.mistreal_mini.data.api.SocialContact?>(null)
     val activeSocialContact: State<com.example.mistreal_mini.data.api.SocialContact?> = _activeSocialContact
 
@@ -117,6 +125,11 @@ class ChatViewModel @Inject constructor(
 
     private val _uniqueTrends = mutableStateListOf<ChatMessage>()
     val uniqueTrends: List<ChatMessage> = _uniqueTrends
+
+    private val _isSceneMode = mutableStateOf(false)
+    val isSceneMode: State<Boolean> = _isSceneMode
+
+    private val _persistentSceneMode = mutableStateOf(false)
 
     private var currentOffset = 0
     private val pageSize = 20
@@ -137,6 +150,12 @@ class ChatViewModel @Inject constructor(
         }
         viewModelScope.launch {
             preferenceManager.isSttEnabled.collect { _isSttEnabled.value = it }
+        }
+        viewModelScope.launch {
+            preferenceManager.isPersistentSceneModeEnabled.collect { 
+                _persistentSceneMode.value = it
+                updateSceneMode()
+            }
         }
         viewModelScope.launch {
             voiceManager.transcripts.collect { transcript ->
@@ -160,8 +179,19 @@ class ChatViewModel @Inject constructor(
         }
     }
 
+    // 🛡️ observeMessages() used to be called fresh on every loadTrend()/exitTrend(),
+    // launching a NEW collector each time without ever cancelling the previous one.
+    // Since ChatViewModel lives for the whole Activity, every trend switch (opening the
+    // map's mini-chat, visiting Records, exiting a trend, etc.) leaked another permanent
+    // collector on the same live Room flow, all racing to clear+re-populate the same
+    // _messages list independently. That race is exactly why messages could silently
+    // fail to appear (or flicker/vanish) in a given mini-chat despite being saved to the
+    // DB correctly. Track the job and cancel it before starting a new one.
+    private var messagesJob: Job? = null
+
     private fun observeMessages() {
-        viewModelScope.launch {
+        messagesJob?.cancel()
+        messagesJob = viewModelScope.launch {
             if (_isSocialChat.value) {
                 // ... social chat logic
                 return@launch
@@ -169,29 +199,37 @@ class ChatViewModel @Inject constructor(
 
             repository.getAllMessages().collect { allMsgs ->
                 val currentTitle = _currentTrendTitle.value
-                
+
                 val filtered = if (currentTitle == null) {
                     allMsgs.filter { !it.isTrend }
                 } else {
                     allMsgs.filter { it.isTrend && it.trendTitle == currentTitle }
                 }
-                
+
                 // CRITICAL: Ensure clear and re-add happens atomically in the UI state
                 _messages.clear()
                 _messages.addAll(filtered)
-                
+
                 Timber.d("📬 Chat Update: ${filtered.size} messages synced (Trend: $currentTitle)")
             }
         }
     }
 
     fun loadTrend(title: String) {
+        // 🛡️ THE bug behind "message sent, saved, never appears": switchChat(partner, "social")
+        // sets _isSocialChat=true and nothing ever reset it back to false on this path.
+        // observeMessages() early-returns without subscribing at all while that flag is
+        // true — so once you'd opened any social DM chat in a session, every AI trend
+        // (including the map's mini-chat) silently stopped receiving message updates
+        // forever, even though messages were saving to the DB correctly the whole time.
+        _isSocialChat.value = false
         _currentTrendTitle.value = title
         _messages.clear()
         observeMessages()
     }
 
     fun exitTrend() {
+        _isSocialChat.value = false
         _currentTrendTitle.value = null
         _messages.clear()
         observeMessages()
@@ -299,6 +337,24 @@ class ChatViewModel @Inject constructor(
             observeMessages()
         } else {
             _isSocialChat.value = true
+            // Update last interaction time to bump it to the top of the 5-slot window
+            viewModelScope.launch {
+                val contact = _socialContacts.value.find { it.name == partner && it.platform == platform }
+                contact?.let {
+                    socialContactDao.upsert(
+                        SocialContactEntity(
+                            contactId = it.id,
+                            platform = it.platform,
+                            name = it.name,
+                            avatarUrl = it.avatar,
+                            lastInteractionTime = System.currentTimeMillis(),
+                            isEmergency = false, // Will be updated if identified as emergency
+                            platformUserId = it.id
+                        )
+                    )
+                }
+            }
+            
             val contact = _socialContacts.value.find { it.name == partner && it.platform == platform }
             _activeSocialContact.value = contact
             _currentChatPartnerStatus.value = if (contact?.unreadCount ?: 0 > 0) "New Message" else "Active"
@@ -400,8 +456,46 @@ class ChatViewModel @Inject constructor(
         viewModelScope.launch {
             val deviceId = android.provider.Settings.Secure.getString(context.contentResolver, android.provider.Settings.Secure.ANDROID_ID)
             when (val result = infoRepository.getContacts(deviceId, platform)) {
-                is Resource.Success -> _socialContacts.value = result.data ?: emptyList()
+                is Resource.Success -> {
+                    val rawContacts = result.data ?: emptyList()
+                    _socialContacts.value = rawContacts
+                    
+                    // Hydrate local cache
+                    val entities = rawContacts.map { c ->
+                        SocialContactEntity(
+                            contactId = c.id,
+                            platform = c.platform,
+                            name = c.name,
+                            avatarUrl = c.avatar,
+                            lastInteractionTime = System.currentTimeMillis(), // Initial sync
+                            isEmergency = false,
+                            platformUserId = c.id
+                        )
+                    }
+                    socialContactDao.upsertAll(entities)
+                }
                 else -> {}
+            }
+        }
+    }
+
+    fun evictFromHotSlot(contactId: String) {
+        viewModelScope.launch {
+            // "Evict" by setting last interaction time to 0, 
+            // causing it to fall out of the Top 5
+            socialContactDao.updateInteractionTime(contactId, 0L)
+        }
+    }
+
+    private fun startAutoEvictionTimer() {
+        viewModelScope.launch {
+            while (true) {
+                kotlinx.coroutines.delay(60000) // Check every minute
+                val thirtyMinsAgo = System.currentTimeMillis() - (30 * 60 * 1000)
+                // Any 'Hot' contact older than 30 mins gets its interaction time reset if not actively chatted
+                // For now, we'll implement this as a cleanup call in the DAO if we add a flag, 
+                // but since it's just sorting, the Top 5 will naturally change.
+                // To strictly 'Clear', we'd need an 'isHot' boolean.
             }
         }
     }
@@ -429,6 +523,17 @@ class ChatViewModel @Inject constructor(
 
     fun setProvider(provider: String) {
         _selectedProvider.value = provider
+        updateSceneMode()
+    }
+
+    private fun updateSceneMode() {
+        val modelId = _selectedProvider.value.lowercase()
+        val modelSupportsVideo = modelId.contains("video") || modelId.contains("kling") || modelId.contains("luma") || modelId.contains("runway")
+        _isSceneMode.value = _persistentSceneMode.value || modelSupportsVideo
+    }
+
+    fun toggleSceneMode(enabled: Boolean) {
+        _isSceneMode.value = enabled
     }
 
     fun clearChat() {
@@ -579,6 +684,7 @@ class ChatViewModel @Inject constructor(
         _messages.add(userMessage)
 
         viewModelScope.launch {
+            preferenceManager.setLastInteractionTime(System.currentTimeMillis())
             val uid = repository.currentUserId
             val entity = com.example.mistreal_mini.data.local.entity.ChatEntity.fromChatMessage(uid, userMessage)
             repository.saveEntity(entity)
@@ -639,7 +745,8 @@ class ChatViewModel @Inject constructor(
                 provider = _selectedProvider.value,
                 deviceId = deviceId,
                 imageUris = imageUris,
-                audioUri = audioUri
+                audioUri = audioUri,
+                isSceneMode = _isSceneMode.value
             )
             
             when (result) {
@@ -725,6 +832,7 @@ class ChatViewModel @Inject constructor(
                 deviceId = deviceId, 
                 userName = name, 
                 aiPersona = persona, 
+                aiAudience = null,
                 autoReplyDelay = delayMinutes,
                 guardianEnabled = guardianEnabled,
                 emergencyContacts = contacts

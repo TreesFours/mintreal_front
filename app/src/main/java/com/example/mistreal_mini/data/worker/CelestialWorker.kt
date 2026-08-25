@@ -20,8 +20,9 @@ class CelestialWorker @AssistedInject constructor(
         return try {
             Timber.d("🚀 CelestialWorker: Synchronizing orbital assets...")
             
-            // Sync Planets from NASA JPL
-            val bodies = listOf("199", "299", "399", "499", "599", "699")
+            // Sync Planets from NASA JPL — kept in sync with the full list DashboardViewModel
+            // actually uses (fetchCelestialData), which previously drifted from this one.
+            val bodies = listOf("10", "199", "299", "399", "499", "599", "699", "799", "899", "301", "999")
             bodies.forEach { id ->
                 infoRepository.getCelestialVectors(id)
             }

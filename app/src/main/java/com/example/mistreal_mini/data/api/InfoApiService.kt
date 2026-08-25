@@ -35,6 +35,9 @@ interface InfoApiService {
     @POST("api/social/action")
     suspend fun performSocialAction(@Body request: SocialActionRequest): SocialActionResponse
 
+    @POST("api/social/init-connection")
+    suspend fun initiateConnection(@Body request: Map<String, String>): Map<String, String>
+
     @POST("api/user/settings")
     suspend fun updateUserSettings(@Body request: UserSettingsRequest): SocialActionResponse
 
@@ -83,7 +86,8 @@ interface InfoApiService {
 }
 
 data class DiscoveryNearbyResponse(
-    val results: List<com.example.mistreal_mini.data.model.DiscoveryResult>
+    val results: List<com.example.mistreal_mini.data.model.DiscoveryResult>,
+    val succeeded: Boolean = true
 )
 
 data class CelestialVectorResponse(
@@ -157,6 +161,7 @@ data class UserSettingsRequest(
     val deviceId: String,
     val userName: String?,
     val aiPersona: String?,
+    val aiAudience: String?,
     val autoReplyDelay: Int?,
     val guardianEnabled: Boolean? = null,
     val emergencyContacts: List<EmergencyContact>? = null

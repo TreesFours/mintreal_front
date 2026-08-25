@@ -24,6 +24,9 @@ interface AiApiService {
 
     @GET("api/models")
     suspend fun getAvailableModels(@Query("deviceId") deviceId: String?): List<AiModelResponse>
+
+    @GET("api/health")
+    suspend fun warmupBackend(): retrofit2.Response<Void>
 }
 
 

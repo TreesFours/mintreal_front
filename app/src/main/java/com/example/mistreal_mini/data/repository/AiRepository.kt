@@ -148,4 +148,13 @@ class AiRepository @Inject constructor(
             Resource.Error(e.message ?: "Failed to fetch models")
         }
     }
+
+    suspend fun warmupBackend(): Boolean {
+        return try {
+            val response = api.warmupBackend()
+            response.isSuccessful || response.code() == 404 // 404 or success means server is awake/responding
+        } catch (e: Exception) {
+            false
+        }
+    }
 }

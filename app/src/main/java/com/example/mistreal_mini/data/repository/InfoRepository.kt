@@ -88,6 +88,7 @@ class InfoRepository @Inject constructor(
         deviceId: String,
         userName: String?,
         aiPersona: String?,
+        aiAudience: String?,
         autoReplyDelay: Int?,
         guardianEnabled: Boolean? = null,
         emergencyContacts: List<com.example.mistreal_mini.data.api.EmergencyContact>? = null
@@ -95,7 +96,7 @@ class InfoRepository @Inject constructor(
         return try {
             val response = api.updateUserSettings(
                 com.example.mistreal_mini.data.api.UserSettingsRequest(
-                    deviceId, userName, aiPersona, autoReplyDelay, guardianEnabled, emergencyContacts
+                    deviceId, userName, aiPersona, aiAudience, autoReplyDelay, guardianEnabled, emergencyContacts
                 )
             )
             if (response.success) Resource.Success(true)
@@ -125,6 +126,16 @@ class InfoRepository @Inject constructor(
             else Resource.Error(response.error ?: "Action failed")
         } catch (e: Exception) {
             Resource.Error(e.message ?: "Action error")
+        }
+    }
+
+    suspend fun initiateConnection(deviceId: String, platform: String): Resource<String> {
+        return try {
+            val response = api.initiateConnection(mapOf("deviceId" to deviceId, "platform" to platform))
+            if (response["success"] == "true") Resource.Success(response["connectUrl"] ?: "")
+            else Resource.Error(response["error"] ?: "Connection initiation failed")
+        } catch (e: Exception) {
+            Resource.Error(e.message ?: "Network error")
         }
     }
 
@@ -197,7 +208,12 @@ class InfoRepository @Inject constructor(
 
     suspend fun getNearbyPlaces(lat: Double, lon: Double, radius: Double, category: String): Resource<List<com.example.mistreal_mini.data.model.DiscoveryResult>> {
         return try {
-            Resource.Success(api.getNearbyPlaces(lat, lon, radius, category).results)
+            val response = api.getNearbyPlaces(lat, lon, radius, category)
+            // 🛰️ succeeded=false means every Overpass mirror failed/timed out — that's a
+            // service outage, not "genuinely nothing nearby." Surface it as an error so the
+            // UI doesn't claim "not found" for what's actually a lookup failure.
+            if (response.succeeded) Resource.Success(response.results)
+            else Resource.Error("Discovery service unavailable — try again")
         } catch (e: Exception) {
             Resource.Error(e.message ?: "Discovery lookup failed")
         }

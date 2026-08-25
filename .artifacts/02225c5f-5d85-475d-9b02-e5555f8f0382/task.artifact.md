@@ -1,0 +1,5 @@
+- `[x]` Update PreferenceManager for supportive truth-teller toggle and conversation counter
+- `[x]` Update AiRepository with warmup ping and persona/gisting prompt injection
+- `[x]` Update SplashScreen with realistic warmup & real database count status sequence before passcode
+- `[/]` Update SettingsScreen with the Supportive Truth-Teller & Therapist toggle
+- `[ ]` Verify build and functionality

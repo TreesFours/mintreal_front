@@ -23,6 +23,7 @@ class PreferenceManager @Inject constructor(
     private val AUTO_APPROVE_ACTIONS_KEY = booleanPreferencesKey("auto_approve_actions")
     private val USER_NAME_KEY = androidx.datastore.preferences.core.stringPreferencesKey("user_name")
     private val AI_PERSONA_KEY = androidx.datastore.preferences.core.stringPreferencesKey("ai_persona")
+    private val AI_AUDIENCE_KEY = androidx.datastore.preferences.core.stringPreferencesKey("ai_audience")
     private val AUTO_REPLY_DELAY_KEY = androidx.datastore.preferences.core.intPreferencesKey("auto_reply_delay")
     private val IS_PRO_KEY = booleanPreferencesKey("is_pro")
     private val GUARDIAN_ENABLED_KEY = booleanPreferencesKey("guardian_enabled")
@@ -32,6 +33,13 @@ class PreferenceManager @Inject constructor(
     private val STT_ENABLED_KEY = booleanPreferencesKey("stt_enabled")
     private val TTS_VOICE_NAME_KEY = androidx.datastore.preferences.core.stringPreferencesKey("tts_voice_name")
     private val CUSTOM_PERSONAS_KEY = androidx.datastore.preferences.core.stringPreferencesKey("custom_personas")
+    private val SUPPORTIVE_TRUTH_TELLER_KEY = booleanPreferencesKey("supportive_truth_teller_enabled")
+    private val WELLNESS_SHIELD_KEY = booleanPreferencesKey("wellness_shield_enabled")
+    private val PROACTIVE_NUDGE_KEY = booleanPreferencesKey("proactive_nudge_enabled")
+    private val INTELLIGENCE_SPARK_KEY = booleanPreferencesKey("intelligence_spark_enabled")
+    private val PERSISTENT_SCENE_MODE_KEY = booleanPreferencesKey("persistent_scene_mode_enabled")
+    private val CONVERSATION_COUNTER_KEY = androidx.datastore.preferences.core.intPreferencesKey("conversation_counter")
+    private val LAST_INTERACTION_TIME_KEY = androidx.datastore.preferences.core.longPreferencesKey("last_interaction_time")
 
     val isOnboarded: Flow<Boolean> = context.dataStore.data
         .map { preferences ->
@@ -51,6 +59,11 @@ class PreferenceManager @Inject constructor(
     val aiPersona: Flow<String> = context.dataStore.data
         .map { preferences ->
             preferences[AI_PERSONA_KEY] ?: "Shadow"
+        }
+
+    val aiAudience: Flow<String> = context.dataStore.data
+        .map { preferences ->
+            preferences[AI_AUDIENCE_KEY] ?: "None"
         }
 
     val autoReplyDelay: Flow<Int> = context.dataStore.data
@@ -103,6 +116,41 @@ class PreferenceManager @Inject constructor(
             preferences[CUSTOM_PERSONAS_KEY] ?: "[]"
         }
 
+    val isSupportiveTruthTellerEnabled: Flow<Boolean> = context.dataStore.data
+        .map { preferences ->
+            preferences[SUPPORTIVE_TRUTH_TELLER_KEY] ?: false
+        }
+
+    val isWellnessShieldEnabled: Flow<Boolean> = context.dataStore.data
+        .map { preferences ->
+            preferences[WELLNESS_SHIELD_KEY] ?: false
+        }
+
+    val isProactiveNudgeEnabled: Flow<Boolean> = context.dataStore.data
+        .map { preferences ->
+            preferences[PROACTIVE_NUDGE_KEY] ?: false
+        }
+
+    val isIntelligenceSparkEnabled: Flow<Boolean> = context.dataStore.data
+        .map { preferences ->
+            preferences[INTELLIGENCE_SPARK_KEY] ?: false
+        }
+
+    val isPersistentSceneModeEnabled: Flow<Boolean> = context.dataStore.data
+        .map { preferences ->
+            preferences[PERSISTENT_SCENE_MODE_KEY] ?: false
+        }
+
+    val conversationCounter: Flow<Int> = context.dataStore.data
+        .map { preferences ->
+            preferences[CONVERSATION_COUNTER_KEY] ?: 0
+        }
+
+    val lastInteractionTime: Flow<Long> = context.dataStore.data
+        .map { preferences ->
+            preferences[LAST_INTERACTION_TIME_KEY] ?: System.currentTimeMillis()
+        }
+
     suspend fun setOnboarded(onboarded: Boolean) {
         context.dataStore.edit { preferences ->
             preferences[ONBOARDED_KEY] = onboarded
@@ -130,6 +178,12 @@ class PreferenceManager @Inject constructor(
     suspend fun setAiPersona(persona: String) {
         context.dataStore.edit { preferences ->
             preferences[AI_PERSONA_KEY] = persona
+        }
+    }
+
+    suspend fun setAiAudience(audience: String) {
+        context.dataStore.edit { preferences ->
+            preferences[AI_AUDIENCE_KEY] = audience
         }
     }
 
@@ -184,6 +238,48 @@ class PreferenceManager @Inject constructor(
     suspend fun setCustomPersonas(json: String) {
         context.dataStore.edit { preferences ->
             preferences[CUSTOM_PERSONAS_KEY] = json
+        }
+    }
+
+    suspend fun setSupportiveTruthTellerEnabled(enabled: Boolean) {
+        context.dataStore.edit { preferences ->
+            preferences[SUPPORTIVE_TRUTH_TELLER_KEY] = enabled
+        }
+    }
+
+    suspend fun setWellnessShieldEnabled(enabled: Boolean) {
+        context.dataStore.edit { preferences ->
+            preferences[WELLNESS_SHIELD_KEY] = enabled
+        }
+    }
+
+    suspend fun setProactiveNudgeEnabled(enabled: Boolean) {
+        context.dataStore.edit { preferences ->
+            preferences[PROACTIVE_NUDGE_KEY] = enabled
+        }
+    }
+
+    suspend fun setIntelligenceSparkEnabled(enabled: Boolean) {
+        context.dataStore.edit { preferences ->
+            preferences[INTELLIGENCE_SPARK_KEY] = enabled
+        }
+    }
+
+    suspend fun setPersistentSceneModeEnabled(enabled: Boolean) {
+        context.dataStore.edit { preferences ->
+            preferences[PERSISTENT_SCENE_MODE_KEY] = enabled
+        }
+    }
+
+    suspend fun setConversationCounter(count: Int) {
+        context.dataStore.edit { preferences ->
+            preferences[CONVERSATION_COUNTER_KEY] = count
+        }
+    }
+
+    suspend fun setLastInteractionTime(time: Long) {
+        context.dataStore.edit { preferences ->
+            preferences[LAST_INTERACTION_TIME_KEY] = time
         }
     }
 }

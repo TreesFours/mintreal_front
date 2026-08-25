@@ -53,4 +53,9 @@ object AppModule {
     fun provideSavedIntelDao(db: MistrealDatabase): com.example.mistreal_mini.data.local.dao.SavedIntelDao {
         return db.savedIntelDao()
     }
+
+    @Provides
+    fun provideSocialContactDao(db: MistrealDatabase): com.example.mistreal_mini.data.local.dao.SocialContactDao {
+        return db.socialContactDao()
+    }
 }

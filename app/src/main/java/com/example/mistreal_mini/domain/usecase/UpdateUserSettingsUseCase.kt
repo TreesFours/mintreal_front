@@ -14,6 +14,7 @@ class UpdateUserSettingsUseCase @Inject constructor(
         deviceId: String,
         name: String,
         persona: String,
+        audience: String,
         delayMinutes: Int,
         guardianEnabled: Boolean? = null,
         contacts: List<EmergencyContact>? = null
@@ -22,6 +23,7 @@ class UpdateUserSettingsUseCase @Inject constructor(
             deviceId = deviceId,
             userName = name,
             aiPersona = persona,
+            aiAudience = audience,
             autoReplyDelay = delayMinutes,
             guardianEnabled = guardianEnabled,
             emergencyContacts = contacts
@@ -30,6 +32,7 @@ class UpdateUserSettingsUseCase @Inject constructor(
         if (result is Resource.Success) {
             preferenceManager.setUserName(name)
             preferenceManager.setAiPersona(persona)
+            preferenceManager.setAiAudience(audience)
             preferenceManager.setAutoReplyDelay(delayMinutes)
             guardianEnabled?.let { preferenceManager.setGuardianEnabled(it) }
         }

@@ -24,6 +24,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
@@ -60,6 +61,7 @@ import com.example.mistreal_mini.util.NoteExporter
 import com.example.mistreal_mini.ui.util.AiInsightPopup
 import com.example.mistreal_mini.ui.util.NukeIcon
 import com.example.mistreal_mini.ui.util.LinkableText
+import com.example.mistreal_mini.ui.util.VideoPlayer
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
 import java.io.File
@@ -238,43 +240,45 @@ fun ChatScreen(
             } else {
                 ChatInputBar(
                     text = textState,
-                    onTextChange = { textState = it },
-                    onSend = { 
-                        viewModel.sendMessage(textState)
-                        textState = "" 
-                        focusManager.clearFocus()
-                    },
-                    onScreenshotClick = { 
-                        (context as? Activity)?.let { activity ->
-                            coroutineScope.launch {
-                                screenshotUri = com.example.mistreal_mini.util.ScreenshotHelper.captureAndSave(activity)
-                            }
-                        }
-                    },
-                    onCameraClick = { captureImage() },
-                    onFileClick = { filePickerLauncher.launch("*/*") },
-                    onVoiceClick = { 
-                        if (viewModel.isSttEnabled.value) {
-                            isRecording = true
-                            recordedFile = voiceRecorder.startRecording()
-                        } else {
-                            coroutineScope.launch { snackbarHostState.showSnackbar("Voice input disabled in settings") }
-                        }
-                    },
-                    onScribeClick = {
-                        val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
-                            putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
-                        }
-                        scribeLauncher.launch(intent)
-                    },
-                    onDraftClick = if (viewModel.isSocialChat.value) { 
-                        { viewModel.draftSocialReply(textState); textState = "" } 
-                    } else null,
-                    isLoading = isLoading,
-                    pendingAttachments = viewModel.pendingAttachments,
-                    onRemoveAttachment = { viewModel.removePendingAttachment(it) }
-                )
-            }
+                            onTextChange = { textState = it },
+                            onSend = { 
+                                viewModel.sendMessage(textState)
+                                textState = "" 
+                                focusManager.clearFocus()
+                            },
+                            onScreenshotClick = { 
+                                (context as? Activity)?.let { activity ->
+                                    coroutineScope.launch {
+                                        screenshotUri = com.example.mistreal_mini.util.ScreenshotHelper.captureAndSave(activity)
+                                    }
+                                }
+                            },
+                            onCameraClick = { captureImage() },
+                            onFileClick = { filePickerLauncher.launch("*/*") },
+                            onVoiceClick = { 
+                                if (viewModel.isSttEnabled.value) {
+                                    isRecording = true
+                                    recordedFile = voiceRecorder.startRecording()
+                                } else {
+                                    coroutineScope.launch { snackbarHostState.showSnackbar("Voice input disabled in settings") }
+                                }
+                            },
+                            onScribeClick = {
+                                val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
+                                    putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
+                                }
+                                scribeLauncher.launch(intent)
+                            },
+                            onDraftClick = if (viewModel.isSocialChat.value) { 
+                                { viewModel.draftSocialReply(textState); textState = "" } 
+                            } else null,
+                            isLoading = isLoading,
+                            pendingAttachments = viewModel.pendingAttachments,
+                            onRemoveAttachment = { viewModel.removePendingAttachment(it) },
+                            isSceneMode = viewModel.isSceneMode.value,
+                            onToggleSceneMode = { viewModel.toggleSceneMode(it) }
+                        )
+                    }
         }
     ) { padding ->
         Box(modifier = Modifier
@@ -465,66 +469,77 @@ fun ChatScreen(
                 var searchPlatformQuery by remember { mutableStateOf("") }
                 val contacts by viewModel.socialContacts
                 val unreadItems by viewModel.unreadMessages
+                
+                val recentContacts by viewModel.recentContacts.collectAsState(initial = emptyList())
+                val emergencyContacts by viewModel.emergencyContacts.collectAsState(initial = emptyList())
+                var rollingOffset by remember { mutableIntStateOf(0) }
+                val visibleSocials = recentContacts.drop(rollingOffset).take(5)
 
                 ModalNavigationDrawer(
                     drawerContent = {
                         ModalDrawerSheet {
                             Row(modifier = Modifier.fillMaxSize()) {
-                                // 📱 Platform Sidebar
                                 Column(
                                     modifier = Modifier
                                         .fillMaxHeight()
                                         .width(75.dp)
-                                        .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f))
-                                        .verticalScroll(rememberScrollState()),
-                                    horizontalAlignment = Alignment.CenterHorizontally,
-                                    verticalArrangement = Arrangement.spacedBy(16.dp, Alignment.Top)
+                                        .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f)),
+                                    horizontalAlignment = Alignment.CenterHorizontally
                                 ) {
                                     Spacer(modifier = Modifier.height(16.dp))
+                                    CategoryIcon(Icons.Default.Shield, "SOS", selectedCategory == "emergency") { 
+                                        selectedCategory = "emergency"
+                                    }
+                                    Divider(modifier = Modifier.padding(horizontal = 8.dp, vertical = 8.dp))
                                     CategoryIcon(Icons.Default.Psychology, "AI", selectedCategory == "ai") { 
                                         selectedCategory = "ai"
                                     }
-                                    viewModel.availablePlatforms.forEach { platform ->
-                                        if (platform.isConnected) {
-                                            CategoryIcon(
-                                                icon = platform.icon,
-                                                label = platform.name.take(4),
-                                                isSelected = selectedCategory == platform.id
-                                            ) {
-                                                selectedCategory = platform.id
-                                                searchPlatformQuery = ""
-                                                viewModel.fetchContacts(platform.id)
-                                            }
+                                    Spacer(modifier = Modifier.height(8.dp))
+                                    if (rollingOffset > 0) {
+                                        IconButton(onClick = { rollingOffset-- }) { Icon(Icons.Default.KeyboardArrowUp, null) }
+                                    }
+                                    visibleSocials.forEach { contact ->
+                                        CategoryIcon(
+                                            icon = when(contact.platform.lowercase()) {
+                                                "whatsapp" -> Icons.Default.Chat
+                                                "instagram" -> Icons.Default.CameraAlt
+                                                else -> Icons.Default.Link
+                                            },
+                                            label = contact.name.take(4),
+                                            isSelected = selectedCategory == contact.platform
+                                        ) {
+                                            selectedCategory = contact.platform
+                                            viewModel.fetchContacts(contact.platform)
                                         }
                                     }
+                                    if (recentContacts.size > rollingOffset + 5) {
+                                        IconButton(onClick = { rollingOffset++ }) { Icon(Icons.Default.KeyboardArrowDown, null) }
+                                    }
+                                    Spacer(modifier = Modifier.weight(1f))
                                     CategoryIcon(Icons.Default.AllInbox, "Inbox", selectedCategory == "unread") { 
                                         selectedCategory = "unread"
                                         viewModel.fetchUnread()
                                     }
                                 }
 
-                                // 🔍 Contextual Search & Results
-                                Column(modifier = Modifier.weight(1f).padding(16.dp)) {
+                                Column(modifier = Modifier.fillMaxSize().padding(16.dp)) {
                                     Text(
-                                        text = selectedCategory.replace("_", " ").uppercase(),
-                                        style = MaterialTheme.typography.labelLarge,
+                                        text = selectedCategory.uppercase(),
+                                        style = MaterialTheme.typography.titleMedium,
                                         fontWeight = FontWeight.Bold,
                                         color = MaterialTheme.colorScheme.primary
                                     )
                                     
-                                    if (selectedCategory != "ai" && selectedCategory != "unread") {
+                                    if (selectedCategory != "ai" && selectedCategory != "unread" && selectedCategory != "emergency") {
                                         OutlinedTextField(
                                             value = searchPlatformQuery,
                                             onValueChange = { 
                                                 searchPlatformQuery = it
-                                                if (it.length >= 3) {
-                                                    viewModel.searchContacts(selectedCategory, it)
-                                                }
+                                                if (it.length >= 3) viewModel.searchContacts(selectedCategory, it)
                                             },
                                             modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
-                                            placeholder = { Text("Search on ${selectedCategory}...", fontSize = 12.sp) },
+                                            placeholder = { Text("Search...", fontSize = 12.sp) },
                                             leadingIcon = { Icon(Icons.Default.Search, null, modifier = Modifier.size(16.dp)) },
-                                            singleLine = true,
                                             shape = RoundedCornerShape(8.dp)
                                         )
                                     }
@@ -539,23 +554,21 @@ fun ChatScreen(
                                                     showContactList = false 
                                                 }
                                             }
+                                        } else if (selectedCategory == "emergency") {
+                                            items(emergencyContacts) { contact ->
+                                                ListItem(
+                                                    headlineContent = { Text(contact.name) },
+                                                    leadingContent = { Icon(Icons.Default.ContactPhone, null, tint = Color.Red) },
+                                                    modifier = Modifier.clickable { 
+                                                        viewModel.switchChat(contact.name, contact.platform)
+                                                        showContactList = false 
+                                                    }
+                                                )
+                                            }
                                         } else if (selectedCategory == "ai") {
                                             items(viewModel.availableProviders) { model ->
                                                 NavigationDrawerItem(
-                                                    label = { 
-                                                        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
-                                                            Text(model.name, modifier = Modifier.weight(1f))
-                                                            if (model.price != "Free") {
-                                                                Badge(
-                                                                    containerColor = MaterialTheme.colorScheme.primary,
-                                                                    contentColor = MaterialTheme.colorScheme.onPrimary,
-                                                                    modifier = Modifier.size(20.dp)
-                                                                ) { 
-                                                                    Text("PRO", fontSize = 8.sp, fontWeight = FontWeight.Bold)
-                                                                }
-                                                            }
-                                                        }
-                                                    },
+                                                    label = { Text(model.name) },
                                                     selected = viewModel.selectedProvider.value == model.id,
                                                     onClick = { 
                                                         viewModel.setProvider(model.id)
@@ -725,6 +738,20 @@ fun ChatBubble(
         ) {
             SelectionContainer {
                 Column(modifier = Modifier.padding(12.dp)) {
+                    // 🎞️ Video Attachment Rendering
+                    if (message.type == "video" || message.attachmentUrl?.endsWith(".mp4") == true) {
+                        message.attachmentUrl?.let { url ->
+                            VideoPlayer(
+                                videoUrl = url,
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height(200.dp)
+                                    .clip(RoundedCornerShape(12.dp))
+                            )
+                            Spacer(modifier = Modifier.height(8.dp))
+                        }
+                    }
+
                     if (message.type == "image") {
                         val attachments = mutableListOf<String>()
                         message.attachmentPaths?.let { attachments.addAll(it) }
@@ -921,7 +948,9 @@ fun ChatInputBar(
     isLoading: Boolean,
     onDraftClick: (() -> Unit)? = null,
     pendingAttachments: List<Uri> = emptyList(),
-    onRemoveAttachment: (Uri) -> Unit = {}
+    onRemoveAttachment: (Uri) -> Unit = {},
+    isSceneMode: Boolean = false,
+    onToggleSceneMode: (Boolean) -> Unit = {}
 ) {
     val focusManager = LocalFocusManager.current
     val context = LocalContext.current
@@ -939,36 +968,55 @@ fun ChatInputBar(
                     modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp),
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    items(pendingAttachments) { uri ->
-                        Box(modifier = Modifier.size(60.dp)) {
-                            val isImage = context.contentResolver.getType(uri)?.startsWith("image") == true
-                            if (isImage) {
-                                AsyncImage(
-                                    model = uri,
-                                    contentDescription = null,
-                                    modifier = Modifier.fillMaxSize().clip(RoundedCornerShape(8.dp)),
-                                    contentScale = ContentScale.Crop
-                                )
-                            } else {
-                                Box(
-                                    modifier = Modifier
-                                        .fillMaxSize()
-                                        .clip(RoundedCornerShape(8.dp))
-                                        .background(MaterialTheme.colorScheme.secondaryContainer),
-                                    contentAlignment = Alignment.Center
+                    itemsIndexed(pendingAttachments) { index, uri ->
+                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                            Box(modifier = Modifier.size(60.dp)) {
+                                val isImage = context.contentResolver.getType(uri)?.startsWith("image") == true
+                                if (isImage) {
+                                    AsyncImage(
+                                        model = uri,
+                                        contentDescription = null,
+                                        modifier = Modifier.fillMaxSize().clip(RoundedCornerShape(8.dp)),
+                                        contentScale = ContentScale.Crop
+                                    )
+                                } else {
+                                    Box(
+                                        modifier = Modifier
+                                            .fillMaxSize()
+                                            .clip(RoundedCornerShape(8.dp))
+                                            .background(MaterialTheme.colorScheme.secondaryContainer),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Icon(Icons.Default.InsertDriveFile, null, tint = MaterialTheme.colorScheme.onSecondaryContainer)
+                                    }
+                                }
+                                IconButton(
+                                    onClick = { onRemoveAttachment(uri) },
+                                    modifier = Modifier.size(20.dp).align(Alignment.TopEnd).background(Color.Black.copy(alpha = 0.6f), CircleShape)
                                 ) {
-                                    Icon(Icons.Default.InsertDriveFile, null, tint = MaterialTheme.colorScheme.onSecondaryContainer)
+                                    Icon(Icons.Default.Close, null, tint = Color.White, modifier = Modifier.size(12.dp))
                                 }
                             }
-                            IconButton(
-                                onClick = { onRemoveAttachment(uri) },
-                                modifier = Modifier.size(20.dp).align(Alignment.TopEnd).background(Color.Black.copy(alpha = 0.6f), CircleShape)
-                            ) {
-                                Icon(Icons.Default.Close, null, tint = Color.White, modifier = Modifier.size(12.dp))
+                            if (isSceneMode) {
+                                val label = when(index) {
+                                    0 -> "START"
+                                    1 -> "END"
+                                    else -> "EXTRA"
+                                }
+                                Text(label, style = MaterialTheme.typography.labelSmall, fontSize = 8.sp, color = MaterialTheme.colorScheme.primary)
                             }
                         }
                     }
                 }
+            }
+
+            if (isSceneMode && pendingAttachments.size == 1) {
+                Text(
+                    "💡 Tip: Most video models prefer a Start and End frame.",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.tertiary,
+                    modifier = Modifier.padding(bottom = 8.dp)
+                )
             }
 
             Row(
@@ -990,6 +1038,15 @@ fun ChatInputBar(
                 }
 
                 Spacer(modifier = Modifier.weight(1f))
+
+                // Scene Mode Toggle in Bar
+                IconButton(onClick = { onToggleSceneMode(!isSceneMode) }) {
+                    Icon(
+                        Icons.Default.Movie, 
+                        "Scene Mode", 
+                        tint = if (isSceneMode) MaterialTheme.colorScheme.primary else Color.Gray
+                    )
+                }
             }
             
             Row(

@@ -11,6 +11,8 @@ import com.example.mistreal_mini.data.repository.InfoRepository
 import com.example.mistreal_mini.domain.usecase.UpdateUserSettingsUseCase
 import com.example.mistreal_mini.data.Resource
 import com.example.mistreal_mini.data.api.SocialPlatformResponse
+import com.example.mistreal_mini.data.local.dao.SocialContactDao
+import com.example.mistreal_mini.data.local.entity.SocialContactEntity
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -28,6 +30,7 @@ import com.google.gson.reflect.TypeToken
 class SettingsViewModel @Inject constructor(
     private val preferenceManager: PreferenceManager,
     private val infoRepository: InfoRepository,
+    private val socialContactDao: SocialContactDao,
     private val updateUserSettingsUseCase: UpdateUserSettingsUseCase,
     @dagger.hilt.android.qualifiers.ApplicationContext private val context: android.content.Context
 ) : ViewModel() {
@@ -53,6 +56,15 @@ class SettingsViewModel @Inject constructor(
     private val _isSaving = MutableStateFlow(false)
     val isSaving = _isSaving.asStateFlow()
 
+    private val _isSyncing = MutableStateFlow(false)
+    val isSyncing = _isSyncing.asStateFlow()
+
+    private val _syncProgress = MutableStateFlow(0f)
+    val syncProgress = _syncProgress.asStateFlow()
+
+    private val _syncMessage = MutableStateFlow("")
+    val syncMessage = _syncMessage.asStateFlow()
+
     val isPro = preferenceManager.isPro
 
     private val _guardianEnabled = mutableStateOf(false)
@@ -61,9 +73,14 @@ class SettingsViewModel @Inject constructor(
     private val _emergencyContacts = mutableStateListOf<EmergencyContact>()
     val emergencyContacts: List<EmergencyContact> = _emergencyContacts
 
+    val recentSocialContacts = socialContactDao.getRecentContacts()
+
     init {
         viewModelScope.launch {
             preferenceManager.guardianEnabled.collect { _guardianEnabled.value = it }
+        }
+        viewModelScope.launch {
+            preferenceManager.isSupportiveTruthTellerEnabled.collect { _isSupportiveTruthTellerEnabled.value = it }
         }
     }
 
@@ -74,7 +91,7 @@ class SettingsViewModel @Inject constructor(
         }
     }
 
-    fun saveSettings(name: String, persona: String, delayMinutes: Int, guardianEnabled: Boolean? = null, contacts: List<com.example.mistreal_mini.data.api.EmergencyContact>? = null) {
+    fun saveSettings(name: String, persona: String, audience: String, delayMinutes: Int, guardianEnabled: Boolean? = null, contacts: List<com.example.mistreal_mini.data.api.EmergencyContact>? = null) {
         viewModelScope.launch {
             _isSaving.value = true
             val deviceId = android.provider.Settings.Secure.getString(context.contentResolver, android.provider.Settings.Secure.ANDROID_ID)
@@ -82,7 +99,8 @@ class SettingsViewModel @Inject constructor(
             val result = updateUserSettingsUseCase(
                 deviceId = deviceId, 
                 name = name, 
-                persona = persona, 
+                persona = persona,
+                audience = audience,
                 delayMinutes = delayMinutes,
                 guardianEnabled = guardianEnabled,
                 contacts = contacts
@@ -115,12 +133,17 @@ class SettingsViewModel @Inject constructor(
         }
     }
 
-    fun connectSocial(platform: String) {
+    fun initiateSocialConnection(platform: String) {
         viewModelScope.launch {
             val deviceId = android.provider.Settings.Secure.getString(context.contentResolver, android.provider.Settings.Secure.ANDROID_ID)
-            // Enhanced with Deep Link Redirect to bypass intermediate dashboard
-            val redirectUri = "mistreal://social-connected"
-            _socialConnectUrl.emit("https://mistreal-backend.onrender.com/api/social/connect/$platform?deviceId=$deviceId&redirect_uri=$redirectUri")
+            
+            // 1. Backend init
+            val response = infoRepository.initiateConnection(deviceId, platform)
+            if (response is Resource.Success<String> && response.data != null) {
+                _socialConnectUrl.emit(response.data)
+            } else {
+                _errorEvent.emit("Connection init failed: ${response.message}")
+            }
         }
     }
 
@@ -143,6 +166,45 @@ class SettingsViewModel @Inject constructor(
     fun onSocialConnectionResult(platform: String, success: Boolean) {
         viewModelScope.launch {
             if (success) {
+                _isSyncing.value = true
+                _syncMessage.value = "Fetching Profile..."
+                _syncProgress.value = 0.2f
+                
+                try {
+                    // 1. Fetch Contacts
+                    _syncMessage.value = "Syncing Contacts..."
+                    _syncProgress.value = 0.5f
+                    val deviceId = android.provider.Settings.Secure.getString(context.contentResolver, android.provider.Settings.Secure.ANDROID_ID)
+                    
+                    val contactsResponse = infoRepository.getContacts(deviceId, platform)
+                    if (contactsResponse is Resource.Success) {
+                        val entities = contactsResponse.data?.map { contact ->
+                            SocialContactEntity(
+                                contactId = contact.id,
+                                platform = contact.platform,
+                                name = contact.name,
+                                avatarUrl = contact.avatar,
+                                lastInteractionTime = System.currentTimeMillis(),
+                                isEmergency = false,
+                                platformUserId = contact.id
+                            )
+                        } ?: emptyList()
+                        socialContactDao.upsertAll(entities)
+                    }
+                    
+                    // 2. Sync Socials (Feeds/Posts)
+                    _syncMessage.value = "Syncing Threads..."
+                    _syncProgress.value = 0.8f
+                    infoRepository.syncSocials(deviceId)
+
+                    _syncMessage.value = "Finalizing..."
+                    _syncProgress.value = 1.0f
+                } catch (e: Exception) {
+                    _errorEvent.emit("Sync failed: ${e.message}")
+                } finally {
+                    _isSyncing.value = false
+                }
+                
                 fetchPlatforms()
                 _socialConnectionSuccess.emit(platform)
             }
@@ -151,6 +213,7 @@ class SettingsViewModel @Inject constructor(
 
     suspend fun getUserName() = preferenceManager.userName.first()
     suspend fun getAiPersona() = preferenceManager.aiPersona.first()
+    suspend fun getAiAudience() = preferenceManager.aiAudience.first()
     suspend fun getAutoReplyDelay() = preferenceManager.autoReplyDelay.first()
     suspend fun isLocationEnabled() = preferenceManager.isLocationEnabled.first()
     suspend fun isTtsEnabled() = preferenceManager.isTtsEnabled.first()
@@ -165,11 +228,41 @@ class SettingsViewModel @Inject constructor(
     private val _customPersonas = MutableStateFlow<List<String>>(emptyList())
     val customPersonas = _customPersonas.asStateFlow()
 
+    private val _isSupportiveTruthTellerEnabled = mutableStateOf(false)
+    val isSupportiveTruthTellerEnabled: State<Boolean> = _isSupportiveTruthTellerEnabled
+
+    private val _isWellnessShieldEnabled = mutableStateOf(false)
+    val isWellnessShieldEnabled: State<Boolean> = _isWellnessShieldEnabled
+
+    private val _isProactiveNudgeEnabled = mutableStateOf(false)
+    val isProactiveNudgeEnabled: State<Boolean> = _isProactiveNudgeEnabled
+
+    private val _isIntelligenceSparkEnabled = mutableStateOf(false)
+    val isIntelligenceSparkEnabled: State<Boolean> = _isIntelligenceSparkEnabled
+
+    private val _isPersistentSceneModeEnabled = mutableStateOf(false)
+    val isPersistentSceneModeEnabled: State<Boolean> = _isPersistentSceneModeEnabled
+
     private val gson = Gson()
 
     init {
         viewModelScope.launch {
             preferenceManager.guardianEnabled.collect { _guardianEnabled.value = it }
+        }
+        viewModelScope.launch {
+            preferenceManager.isSupportiveTruthTellerEnabled.collect { _isSupportiveTruthTellerEnabled.value = it }
+        }
+        viewModelScope.launch {
+            preferenceManager.isWellnessShieldEnabled.collect { _isWellnessShieldEnabled.value = it }
+        }
+        viewModelScope.launch {
+            preferenceManager.isProactiveNudgeEnabled.collect { _isProactiveNudgeEnabled.value = it }
+        }
+        viewModelScope.launch {
+            preferenceManager.isIntelligenceSparkEnabled.collect { _isIntelligenceSparkEnabled.value = it }
+        }
+        viewModelScope.launch {
+            preferenceManager.isPersistentSceneModeEnabled.collect { _isPersistentSceneModeEnabled.value = it }
         }
         viewModelScope.launch {
             preferenceManager.customPersonas.collect { json ->
@@ -237,10 +330,46 @@ class SettingsViewModel @Inject constructor(
         }
     }
 
+    fun setSupportiveTruthTellerEnabled(enabled: Boolean) {
+        _isSupportiveTruthTellerEnabled.value = enabled
+        viewModelScope.launch {
+            preferenceManager.setSupportiveTruthTellerEnabled(enabled)
+        }
+    }
+
+    fun setWellnessShieldEnabled(enabled: Boolean) {
+        _isWellnessShieldEnabled.value = enabled
+        viewModelScope.launch { preferenceManager.setWellnessShieldEnabled(enabled) }
+    }
+
+    fun setProactiveNudgeEnabled(enabled: Boolean) {
+        _isProactiveNudgeEnabled.value = enabled
+        viewModelScope.launch { preferenceManager.setProactiveNudgeEnabled(enabled) }
+    }
+
+    fun setIntelligenceSparkEnabled(enabled: Boolean) {
+        _isIntelligenceSparkEnabled.value = enabled
+        viewModelScope.launch { preferenceManager.setIntelligenceSparkEnabled(enabled) }
+    }
+
+    fun setPersistentSceneModeEnabled(enabled: Boolean) {
+        _isPersistentSceneModeEnabled.value = enabled
+        viewModelScope.launch { preferenceManager.setPersistentSceneModeEnabled(enabled) }
+    }
+
     fun saveRandomFreq(freq: String) {
         viewModelScope.launch {
             // Logic to be implemented in PreferenceManager or a worker
-            // For now, we'll store it as a string
         }
+    }
+
+    fun addEmergencyContact(contact: EmergencyContact) {
+        if (!_emergencyContacts.any { it.value == contact.value }) {
+            _emergencyContacts.add(contact)
+        }
+    }
+
+    fun removeEmergencyContact(contact: EmergencyContact) {
+        _emergencyContacts.remove(contact)
     }
 }

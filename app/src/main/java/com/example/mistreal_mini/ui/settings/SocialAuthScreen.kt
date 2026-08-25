@@ -19,6 +19,7 @@ import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.mistreal_mini.data.api.SocialPlatformResponse
+import com.example.mistreal_mini.ui.util.SyncProgressDialog
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -30,6 +31,15 @@ fun SocialAuthScreen(
     val context = LocalContext.current
     val platforms by viewModel.availablePlatforms.collectAsStateWithLifecycle()
     val isLoading by viewModel.isLoadingPlatforms.collectAsStateWithLifecycle()
+    val isSyncing by viewModel.isSyncing.collectAsStateWithLifecycle()
+    val syncProgress by viewModel.syncProgress.collectAsStateWithLifecycle()
+    val syncMessage by viewModel.syncMessage.collectAsStateWithLifecycle()
+
+    SyncProgressDialog(
+        showDialog = isSyncing,
+        progress = syncProgress,
+        statusMessage = syncMessage
+    )
 
     LaunchedEffect(Unit) {
         viewModel.fetchPlatforms()
@@ -83,7 +93,7 @@ fun SocialAuthScreen(
                                 } else if (platform.isProOnly) {
                                     onUpgradeClick()
                                 } else {
-                                    viewModel.connectSocial(platform.id)
+                                    viewModel.initiateSocialConnection(platform.id)
                                 }
                             }
                         )

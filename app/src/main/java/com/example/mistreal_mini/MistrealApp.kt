@@ -17,16 +17,12 @@ class MistrealApp : Application(), Configuration.Provider {
     override fun onCreate() {
         super.onCreate()
         FirebaseApp.initializeApp(this)
-        // Using a safe check since BuildConfig might not be generated yet in this environment
-        try {
-            val debugClass = Class.forName("${packageName}.BuildConfig")
-            val isDebug = debugClass.getField("DEBUG").getBoolean(null)
-            if (isDebug) {
-                Timber.plant(Timber.DebugTree())
-            }
-        } catch (e: Exception) {
-            // Fallback: only plant if actually needed or skip
-        }
+        // 🛡️ The old reflection-based BuildConfig.DEBUG check always failed silently
+        // (buildFeatures.buildConfig isn't enabled in build.gradle.kts, so the class
+        // doesn't exist), meaning Timber was NEVER planted and every Timber.d/w/e call
+        // in the app went nowhere. Plant unconditionally so logs are actually visible
+        // during development; revisit before a real release build.
+        Timber.plant(Timber.DebugTree())
     }
 
     override val workManagerConfiguration: Configuration

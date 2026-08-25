@@ -1,5 +1,7 @@
 package com.example.mistreal_mini.ui.settings
 
+import androidx.compose.foundation.clickable
+import androidx.compose.ui.draw.scale
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.lazy.LazyColumn
@@ -18,6 +20,8 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.material3.OutlinedCard
 import androidx.compose.material3.ShapeDefaults
@@ -51,15 +55,19 @@ fun SettingsScreen(
     
     var userName by remember { mutableStateOf("") }
     var selectedPersona by remember { mutableStateOf("") }
+    var selectedAudience by remember { mutableStateOf("None") }
     var customPersonaText by remember { mutableStateOf("") }
     var selectedDelay by remember { mutableStateOf("") }
+    var customDelayValue by remember { mutableStateOf("15") }
+    var customDelayUnit by remember { mutableStateOf("m") }
     var localIntelligenceEnabled by remember { mutableStateOf(false) }
     var ttsEnabled by remember { mutableStateOf(true) }
     var sttEnabled by remember { mutableStateOf(true) }
     var showSocialAuth by remember { mutableStateOf(false) }
 
     val isSaving by viewModel.isSaving.collectAsStateWithLifecycle()
-    val defaultPersonas = listOf("Shadow", "Oracle", "Companion", "Standard")
+    val defaultPersonas = listOf("Shadow", "Oracle", "Companion", "Standard", "None")
+    val defaultAudiences = listOf("None", "General Public", "Tactical & Operations", "Technical / Developer", "Casual & Friendly", "Executive / Professional")
     val customPersonas by viewModel.customPersonas.collectAsStateWithLifecycle()
     var showRandomFreqDialog by remember { mutableStateOf(false) }
     val snackbarHostState = remember { SnackbarHostState() }
@@ -78,6 +86,7 @@ fun SettingsScreen(
     LaunchedEffect(Unit) {
         userName = viewModel.getUserName()
         selectedPersona = viewModel.getAiPersona()
+        selectedAudience = viewModel.getAiAudience()
         localIntelligenceEnabled = viewModel.isLocationEnabled()
         ttsEnabled = viewModel.isTtsEnabled()
         sttEnabled = viewModel.isSttEnabled()
@@ -87,7 +96,11 @@ fun SettingsScreen(
             15 -> "15m"
             60 -> "1h"
             1440 -> "1d"
-            else -> "15m"
+            else -> {
+                customDelayValue = currentDelay.toString()
+                customDelayUnit = "m"
+                "Custom"
+            }
         }
     }
 
@@ -202,6 +215,69 @@ fun SettingsScreen(
                             Text("AI Persona", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
                         }
                         Spacer(modifier = Modifier.height(8.dp))
+
+                        // Supportive Truth-Teller & Therapist Toggle
+                        var isTruthTellerEnabled by remember { mutableStateOf(false) }
+                        LaunchedEffect(Unit) {
+                            isTruthTellerEnabled = viewModel.isSupportiveTruthTellerEnabled.value
+                        }
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f), RoundedCornerShape(8.dp))
+                                .padding(8.dp)
+                        ) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text("Supportive Truth-Teller & Therapist", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
+                                    Text("Honest objective truth paired with empathetic guidance.", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                }
+                                Switch(
+                                    checked = isTruthTellerEnabled,
+                                    onCheckedChange = { 
+                                        isTruthTellerEnabled = it
+                                        viewModel.setSupportiveTruthTellerEnabled(it)
+                                    }
+                                )
+                            }
+                            
+                            if (isTruthTellerEnabled) {
+                                HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp), thickness = 0.5.dp, color = MaterialTheme.colorScheme.outlineVariant)
+                                Text("Advanced Protocols", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+                                
+                                // Wellness Shield
+                                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
+                                    Text("Wellness Shield (Stress/Progress Monitoring)", modifier = Modifier.weight(1f), style = MaterialTheme.typography.bodySmall)
+                                    Switch(
+                                        checked = viewModel.isWellnessShieldEnabled.value,
+                                        onCheckedChange = { viewModel.setWellnessShieldEnabled(it) },
+                                        modifier = Modifier.scale(0.8f)
+                                    )
+                                }
+                                
+                                // Proactive Nudge
+                                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
+                                    Text("Proactive Nudge (24h Check-in)", modifier = Modifier.weight(1f), style = MaterialTheme.typography.bodySmall)
+                                    Switch(
+                                        checked = viewModel.isProactiveNudgeEnabled.value,
+                                        onCheckedChange = { viewModel.setProactiveNudgeEnabled(it) },
+                                        modifier = Modifier.scale(0.8f)
+                                    )
+                                }
+                                
+                                // Intelligence Spark
+                                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
+                                    Text("Intelligence Spark (Natural Feed Suggestions)", modifier = Modifier.weight(1f), style = MaterialTheme.typography.bodySmall)
+                                    Switch(
+                                        checked = viewModel.isIntelligenceSparkEnabled.value,
+                                        onCheckedChange = { viewModel.setIntelligenceSparkEnabled(it) },
+                                        modifier = Modifier.scale(0.8f)
+                                    )
+                                }
+                            }
+                        }
+
+                        Spacer(modifier = Modifier.height(12.dp))
                         
                         // Selectable List with Inner Scroll & Delete
                         Surface(
@@ -276,6 +352,66 @@ fun SettingsScreen(
                         }
                     }
 
+                    // AI Audience
+                    Column {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(Icons.Default.Groups, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text("AI Audience", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                        }
+                        Spacer(modifier = Modifier.height(8.dp))
+
+                        Surface(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .heightIn(max = 200.dp),
+                            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f),
+                            shape = RoundedCornerShape(8.dp)
+                        ) {
+                            LazyColumn(
+                                modifier = Modifier.padding(8.dp)
+                            ) {
+                                items(defaultAudiences) { audience ->
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        modifier = Modifier.fillMaxWidth()
+                                    ) {
+                                        RadioButton(selected = (audience == selectedAudience), onClick = { selectedAudience = audience })
+                                        Text(text = audience, modifier = Modifier.padding(start = 8.dp).weight(1f))
+                                        if (audience == selectedAudience) {
+                                            Box(
+                                                modifier = Modifier
+                                                    .size(8.dp)
+                                                    .background(MaterialTheme.colorScheme.primary, CircleShape)
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    // Creative Labs
+                    Column {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(Icons.Default.Movie, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text("Creative Labs", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                        }
+                        Spacer(modifier = Modifier.height(12.dp))
+                        
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text("Persistent Scene Mode", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
+                                Text("Always show Start/End frame slots in the attachment bar.", style = MaterialTheme.typography.labelSmall, color = Color.Gray)
+                            }
+                            Switch(
+                                checked = viewModel.isPersistentSceneModeEnabled.value,
+                                onCheckedChange = { viewModel.setPersistentSceneModeEnabled(it) }
+                            )
+                        }
+                    }
+
                     // Voice Preferences
                     Column {
                         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -324,6 +460,124 @@ fun SettingsScreen(
                                 },
                                 confirmButton = { TextButton(onClick = { showVoicePicker = false }) { Text("Close") } }
                             )
+                        }
+                    }
+
+                    // ⏳ Mission Delay (Auto-Reply)
+                    Column {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(Icons.Default.Timer, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text("Mission Delay (Auto-Reply)", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                        }
+                        Spacer(modifier = Modifier.height(12.dp))
+                        
+                        Text("Hold incoming social replies for:", style = MaterialTheme.typography.labelSmall, color = Color.Gray)
+                        Spacer(modifier = Modifier.height(8.dp))
+                        
+                        var showDelayPicker by remember { mutableStateOf(false) }
+                        val delayOptions = listOf("None", "15m", "1h", "1d", "Custom")
+                        
+                        OutlinedCard(
+                            onClick = { showDelayPicker = true },
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Row(modifier = Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
+                                Text(if (selectedDelay == "Custom") "$customDelayValue$customDelayUnit (Custom)" else selectedDelay, modifier = Modifier.weight(1f))
+                                Icon(Icons.Default.KeyboardArrowDown, null)
+                            }
+                        }
+                        
+                        if (selectedDelay == "Custom") {
+                            Spacer(modifier = Modifier.height(8.dp))
+                            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                OutlinedTextField(
+                                    value = customDelayValue,
+                                    onValueChange = { if (it.all { char -> char.isDigit() }) customDelayValue = it },
+                                    label = { Text("Value") },
+                                    modifier = Modifier.weight(1f),
+                                    keyboardOptions = KeyboardOptions(keyboardType = androidx.compose.ui.text.input.KeyboardType.Number)
+                                )
+                                var showUnitPicker by remember { mutableStateOf(false) }
+                                Box(modifier = Modifier.weight(1f)) {
+                                    OutlinedButton(onClick = { showUnitPicker = true }, modifier = Modifier.fillMaxWidth()) {
+                                        Text(when(customDelayUnit) { "s" -> "Seconds"; "m" -> "Minutes"; "h" -> "Hours"; else -> "Minutes" })
+                                    }
+                                    DropdownMenu(expanded = showUnitPicker, onDismissRequest = { showUnitPicker = false }) {
+                                        listOf("s", "m", "h").forEach { unit ->
+                                            DropdownMenuItem(
+                                                text = { Text(when(unit) { "s" -> "Seconds"; "m" -> "Minutes"; "h" -> "Hours"; else -> unit }) },
+                                                onClick = { customDelayUnit = unit; showUnitPicker = false }
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        
+                        if (showDelayPicker) {
+                            AlertDialog(
+                                onDismissRequest = { showDelayPicker = false },
+                                title = { Text("Select Delay") },
+                                text = {
+                                    Column {
+                                        delayOptions.forEach { opt ->
+                                            TextButton(onClick = { selectedDelay = opt; showDelayPicker = false }, modifier = Modifier.fillMaxWidth()) {
+                                                Text(opt, textAlign = androidx.compose.ui.text.style.TextAlign.Start, modifier = Modifier.fillMaxWidth())
+                                            }
+                                        }
+                                    }
+                                },
+                                confirmButton = { TextButton(onClick = { showDelayPicker = false }) { Text("Cancel") } }
+                            )
+                        }
+                    }
+
+                    // 🚨 Emergency Contacts Management
+                    Column {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(Icons.Default.Shield, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text("Emergency Protocols", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                        }
+                        Spacer(modifier = Modifier.height(12.dp))
+                        
+                        val emergencyContacts = viewModel.emergencyContacts
+                        if (emergencyContacts.isNotEmpty()) {
+                            emergencyContacts.forEach { contact ->
+                                ListItem(
+                                    headlineContent = { Text(contact.name) },
+                                    supportingContent = { Text("${contact.type}: ${contact.value}") },
+                                    trailingContent = {
+                                        IconButton(onClick = { 
+                                            viewModel.removeEmergencyContact(contact)
+                                        }) { Icon(Icons.Default.Delete, null, tint = Color.Red.copy(alpha = 0.6f)) }
+                                    },
+                                    colors = ListItemDefaults.colors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.2f))
+                                )
+                            }
+                        } else {
+                            Text("No emergency contacts added.", style = MaterialTheme.typography.labelSmall, color = Color.Gray)
+                        }
+                        
+                        Spacer(modifier = Modifier.height(8.dp))
+                        
+                        var showAddDialog by remember { mutableStateOf(false) }
+                        if (showAddDialog) {
+                            AddEmergencyContactDialog(
+                                viewModel = viewModel,
+                                onDismiss = { showAddDialog = false }
+                            )
+                        }
+
+                        Button(
+                            onClick = { showAddDialog = true },
+                            modifier = Modifier.fillMaxWidth(),
+                            colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.secondaryContainer, contentColor = MaterialTheme.colorScheme.onSecondaryContainer)
+                        ) {
+                            Icon(Icons.Default.Add, null)
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text("Add Emergency Contact")
                         }
                     }
 
@@ -428,11 +682,21 @@ fun SettingsScreen(
                                 "15m" -> 15
                                 "1h" -> 60
                                 "1d" -> 1440
+                                "Custom" -> {
+                                    val value = customDelayValue.toIntOrNull() ?: 15
+                                    when(customDelayUnit) {
+                                        "s" -> 0 // Backend currently rounds to minutes, we'd need to update it for seconds
+                                        "m" -> value
+                                        "h" -> value * 60
+                                        else -> value
+                                    }
+                                }
                                 else -> 15
                             }
                             viewModel.saveSettings(
                                 userName, 
                                 finalPersona,
+                                selectedAudience,
                                 delayMinutes, 
                                 viewModel.guardianEnabled.value,
                                 viewModel.emergencyContacts.toList()
@@ -452,4 +716,104 @@ fun SettingsScreen(
             }
         }
     }
+}
+
+@Composable
+fun AddEmergencyContactDialog(
+    viewModel: SettingsViewModel,
+    onDismiss: () -> Unit
+) {
+    var selectedTab by remember { mutableIntStateOf(0) }
+    var searchQuery by remember { mutableStateOf("") }
+    var manualName by remember { mutableStateOf("") }
+    var manualPhone by remember { mutableStateOf("") }
+    
+    val socialContacts by viewModel.recentSocialContacts.collectAsState(initial = emptyList())
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Add Emergency Contact") },
+        text = {
+            Column(modifier = Modifier.fillMaxWidth().heightIn(max = 400.dp)) {
+                TabRow(selectedTabIndex = selectedTab) {
+                    Tab(selected = selectedTab == 0, onClick = { selectedTab = 0 }) {
+                        Text("Socials", modifier = Modifier.padding(8.dp))
+                    }
+                    Tab(selected = selectedTab == 1, onClick = { selectedTab = 1 }) {
+                        Text("Phone", modifier = Modifier.padding(8.dp))
+                    }
+                }
+                
+                Spacer(modifier = Modifier.height(16.dp))
+                
+                if (selectedTab == 0) {
+                    OutlinedTextField(
+                        value = searchQuery,
+                        onValueChange = { searchQuery = it },
+                        modifier = Modifier.fillMaxWidth(),
+                        placeholder = { Text("Search linked contacts...") },
+                        leadingIcon = { Icon(Icons.Default.Search, null) },
+                        singleLine = true
+                    )
+                    
+                    Spacer(modifier = Modifier.height(8.dp))
+                    
+                    LazyColumn(modifier = Modifier.weight(1f)) {
+                        val filtered = socialContacts.filter { it.name.contains(searchQuery, ignoreCase = true) }
+                        if (filtered.isEmpty()) {
+                            item { Text("No linked contacts found.", color = Color.Gray, fontSize = 12.sp, modifier = Modifier.padding(16.dp)) }
+                        } else {
+                            items(filtered) { contact ->
+                                ListItem(
+                                    headlineContent = { Text(contact.name) },
+                                    supportingContent = { Text(contact.platform) },
+                                    modifier = Modifier.clickable { 
+                                        viewModel.addEmergencyContact(com.example.mistreal_mini.data.api.EmergencyContact(
+                                            name = contact.name,
+                                            type = "social",
+                                            value = "${contact.platform}:${contact.contactId}"
+                                        ))
+                                        onDismiss()
+                                    }
+                                )
+                            }
+                        }
+                    }
+                } else {
+                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        OutlinedTextField(
+                            value = manualName,
+                            onValueChange = { manualName = it },
+                            label = { Text("Contact Name") },
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                        OutlinedTextField(
+                            value = manualPhone,
+                            onValueChange = { manualPhone = it },
+                            label = { Text("Phone Number") },
+                            modifier = Modifier.fillMaxWidth(),
+                            keyboardOptions = KeyboardOptions(keyboardType = androidx.compose.ui.text.input.KeyboardType.Phone)
+                        )
+                        Button(
+                            onClick = {
+                                if (manualName.isNotBlank() && manualPhone.isNotBlank()) {
+                                    viewModel.addEmergencyContact(com.example.mistreal_mini.data.api.EmergencyContact(
+                                        name = manualName,
+                                        type = "phone",
+                                        value = manualPhone
+                                    ))
+                                    onDismiss()
+                                }
+                            },
+                            modifier = Modifier.fillMaxWidth(),
+                            enabled = manualName.isNotBlank() && manualPhone.isNotBlank()
+                        ) {
+                            Text("Secure Emergency Contact")
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = { TextButton(onClick = onDismiss) { Text("Close") } }
+    )
 }

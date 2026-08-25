@@ -8,11 +8,13 @@ data class SavedIntelEntity(
     @PrimaryKey(autoGenerate = true) val id: Long = 0,
     val userId: String,
     val groupName: String?, // null = individual/ungrouped save
-    val type: String, // "PIN", "SEARCH", "CIRCLE"
+    val type: String, // "PIN", "SEARCH", "CIRCLE", "LINE"
     val label: String,
     val latitude: Double,
     val longitude: Double,
     val radius: Double? = null, // only for CIRCLE
+    val polylineJson: String? = null, // JSON list of {lat, lon} points for LINE shapes
+    val unit: String? = null, // measurement unit for LINE shapes (meters, feet, etc.)
     val bearing: Float? = null, // compass heading at time of save
     val discoveryResultsJson: String? = null, // Gson-serialized List<DiscoveryResult> found at this point
     val timestamp: Long = System.currentTimeMillis()

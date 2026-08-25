@@ -129,6 +129,7 @@ class MainActivity : FragmentActivity() {
                                 if (success) {
                                     Toast.makeText(this@MainActivity, "✅ $platform linked successfully!", Toast.LENGTH_LONG).show()
                                     // 🚀 Instant Handshake & Data Hydration
+                                    // Ensure the sync is fully triggered here
                                     settingsViewModel.onSocialConnectionResult(platform, true)
                                     dashboardViewModel.loadDashboardData(deviceId)
                                     chatViewModel.refreshSocialContacts() 
@@ -268,6 +269,9 @@ class MainActivity : FragmentActivity() {
 
         val historyRequest = PeriodicWorkRequestBuilder<HistoryWorker>(1, TimeUnit.DAYS).build()
         WorkManager.getInstance(this).enqueueUniquePeriodicWork("TrendHistoryExpiry", ExistingPeriodicWorkPolicy.KEEP, historyRequest)
+
+        val silentPartnerRequest = PeriodicWorkRequestBuilder<com.example.mistreal_mini.worker.SilentPartnerWorker>(4, TimeUnit.HOURS).build()
+        WorkManager.getInstance(this).enqueueUniquePeriodicWork("SilentPartner", ExistingPeriodicWorkPolicy.KEEP, silentPartnerRequest)
     }
 
     override fun onConfigurationChanged(newConfig: android.content.res.Configuration) {

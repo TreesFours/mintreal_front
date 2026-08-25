@@ -29,10 +29,18 @@ import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import kotlinx.coroutines.delay
 
 @Composable
-fun SplashScreen(onTimeout: () -> Unit) {
+fun SplashScreen(
+    onTimeout: () -> Unit,
+    viewModel: SplashViewModel = hiltViewModel()
+) {
+    val statusText by viewModel.statusText.collectAsStateWithLifecycle()
+    val isReady by viewModel.isReady.collectAsStateWithLifecycle()
+
     var startAnimation by remember { mutableStateOf(false) }
     val alphaAnim = animateFloatAsState(
         targetValue = if (startAnimation) 1f else 0f,
@@ -46,10 +54,12 @@ fun SplashScreen(onTimeout: () -> Unit) {
     )
 
     // 🛡️ AI NOTE: If you overhaul or fix logic here, log it in the "History & Notes" column of the Master Map.
-    LaunchedEffect(key1 = true) {
+    LaunchedEffect(key1 = isReady) {
         startAnimation = true
-        delay(3500)
-        onTimeout()
+        if (isReady) {
+            delay(500)
+            onTimeout()
+        }
     }
 
     Box(
@@ -98,6 +108,18 @@ fun SplashScreen(onTimeout: () -> Unit) {
                     lineHeight = 24.sp
                 ),
                 color = MaterialTheme.colorScheme.primary.copy(alpha = 0.7f),
+                textAlign = TextAlign.Center,
+                modifier = Modifier
+                    .padding(horizontal = 16.dp)
+                    .alpha(alphaAnim.value)
+            )
+
+            Spacer(modifier = Modifier.height(24.dp))
+
+            Text(
+                text = statusText,
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
                 textAlign = TextAlign.Center,
                 modifier = Modifier
                     .padding(horizontal = 16.dp)

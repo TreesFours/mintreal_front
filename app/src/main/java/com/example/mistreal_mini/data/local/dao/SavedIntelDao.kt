@@ -20,4 +20,7 @@ interface SavedIntelDao {
 
     @Query("DELETE FROM saved_intel WHERE groupName = :groupName")
     suspend fun deleteGroup(groupName: String)
+
+    @Query("SELECT COUNT(*) FROM saved_intel WHERE userId = :userId")
+    suspend fun getIntelCount(userId: String): Int
 }

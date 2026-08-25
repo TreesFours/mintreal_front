@@ -173,15 +173,32 @@ fun DashboardScreen(
                 modifier = Modifier.fillMaxSize(),
                 color = MaterialTheme.colorScheme.background.copy(alpha = 0.95f)
             ) {
-                Column(modifier = Modifier.padding(16.dp)) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        IconButton(onClick = { showFullSolarSystem = false }) {
-                            Icon(Icons.Default.ArrowBack, "Back", tint = Color.White)
+                Box(modifier = Modifier.fillMaxSize()) {
+                    Column(modifier = Modifier.padding(16.dp)) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            IconButton(onClick = { showFullSolarSystem = false }) {
+                                Icon(Icons.Default.ArrowBack, "Back", tint = Color.White)
+                            }
+                            Text("ORBITAL INTELLIGENCE", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Black, color = Color.White)
                         }
-                        Text("ORBITAL INTELLIGENCE", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Black, color = Color.White)
+                        Spacer(modifier = Modifier.height(24.dp))
+                        SolarSystemCard(viewModel)
                     }
-                    Spacer(modifier = Modifier.height(24.dp))
-                    SolarSystemCard(viewModel)
+                    // 🛰️ Same "ask AI" pattern already used for news/map — previously this
+                    // screen had no way to hand the tracked body positions to the AI at all.
+                    if (viewModel.trackedObjects.isNotEmpty()) {
+                        FloatingActionButton(
+                            onClick = {
+                                val bodies = viewModel.trackedObjects.joinToString("; ") {
+                                    "${it.name}: azimuth ${it.azimuth.toInt()}°, ${it.orientation}, ${it.status}"
+                                }
+                                insightContext = "CELESTIAL_CONTEXT:\nTracked bodies (position in the night sky from the user's current location): $bodies\n\nExplain what's currently visible and where to look."
+                                showInsightPopup = true
+                            },
+                            containerColor = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.align(Alignment.BottomEnd).padding(24.dp)
+                        ) { Icon(Icons.Default.Psychology, "Ask AI about the sky") }
+                    }
                 }
             }
         }
@@ -256,14 +273,13 @@ fun DashboardScreen(
                     Column(modifier = Modifier.padding(padding)) {
                         when (selectedTab) {
                             0 -> {
-                                var citySearch by remember { mutableStateOf("") }
                                 IntelligenceFeedView(
                                     weather = weather,
                                     orientation = orientation,
                                     bearing = bearing,
                                     news = news,
                                     onArticleClick = { selectedArticle = it },
-                                    onAiClick = { ctx -> 
+                                    onAiClick = { ctx ->
                                         insightContext = ctx
                                         showInsightPopup = true
                                     },
@@ -271,22 +287,10 @@ fun DashboardScreen(
                                     chatViewModel = chatViewModel,
                                     dashboardViewModel = viewModel,
                                     snackbarHostState = snackbarHostState,
-                                    onOrbitalClick = { 
+                                    onOrbitalClick = {
                                         showFullSolarSystem = true
                                     },
-                                    citySearch = citySearch,
-                                    onCitySearchChange = { citySearch = it },
-                                    onSearch = {
-                                        if (citySearch.isNotBlank()) {
-                                            viewModel.searchCity(citySearch)
-                                            showMapPopup = true
-                                            focusManager.clearFocus()
-                                        }
-                                    },
-                                    onLocateClick = {
-                                        viewModel.pinpointCurrentLocation()
-                                        showMapPopup = true
-                                    }
+                                    onOpenMap = { showMapPopup = true }
                                 )
                             }
                             1 -> {
@@ -352,7 +356,35 @@ fun DashboardScreen(
                 )
             }
         }
+
+        // 🛡️ Ambiguous-location picking is handled inside InteractiveMapView's own copy
+        // of this dialog now that the only other entry point (the outer search field) is
+        // gone — rendering it here too would double-show it while the map is open.
     }
+}
+
+@Composable
+fun AmbiguousLocationDialog(
+    addresses: List<android.location.Address>,
+    onSelect: (android.location.Address) -> Unit,
+    onDismiss: () -> Unit
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Which one did you mean?") },
+        text = {
+            Column {
+                addresses.take(10).forEach { addr ->
+                    val label = listOfNotNull(addr.locality ?: addr.adminArea, addr.adminArea?.takeIf { it != (addr.locality ?: addr.adminArea) }, addr.countryName)
+                        .distinct().joinToString(", ")
+                    TextButton(onClick = { onSelect(addr) }, modifier = Modifier.fillMaxWidth()) {
+                        Text(label.ifBlank { "Unknown location" }, fontWeight = FontWeight.Bold, modifier = Modifier.fillMaxWidth())
+                    }
+                }
+            }
+        },
+        confirmButton = { TextButton(onClick = onDismiss) { Text("Cancel") } }
+    )
 }
 
 @Composable
@@ -368,10 +400,7 @@ fun IntelligenceFeedView(
     dashboardViewModel: DashboardViewModel,
     snackbarHostState: SnackbarHostState,
     onOrbitalClick: () -> Unit,
-    citySearch: String,
-    onCitySearchChange: (String) -> Unit,
-    onSearch: () -> Unit,
-    onLocateClick: () -> Unit
+    onOpenMap: () -> Unit
 ) {
     val coroutineScope = rememberCoroutineScope()
     val context = LocalContext.current
@@ -381,7 +410,7 @@ fun IntelligenceFeedView(
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
         item { Spacer(modifier = Modifier.height(8.dp)) }
-        item { WeatherCard(weather, orientation, bearing) }
+        item { WeatherCard(weather, orientation, bearing, dashboardViewModel, onAiClick) }
         
         // 🛰️ STRATEGIC ROW: Orbitals & Moon
         item {
@@ -435,21 +464,18 @@ fun IntelligenceFeedView(
         }
 
         item {
-            OutlinedTextField(
-                value = citySearch,
-                onValueChange = onCitySearchChange,
-                label = { Text("Search City Strategy") },
-                modifier = Modifier.fillMaxWidth(),
-                leadingIcon = { Icon(Icons.Default.Search, null) },
-                trailingIcon = {
-                    IconButton(onClick = onLocateClick) {
-                        Icon(Icons.Default.MyLocation, "Locate Strategy")
-                    }
-                },
-                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
-                keyboardActions = KeyboardActions(onSearch = { onSearch() }),
+            // 🛡️ The search field that used to live here duplicated the map's own search
+            // (which works reliably) while adding its own separate, harder-to-verify path —
+            // simplified to just opening the map, where searching/locating already works.
+            Button(
+                onClick = onOpenMap,
+                modifier = Modifier.fillMaxWidth().height(48.dp),
                 shape = RoundedCornerShape(12.dp)
-            )
+            ) {
+                Icon(Icons.Default.Map, null, modifier = Modifier.size(18.dp))
+                Spacer(modifier = Modifier.width(8.dp))
+                Text("Open Tactical Map")
+            }
         }
 
         item { LocationBanner(weather) }
@@ -620,9 +646,16 @@ fun SolarSystemCard(viewModel: DashboardViewModel = hiltViewModel()) {
                     ) {
                         val icon = when(obj.id) {
                             "10" -> "☀️"
+                            "199" -> "🌑"
+                            "299" -> "🌕"
                             "399" -> "🌍"
                             "499" -> "🔴"
                             "599" -> "🪐"
+                            "699" -> "🪐"
+                            "799" -> "🔵"
+                            "899" -> "🔵"
+                            "301" -> "🌙"
+                            "999" -> "❄️"
                             else -> "✨"
                         }
                         Text(icon, fontSize = 20.sp)
@@ -723,16 +756,27 @@ fun DispatchCenterView(
         
         Button(
             onClick = {
-                scope.launch {
-                    isPosting = true
-                    var successCount = 0
-                    selectedPlatforms.forEach { platform ->
-                        val result = viewModel.postToSocial(deviceId, platform, postType, content)
-                        if (result) successCount++
+                // Professional Validation Logic
+                var error = ""
+                val isTwitter = selectedPlatforms.contains("twitter") || selectedPlatforms.contains("x")
+                if (isTwitter && content.length > 280) {
+                    error = "Content exceeds Twitter character limit (280)."
+                }
+                
+                if (error.isNotEmpty()) {
+                    scope.launch { snackbarHostState.showSnackbar(error) }
+                } else {
+                    scope.launch {
+                        isPosting = true
+                        var successCount = 0
+                        selectedPlatforms.forEach { platform ->
+                            val result = viewModel.postToSocial(deviceId, platform, postType, content)
+                            if (result) successCount++
+                        }
+                        isPosting = false
+                        snackbarHostState.showSnackbar("Dispatched to $successCount platforms!")
+                        if (successCount == selectedPlatforms.size) content = ""
                     }
-                    isPosting = false
-                    snackbarHostState.showSnackbar("Dispatched to $successCount platforms!")
-                    if (successCount == selectedPlatforms.size) content = ""
                 }
             },
             modifier = Modifier.fillMaxWidth(),
@@ -825,7 +869,17 @@ fun NewsDetailScreen(article: Article, onBack: () -> Unit) {
 // 🛡️ AI CHECKPOINT: Did you update the Master System Map? If not, do it now.
 
 @Composable
-fun WeatherCard(weather: com.example.mistreal_mini.data.api.WeatherResponse?, orientation: String, bearing: Float) {
+fun WeatherCard(
+    weather: com.example.mistreal_mini.data.api.WeatherResponse?,
+    orientation: String,
+    bearing: Float,
+    dashboardViewModel: DashboardViewModel,
+    onAskAi: (String) -> Unit
+) {
+    var showAskDialog by remember { mutableStateOf(false) }
+    var placeQuery by remember { mutableStateOf("") }
+    var isLookingUp by remember { mutableStateOf(false) }
+    val coroutineScope = rememberCoroutineScope()
     val cityName = weather?.location ?: "Detecting..."
     val weatherIcon = when {
         weather?.summary?.lowercase()?.contains("rain") == true -> Icons.Default.CloudQueue
@@ -926,6 +980,56 @@ fun WeatherCard(weather: com.example.mistreal_mini.data.api.WeatherResponse?, or
                 }
             }
         }
+        TextButton(onClick = { showAskDialog = true }, modifier = Modifier.align(Alignment.End).padding(end = 8.dp, bottom = 4.dp)) {
+            Icon(Icons.Default.Public, null, modifier = Modifier.size(16.dp))
+            Spacer(modifier = Modifier.width(4.dp))
+            Text("Ask AI about weather anywhere", fontSize = 11.sp)
+        }
+    }
+
+    if (showAskDialog) {
+        AlertDialog(
+            onDismissRequest = { showAskDialog = false },
+            title = { Text("Weather Anywhere") },
+            text = {
+                Column {
+                    Text("Enter a place — the AI will get its real current conditions.", fontSize = 12.sp, color = Color.Gray)
+                    Spacer(modifier = Modifier.height(8.dp))
+                    OutlinedTextField(
+                        value = placeQuery,
+                        onValueChange = { placeQuery = it },
+                        placeholder = { Text("e.g. Tokyo, Japan") },
+                        singleLine = true,
+                        enabled = !isLookingUp,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    if (isLookingUp) {
+                        Spacer(modifier = Modifier.height(8.dp))
+                        CircularProgressIndicator(modifier = Modifier.size(20.dp))
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(
+                    enabled = placeQuery.isNotBlank() && !isLookingUp,
+                    onClick = {
+                        val place = placeQuery
+                        isLookingUp = true
+                        coroutineScope.launch {
+                            val summary = dashboardViewModel.fetchWeatherSummaryFor(place)
+                            isLookingUp = false
+                            showAskDialog = false
+                            placeQuery = ""
+                            onAskAi(
+                                summary?.let { "WEATHER_INQUIRY: $it. Give a natural, well-explained weather update for $place." }
+                                    ?: "WEATHER_INQUIRY: Could not find real-time data for \"$place\" — let the user know and ask them to double check the place name."
+                            )
+                        }
+                    }
+                ) { Text("Ask") }
+            },
+            dismissButton = { TextButton(onClick = { showAskDialog = false }) { Text("Cancel") } }
+        )
     }
 }
 
