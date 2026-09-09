@@ -19,8 +19,7 @@ import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.example.mistreal_mini.ui.chat.ChatViewModel
-import com.example.mistreal_mini.ui.chat.ChatInputBar
-import com.example.mistreal_mini.ui.chat.VoiceRecordingBar
+import com.example.mistreal_mini.ui.chat.components.*
 import com.example.mistreal_mini.util.VoiceRecorder
 import java.io.File
 
@@ -28,7 +27,8 @@ import java.io.File
 fun AiInsightPopup(
     contextText: String,
     onClose: () -> Unit,
-    viewModel: ChatViewModel
+    viewModel: ChatViewModel,
+    sourcePost: com.example.mistreal_mini.data.model.SocialPost? = null
 ) {
     val context = LocalContext.current
     var textState by remember { mutableStateOf("") }
@@ -75,6 +75,14 @@ fun AiInsightPopup(
                 IconButton(onClick = { viewModel.clearSessionMessages() }) { 
                     Icon(Icons.Default.ClearAll, contentDescription = "Clear Session", tint = Color.Gray)
                 }
+
+                IconButton(onClick = { 
+                    val lastAiMsg = messages.lastOrNull { it.role == "assistant" }?.content ?: contextText
+                    viewModel.secureAsScribe(sourcePost, lastAiMsg)
+                    onClose()
+                }) {
+                    Icon(Icons.Default.BookmarkBorder, contentDescription = "Secure Scribe", tint = MaterialTheme.colorScheme.primary)
+                }
                 
                 IconButton(onClick = onClose) {
                     Icon(Icons.Default.Close, contentDescription = "Close")
@@ -91,7 +99,21 @@ fun AiInsightPopup(
             
             LazyColumn(modifier = Modifier.weight(1f)) {
                 items(messages.takeLast(5)) { msg ->
-                    Text("${msg.role.uppercase()}: ${msg.content}", style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(vertical = 2.dp))
+                    ChatBubble(
+                        message = msg, 
+                        viewModel = viewModel, 
+                        onAiInsight = {}, 
+                        onReadAloud = { text, mode ->
+                            when (mode) {
+                                InteractionMode.SINGLE -> viewModel.readAloud(text)
+                                InteractionMode.HANDS_FREE -> viewModel.startHandsFreeLoop(text)
+                                InteractionMode.RADIO -> viewModel.startRadioMode(text)
+                            }
+                        }, 
+                        snackbarHostState = remember { SnackbarHostState() }, 
+                        coroutineScope = rememberCoroutineScope(),
+                        targetLang = viewModel.defaultTranslationLang.value
+                    )
                 }
             }
 
@@ -116,26 +138,31 @@ fun AiInsightPopup(
                 )
             } else {
                 ChatInputBar(
-                    text = textState,
-                    onTextChange = { textState = it },
+                    text = textState, 
+                    onTextChange = { textState = it }, 
                     onSend = {
                         focusManager.clearFocus()
                         if (textState.lowercase() == "yes send that") {
                             viewModel.sendMessage("Confirming reply dispatch.")
                         } else {
-                            val trendId = "TREND_${System.currentTimeMillis()}"
                             val fullPrompt = "Based on this context: $contextText\n\nUser Question/Instruction: $textState"
-                            // Save as Trend in history
-                            viewModel.sendMessage(fullPrompt, attachmentType = "trend", trendTitle = "Strategy: ${textState.take(20)}...")
+                            viewModel.sendMessage(fullPrompt, trendTitle = "Strategy: ${textState.take(20)}...")
                         }
                         textState = ""
                     },
                     onScreenshotClick = { },
+                    onScreenRecordClick = { },
                     onCameraClick = { },
+                    onVideoClick = { },
                     onFileClick = { },
                     onVoiceClick = { isRecording = true; recordedFile = voiceRecorder.startRecording() },
-                    onScribeClick = { /* Not used in mini-chat */ },
-                    isLoading = isLoading
+                    onConversationClick = { },
+                    onScribeClick = { }, 
+                    isLoading = isLoading,
+                    pendingAttachments = emptyList(),
+                    onRemoveAttachment = { },
+                    isAutoReplyEnabled = viewModel.guardianEnabled.value,
+                    onToggleAutoReply = { viewModel.setGuardianEnabled(it) }
                 )
             }
         }

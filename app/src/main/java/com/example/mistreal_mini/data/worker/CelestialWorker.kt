@@ -24,7 +24,7 @@ class CelestialWorker @AssistedInject constructor(
             // actually uses (fetchCelestialData), which previously drifted from this one.
             val bodies = listOf("10", "199", "299", "399", "499", "599", "699", "799", "899", "301", "999")
             bodies.forEach { id ->
-                infoRepository.getCelestialVectors(id)
+                infoRepository.getCelestialVectors(id, null, null)
             }
             
             // In a real implementation, we would store these in a Local DB 

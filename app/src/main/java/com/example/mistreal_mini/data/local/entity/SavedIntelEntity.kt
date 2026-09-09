@@ -17,5 +17,7 @@ data class SavedIntelEntity(
     val unit: String? = null, // measurement unit for LINE shapes (meters, feet, etc.)
     val bearing: Float? = null, // compass heading at time of save
     val discoveryResultsJson: String? = null, // Gson-serialized List<DiscoveryResult> found at this point
+    val blueprintJson: String? = null, // JSON list of AI-generated GeoJSON blueprints
+    val thumbnailPath: String? = null, // Path to the local cropped screenshot
     val timestamp: Long = System.currentTimeMillis()
 )

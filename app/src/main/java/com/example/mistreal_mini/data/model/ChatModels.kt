@@ -20,6 +20,7 @@ data class ChatMessage(
     val provider: String = "gemini",
     val isTrend: Boolean = false,
     val trendTitle: String? = null,
+    val trueFeelings: String? = null, // 🧠 "True Feelings" Protocol
     val socialMetadata: SocialMetadata? = null
 )
 

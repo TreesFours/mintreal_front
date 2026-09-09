@@ -30,7 +30,11 @@ class GetIntelligenceFeedUseCase @Inject constructor(
         }
     }
 
-    suspend fun getNews(category: String = "general", country: String = "us"): Resource<NewsResponse> {
-        return infoRepository.getNews(category, country)
+    suspend fun getNews(category: String = "general", country: String = "us", fastLoad: Boolean = false): Resource<NewsResponse> {
+        return infoRepository.getNews(category, country, fastLoad)
+    }
+
+    suspend fun togglePin(article: com.example.mistreal_mini.data.api.Article): Resource<Boolean> {
+        return infoRepository.togglePin(article)
     }
 }

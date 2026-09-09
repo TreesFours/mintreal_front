@@ -5,20 +5,30 @@ import retrofit2.http.GET
 import retrofit2.http.POST
 import retrofit2.http.Path
 import retrofit2.http.Query
-import com.example.mistreal.data.models.SocialSyncResponse
+import com.example.mistreal_mini.data.model.SocialSyncResponse
 
 interface InfoApiService {
     @GET("api/weather")
     suspend fun getWeather(
         @Query("lat") lat: Double,
-        @Query("lon") lon: Double
+        @Query("lon") lon: Double,
+        @Query("deviceId") deviceId: String? = null,
+        @Query("firebaseUid") firebaseUid: String? = null
     ): WeatherResponse
 
     @GET("api/news")
     suspend fun getNews(
         @Query("category") category: String?,
-        @Query("location") location: String?
+        @Query("location") location: String?,
+        @Query("firebaseUid") firebaseUid: String? = null,
+        @Query("fastLoad") fastLoad: Boolean? = false
     ): NewsResponse
+
+    @POST("api/intel/pin")
+    suspend fun pinIntel(@Body request: PinIntelRequest): Map<String, Boolean>
+
+    @POST("api/intel/unpin")
+    suspend fun unpinIntel(@Body request: PinIntelRequest): Map<String, Boolean>
     
     @GET("api/social/platforms")
     suspend fun getAvailablePlatforms(@Query("deviceId") deviceId: String?): List<SocialPlatformResponse>
@@ -74,7 +84,11 @@ interface InfoApiService {
     ): SocialHistoryResponse
 
     @GET("api/celestial/vectors")
-    suspend fun getCelestialVectors(@Query("bodyId") bodyId: String): CelestialVectorResponse
+    suspend fun getCelestialVectors(
+        @Query("bodyId") bodyId: String,
+        @Query("lat") lat: Double?,
+        @Query("lon") lon: Double?
+    ): CelestialVectorResponse
 
     @GET("api/discovery/nearby")
     suspend fun getNearbyPlaces(
@@ -93,20 +107,27 @@ data class DiscoveryNearbyResponse(
 data class CelestialVectorResponse(
     val success: Boolean,
     val body: String,
+    val name: String? = null,
     val azimuth: Double? = null,
     val elevation: Double? = null,
     val orientation: String? = null,
+    val distEarth: String? = null,
+    val distSun: String? = null,
+    val description: String? = null,
+    val relativeToMoon: String? = null,
     val status: String? = null
 )
 
 data class LocationRequest(
     val deviceId: String,
+    val firebaseUid: String? = null,
     val lat: Double,
     val lon: Double
 )
 
 data class EmergencyAlertRequest(
     val deviceId: String,
+    val firebaseUid: String? = null,
     val latitude: Double,
     val longitude: Double,
     val distressSignature: String
@@ -144,7 +165,8 @@ data class UnreadItem(
 data class AppConfigResponse(
     val proPrice: String,
     val productId: String,
-    val freeTrialDays: String
+    val freeTrialDays: String,
+    val freePlatformLimit: Int
 )
 
 data class PaymentVerifyRequest(
@@ -159,6 +181,7 @@ data class PaymentVerifyResponse(
 
 data class UserSettingsRequest(
     val deviceId: String,
+    val firebaseUid: String? = null,
     val userName: String?,
     val aiPersona: String?,
     val aiAudience: String?,
@@ -174,22 +197,63 @@ data class WeatherResponse(
     val summary: String,
     val location: String?,
     val rainExpected: Boolean,
-    val timeToRain: Int?, // in minutes
-    val rainEventType: String? = "NONE", // "START", "STOP"
-    val rainIntensity: Double? = 0.0,
+    val timeToRain: Int?,
+    val forecast: List<ForecastItem>? = null,
     val moonPhase: String? = null,
     val moonImageUrl: String? = null,
-    val planets: String? = null
+    val planets: String? = null,
+    val celestial: CelestialData? = null
+)
+
+data class ForecastItem(
+    val time: String,
+    val temp: String,
+    val condition: String
+)
+
+data class CelestialData(
+    val moon: MoonData,
+    val planets: List<PlanetVisibility>
+)
+
+data class MoonData(
+    val phase: String,
+    val imageUrl: String,
+    val azimuth: Double,
+    val altitude: Double,
+    val direction: String
+)
+
+data class PlanetVisibility(
+    val name: String,
+    val id: String,
+    val altitude: Double,
+    val azimuth: Double,
+    val direction: String,
+    val isVisible: Boolean,
+    val isNearMoon: Boolean
 )
 
 data class NewsResponse(
     val articles: List<Article>
 )
 
+data class PinIntelRequest(
+    val firebaseUid: String,
+    val itemTitle: String,
+    val itemUrl: String? = null,
+    val itemType: String? = null,
+    val metadata: Map<String, Any>? = null
+)
+
 data class Article(
     val title: String,
     val description: String?,
-    val url: String
+    val url: String,
+    val type: String? = "news",
+    val isPinned: Boolean? = false,
+    val category: String? = null,
+    val timestamp: String? = null
 )
 
 data class SocialActionRequest(

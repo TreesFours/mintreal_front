@@ -5,6 +5,7 @@ import com.google.firebase.FirebaseApp
 import androidx.hilt.work.HiltWorkerFactory
 import androidx.work.Configuration
 import dagger.hilt.android.HiltAndroidApp
+import net.sqlcipher.database.SQLiteDatabase
 import timber.log.Timber
 import javax.inject.Inject
 
@@ -17,6 +18,8 @@ class MistrealApp : Application(), Configuration.Provider {
     override fun onCreate() {
         super.onCreate()
         FirebaseApp.initializeApp(this)
+        net.sqlcipher.database.SQLiteDatabase.loadLibs(this)
+        
         // 🛡️ The old reflection-based BuildConfig.DEBUG check always failed silently
         // (buildFeatures.buildConfig isn't enabled in build.gradle.kts, so the class
         // doesn't exist), meaning Timber was NEVER planted and every Timber.d/w/e call

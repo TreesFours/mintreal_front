@@ -15,9 +15,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Psychology
-import androidx.compose.material3.Icon
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Text
+import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -53,6 +51,17 @@ fun SplashScreen(
         label = "Scale"
     )
 
+    val pulseTransition = rememberInfiniteTransition(label = "pulse")
+    val pulseScale by pulseTransition.animateFloat(
+        initialValue = 1f,
+        targetValue = 1.1f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(1000, easing = FastOutSlowInEasing),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "pulseScale"
+    )
+
     // 🛡️ AI NOTE: If you overhaul or fix logic here, log it in the "History & Notes" column of the Master Map.
     LaunchedEffect(key1 = isReady) {
         startAnimation = true
@@ -85,7 +94,7 @@ fun SplashScreen(
                 contentDescription = "Mistreal Logo",
                 modifier = Modifier
                     .size(100.dp)
-                    .scale(scaleAnim.value)
+                    .scale(scaleAnim.value * if (isReady) 1f else pulseScale)
                     .alpha(alphaAnim.value),
                 tint = MaterialTheme.colorScheme.primary
             )
@@ -119,12 +128,24 @@ fun SplashScreen(
             Text(
                 text = statusText,
                 style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                color = MaterialTheme.colorScheme.primary,
                 textAlign = TextAlign.Center,
                 modifier = Modifier
                     .padding(horizontal = 16.dp)
                     .alpha(alphaAnim.value)
             )
+
+            if (!isReady) {
+                Spacer(modifier = Modifier.height(24.dp))
+                LinearProgressIndicator(
+                    modifier = Modifier
+                        .width(200.dp)
+                        .height(2.dp)
+                        .alpha(alphaAnim.value),
+                    color = MaterialTheme.colorScheme.primary,
+                    trackColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.1f)
+                )
+            }
         }
     }
 }

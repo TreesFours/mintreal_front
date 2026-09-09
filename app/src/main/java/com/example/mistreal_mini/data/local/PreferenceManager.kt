@@ -23,6 +23,7 @@ class PreferenceManager @Inject constructor(
     private val AUTO_APPROVE_ACTIONS_KEY = booleanPreferencesKey("auto_approve_actions")
     private val USER_NAME_KEY = androidx.datastore.preferences.core.stringPreferencesKey("user_name")
     private val AI_PERSONA_KEY = androidx.datastore.preferences.core.stringPreferencesKey("ai_persona")
+    private val AI_CUSTOM_NAME_KEY = androidx.datastore.preferences.core.stringPreferencesKey("ai_custom_name")
     private val AI_AUDIENCE_KEY = androidx.datastore.preferences.core.stringPreferencesKey("ai_audience")
     private val AUTO_REPLY_DELAY_KEY = androidx.datastore.preferences.core.intPreferencesKey("auto_reply_delay")
     private val IS_PRO_KEY = booleanPreferencesKey("is_pro")
@@ -33,12 +34,15 @@ class PreferenceManager @Inject constructor(
     private val STT_ENABLED_KEY = booleanPreferencesKey("stt_enabled")
     private val TTS_VOICE_NAME_KEY = androidx.datastore.preferences.core.stringPreferencesKey("tts_voice_name")
     private val CUSTOM_PERSONAS_KEY = androidx.datastore.preferences.core.stringPreferencesKey("custom_personas")
+    private val CUSTOM_AUDIENCES_KEY = androidx.datastore.preferences.core.stringPreferencesKey("custom_audiences")
     private val SUPPORTIVE_TRUTH_TELLER_KEY = booleanPreferencesKey("supportive_truth_teller_enabled")
     private val WELLNESS_SHIELD_KEY = booleanPreferencesKey("wellness_shield_enabled")
     private val PROACTIVE_NUDGE_KEY = booleanPreferencesKey("proactive_nudge_enabled")
     private val INTELLIGENCE_SPARK_KEY = booleanPreferencesKey("intelligence_spark_enabled")
     private val PERSISTENT_SCENE_MODE_KEY = booleanPreferencesKey("persistent_scene_mode_enabled")
+    private val DEFAULT_TRANSLATION_LANG_KEY = androidx.datastore.preferences.core.stringPreferencesKey("default_translation_lang")
     private val CONVERSATION_COUNTER_KEY = androidx.datastore.preferences.core.intPreferencesKey("conversation_counter")
+    private val THEME_MODE_KEY = androidx.datastore.preferences.core.stringPreferencesKey("theme_mode") // "fire", "sand", "auto"
     private val LAST_INTERACTION_TIME_KEY = androidx.datastore.preferences.core.longPreferencesKey("last_interaction_time")
 
     val isOnboarded: Flow<Boolean> = context.dataStore.data
@@ -59,6 +63,11 @@ class PreferenceManager @Inject constructor(
     val aiPersona: Flow<String> = context.dataStore.data
         .map { preferences ->
             preferences[AI_PERSONA_KEY] ?: "Shadow"
+        }
+
+    val aiCustomName: Flow<String> = context.dataStore.data
+        .map { preferences ->
+            preferences[AI_CUSTOM_NAME_KEY] ?: "Shadow AI"
         }
 
     val aiAudience: Flow<String> = context.dataStore.data
@@ -116,6 +125,11 @@ class PreferenceManager @Inject constructor(
             preferences[CUSTOM_PERSONAS_KEY] ?: "[]"
         }
 
+    val customAudiences: Flow<String> = context.dataStore.data
+        .map { preferences ->
+            preferences[CUSTOM_AUDIENCES_KEY] ?: "[]"
+        }
+
     val isSupportiveTruthTellerEnabled: Flow<Boolean> = context.dataStore.data
         .map { preferences ->
             preferences[SUPPORTIVE_TRUTH_TELLER_KEY] ?: false
@@ -141,9 +155,19 @@ class PreferenceManager @Inject constructor(
             preferences[PERSISTENT_SCENE_MODE_KEY] ?: false
         }
 
+    val defaultTranslationLang: Flow<String> = context.dataStore.data
+        .map { preferences ->
+            preferences[DEFAULT_TRANSLATION_LANG_KEY] ?: "English"
+        }
+
     val conversationCounter: Flow<Int> = context.dataStore.data
         .map { preferences ->
             preferences[CONVERSATION_COUNTER_KEY] ?: 0
+        }
+
+    val themeMode: Flow<String> = context.dataStore.data
+        .map { preferences ->
+            preferences[THEME_MODE_KEY] ?: "auto"
         }
 
     val lastInteractionTime: Flow<Long> = context.dataStore.data
@@ -178,6 +202,12 @@ class PreferenceManager @Inject constructor(
     suspend fun setAiPersona(persona: String) {
         context.dataStore.edit { preferences ->
             preferences[AI_PERSONA_KEY] = persona
+        }
+    }
+
+    suspend fun setAiCustomName(name: String) {
+        context.dataStore.edit { preferences ->
+            preferences[AI_CUSTOM_NAME_KEY] = name
         }
     }
 
@@ -241,6 +271,12 @@ class PreferenceManager @Inject constructor(
         }
     }
 
+    suspend fun setCustomAudiences(json: String) {
+        context.dataStore.edit { preferences ->
+            preferences[CUSTOM_AUDIENCES_KEY] = json
+        }
+    }
+
     suspend fun setSupportiveTruthTellerEnabled(enabled: Boolean) {
         context.dataStore.edit { preferences ->
             preferences[SUPPORTIVE_TRUTH_TELLER_KEY] = enabled
@@ -271,9 +307,21 @@ class PreferenceManager @Inject constructor(
         }
     }
 
+    suspend fun setDefaultTranslationLang(lang: String) {
+        context.dataStore.edit { preferences ->
+            preferences[DEFAULT_TRANSLATION_LANG_KEY] = lang
+        }
+    }
+
     suspend fun setConversationCounter(count: Int) {
         context.dataStore.edit { preferences ->
             preferences[CONVERSATION_COUNTER_KEY] = count
+        }
+    }
+
+    suspend fun setThemeMode(mode: String) {
+        context.dataStore.edit { preferences ->
+            preferences[THEME_MODE_KEY] = mode
         }
     }
 

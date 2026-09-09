@@ -4,9 +4,15 @@ import android.content.Context
 import android.media.MediaPlayer
 import android.media.MediaRecorder
 import android.os.Build
+import dagger.hilt.android.qualifiers.ApplicationContext
+import javax.inject.Inject
+import javax.inject.Singleton
 import java.io.File
 
-class VoiceRecorder(private val context: Context) {
+@Singleton
+class VoiceRecorder @Inject constructor(
+    @ApplicationContext private val context: Context
+) {
     private var mediaRecorder: MediaRecorder? = null
     private var mediaPlayer: MediaPlayer? = null
     private var currentFile: File? = null

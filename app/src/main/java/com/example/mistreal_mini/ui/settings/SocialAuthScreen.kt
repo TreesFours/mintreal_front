@@ -18,6 +18,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import kotlinx.coroutines.flow.collectLatest
 import com.example.mistreal_mini.data.api.SocialPlatformResponse
 import com.example.mistreal_mini.ui.util.SyncProgressDialog
 
@@ -34,12 +35,38 @@ fun SocialAuthScreen(
     val isSyncing by viewModel.isSyncing.collectAsStateWithLifecycle()
     val syncProgress by viewModel.syncProgress.collectAsStateWithLifecycle()
     val syncMessage by viewModel.syncMessage.collectAsStateWithLifecycle()
+    var showLimitDialog by remember { mutableStateOf(false) }
 
     SyncProgressDialog(
         showDialog = isSyncing,
         progress = syncProgress,
         statusMessage = syncMessage
     )
+
+    if (showLimitDialog) {
+        AlertDialog(
+            onDismissRequest = { showLimitDialog = false },
+            title = { Text("Platform Limit Reached") },
+            text = { Text("You've reached the social connection limit for the free tier. Upgrade to Premium for unlimited platform connections.") },
+            confirmButton = {
+                Button(onClick = { 
+                    showLimitDialog = false
+                    onUpgradeClick()
+                }) { Text("Upgrade Now") }
+            },
+            dismissButton = {
+                TextButton(onClick = { showLimitDialog = false }) { Text("Cancel") }
+            }
+        )
+    }
+
+    LaunchedEffect(Unit) {
+        viewModel.errorEvent.collectLatest { error ->
+            if (error == "PLATFORM_LIMIT_REACHED") {
+                showLimitDialog = true
+            }
+        }
+    }
 
     LaunchedEffect(Unit) {
         viewModel.fetchPlatforms()
@@ -150,7 +177,7 @@ fun PlatformCard(platform: SocialPlatformResponse, onClick: () -> Unit) {
                             "whatsapp" -> Icons.Default.Chat
                             "instagram" -> Icons.Default.CameraAlt
                             "linkedin" -> Icons.Default.Work
-                            "facebook" -> Icons.Default.Facebook
+                            "facebook" -> Icons.Default.Public
                             else -> Icons.Default.Link
                         },
                         contentDescription = null,

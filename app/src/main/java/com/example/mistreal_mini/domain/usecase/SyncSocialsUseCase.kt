@@ -1,7 +1,7 @@
 package com.example.mistreal_mini.domain.usecase
 
 import com.example.mistreal_mini.data.Resource
-import com.example.mistreal.data.models.SocialSyncResponse
+import com.example.mistreal_mini.data.model.SocialSyncResponse
 import com.example.mistreal_mini.data.repository.InfoRepository
 import javax.inject.Inject
 

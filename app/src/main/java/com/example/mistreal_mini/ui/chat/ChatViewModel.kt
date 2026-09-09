@@ -3,34 +3,43 @@ package com.example.mistreal_mini.ui.chat
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
+import android.provider.Settings
 import androidx.compose.runtime.State
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import androidx.paging.PagingData
+import androidx.paging.cachedIn
 import com.example.mistreal_mini.data.Resource
-import com.example.mistreal_mini.data.api.AiModelResponse
+import com.example.mistreal_mini.data.api.*
+import com.example.mistreal_mini.data.model.SocialMetadata
 import com.example.mistreal_mini.data.local.PreferenceManager
-import com.example.mistreal_mini.data.model.ChatMessage
-import com.example.mistreal_mini.data.model.ChatRequest
-import com.example.mistreal_mini.data.repository.AiRepository
-import com.example.mistreal_mini.data.repository.InfoRepository
 import com.example.mistreal_mini.data.local.dao.SocialContactDao
 import com.example.mistreal_mini.data.local.entity.SocialContactEntity
+import com.example.mistreal_mini.data.model.ChatMessage
+import com.example.mistreal_mini.data.model.ChatRequest
+import com.example.mistreal_mini.data.model.ChatResponse
+import com.example.mistreal_mini.data.repository.AiRepository
+import com.example.mistreal_mini.data.repository.InfoRepository
+import com.example.mistreal_mini.data.repository.TacticalRepository
+import com.example.mistreal_mini.data.repository.SensorRepository
+import com.example.mistreal_mini.domain.usecase.HandleDistressUseCase
 import com.example.mistreal_mini.domain.usecase.SendMessageUseCase
 import com.example.mistreal_mini.domain.usecase.SyncSocialsUseCase
-import com.example.mistreal_mini.domain.usecase.HandleDistressUseCase
 import com.example.mistreal_mini.util.FileUtil
 import com.example.mistreal_mini.util.VoiceManager
+import com.example.mistreal_mini.util.VoiceRecorder
 import com.example.mistreal_mini.util.TextSanitizer
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.Job
-import kotlinx.coroutines.flow.MutableSharedFlow
-import kotlinx.coroutines.flow.asSharedFlow
+import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
 import timber.log.Timber
+import java.io.File
 import javax.inject.Inject
 
 @HiltViewModel
@@ -43,6 +52,11 @@ class ChatViewModel @Inject constructor(
     private val sendMessageUseCase: SendMessageUseCase,
     private val syncSocialsUseCase: SyncSocialsUseCase,
     private val handleDistressUseCase: HandleDistressUseCase,
+    private val tacticalRepository: TacticalRepository,
+    private val sensorRepository: SensorRepository,
+    private val scribeRepository: com.example.mistreal_mini.data.repository.ScribeRepository,
+    private val scribeManager: com.example.mistreal_mini.util.ScribeManager,
+    private val voiceRecorder: com.example.mistreal_mini.util.VoiceRecorder,
     private val savedStateHandle: SavedStateHandle,
     @ApplicationContext private val context: Context
 ) : ViewModel() {
@@ -62,8 +76,15 @@ class ChatViewModel @Inject constructor(
     private val _availableProviders = mutableStateListOf<AiModelResponse>()
     val availableProviders: List<AiModelResponse> = _availableProviders
 
+    // 🛡️ Categorized Models for Tactical Drawer
+    private val _categorizedModels = mutableStateOf<Map<String, List<AiModelResponse>>>(emptyMap())
+    val categorizedModels: State<Map<String, List<AiModelResponse>>> = _categorizedModels
+
     private val _currentPersona = mutableStateOf(savedStateHandle.get<String>("currentPersona") ?: "Shadow")
     val currentPersona: State<String> = _currentPersona
+
+    private val _aiCustomName = mutableStateOf("Shadow AI")
+    val aiCustomName: State<String> = _aiCustomName
 
     private val _currentChatPartner = mutableStateOf(savedStateHandle.get<String>("currentChatPartner") ?: "AI")
     val currentChatPartner: State<String> = _currentChatPartner
@@ -92,14 +113,14 @@ class ChatViewModel @Inject constructor(
     private val _isSttEnabled = mutableStateOf(true)
     val isSttEnabled: State<Boolean> = _isSttEnabled
 
-    private val _socialContacts = mutableStateOf<List<com.example.mistreal_mini.data.api.SocialContact>>(emptyList())
-    val socialContacts: State<List<com.example.mistreal_mini.data.api.SocialContact>> = _socialContacts
+    private val _socialContacts = mutableStateOf<List<SocialContact>>(emptyList())
+    val socialContacts: State<List<SocialContact>> = _socialContacts
 
-    private val _unreadMessages = mutableStateOf<List<com.example.mistreal_mini.data.api.UnreadItem>>(emptyList())
-    val unreadMessages: State<List<com.example.mistreal_mini.data.api.UnreadItem>> = _unreadMessages
+    private val _unreadMessages = mutableStateOf<List<UnreadItem>>(emptyList())
+    val unreadMessages: State<List<UnreadItem>> = _unreadMessages
 
-    private val _availablePlatforms = mutableStateListOf<com.example.mistreal_mini.data.api.SocialPlatformResponse>()
-    val availablePlatforms: List<com.example.mistreal_mini.data.api.SocialPlatformResponse> = _availablePlatforms
+    private val _availablePlatforms = mutableStateListOf<SocialPlatformResponse>()
+    val availablePlatforms: List<SocialPlatformResponse> = _availablePlatforms
 
     private val _bearing = mutableStateOf(0f)
     val bearing: State<Float> = _bearing
@@ -110,12 +131,11 @@ class ChatViewModel @Inject constructor(
     private val _isSocialChat = mutableStateOf(false)
     val isSocialChat: State<Boolean> = _isSocialChat
 
-    // 🚀 Rolling Window & Emergency Contacts Logic
     val recentContacts = socialContactDao.getRecentContacts()
     val emergencyContacts = socialContactDao.getEmergencyContacts()
 
-    private val _activeSocialContact = mutableStateOf<com.example.mistreal_mini.data.api.SocialContact?>(null)
-    val activeSocialContact: State<com.example.mistreal_mini.data.api.SocialContact?> = _activeSocialContact
+    private val _activeSocialContact = mutableStateOf<SocialContact?>(null)
+    val activeSocialContact: State<SocialContact?> = _activeSocialContact
 
     private val _currentTrendTitle = mutableStateOf<String?>(null)
     val currentTrendTitle: State<String?> = _currentTrendTitle
@@ -129,15 +149,45 @@ class ChatViewModel @Inject constructor(
     private val _isSceneMode = mutableStateOf(false)
     val isSceneMode: State<Boolean> = _isSceneMode
 
+    private val _isScribing = mutableStateOf(false)
+    val isScribing: State<Boolean> = _isScribing
+
+    private val _defaultTranslationLang = mutableStateOf("English")
+    val defaultTranslationLang: State<String> = _defaultTranslationLang
+
     private val _persistentSceneMode = mutableStateOf(false)
 
-    private var currentOffset = 0
-    private val pageSize = 20
-    private var isLastPage = false
+    // Voice Recording State
+    private val _isRecording = mutableStateOf(false)
+    val isRecording: State<Boolean> = _isRecording
+
+    private val _recordingDuration = mutableIntStateOf(0)
+    val recordingDuration: State<Int> = _recordingDuration
+
+    private val _recordedFile = mutableStateOf<File?>(null)
+    val recordedFile: State<File?> = _recordedFile
+
+    private val _isPlayingBack = mutableStateOf(false)
+    val isPlayingBack: State<Boolean> = _isPlayingBack
+
+    private val _scribeText = MutableStateFlow("")
+    val scribeText = _scribeText.asStateFlow()
+
+    private var recordingTimerJob: Job? = null
+
+    val pagedMessages: Flow<PagingData<ChatMessage>> = repository.getPagedMessagesFlow()
+        .cachedIn(viewModelScope)
+
+    fun getTrendMessages(title: String): Flow<List<ChatMessage>> {
+        return repository.getTrendMessages(title)
+    }
 
     init {
         viewModelScope.launch {
             preferenceManager.aiPersona.collect { _currentPersona.value = it }
+        }
+        viewModelScope.launch {
+            preferenceManager.aiCustomName.collect { _aiCustomName.value = it }
         }
         viewModelScope.launch {
             preferenceManager.isPro.collect { _isPro.value = it }
@@ -158,12 +208,26 @@ class ChatViewModel @Inject constructor(
             }
         }
         viewModelScope.launch {
+            preferenceManager.defaultTranslationLang.collect { _defaultTranslationLang.value = it }
+        }
+        viewModelScope.launch {
             voiceManager.transcripts.collect { transcript ->
                 onHandsFreeTranscript(transcript)
             }
         }
+        viewModelScope.launch {
+            scribeManager.results.collect { transcript ->
+                _scribeText.value = transcript
+            }
+        }
+        
+        viewModelScope.launch {
+            sensorRepository.getOrientationFlow().collect { data ->
+                _bearing.value = data.bearing
+                _orientation.value = data.orientation
+            }
+        }
 
-        // Default: Load Main Chat (Global Timeline)
         observeMessages()
         observeUniqueTrends()
         fetchAvailableModels()
@@ -179,21 +243,12 @@ class ChatViewModel @Inject constructor(
         }
     }
 
-    // 🛡️ observeMessages() used to be called fresh on every loadTrend()/exitTrend(),
-    // launching a NEW collector each time without ever cancelling the previous one.
-    // Since ChatViewModel lives for the whole Activity, every trend switch (opening the
-    // map's mini-chat, visiting Records, exiting a trend, etc.) leaked another permanent
-    // collector on the same live Room flow, all racing to clear+re-populate the same
-    // _messages list independently. That race is exactly why messages could silently
-    // fail to appear (or flicker/vanish) in a given mini-chat despite being saved to the
-    // DB correctly. Track the job and cancel it before starting a new one.
     private var messagesJob: Job? = null
 
     private fun observeMessages() {
         messagesJob?.cancel()
         messagesJob = viewModelScope.launch {
             if (_isSocialChat.value) {
-                // ... social chat logic
                 return@launch
             }
 
@@ -206,7 +261,6 @@ class ChatViewModel @Inject constructor(
                     allMsgs.filter { it.isTrend && it.trendTitle == currentTitle }
                 }
 
-                // CRITICAL: Ensure clear and re-add happens atomically in the UI state
                 _messages.clear()
                 _messages.addAll(filtered)
 
@@ -216,12 +270,6 @@ class ChatViewModel @Inject constructor(
     }
 
     fun loadTrend(title: String) {
-        // 🛡️ THE bug behind "message sent, saved, never appears": switchChat(partner, "social")
-        // sets _isSocialChat=true and nothing ever reset it back to false on this path.
-        // observeMessages() early-returns without subscribing at all while that flag is
-        // true — so once you'd opened any social DM chat in a session, every AI trend
-        // (including the map's mini-chat) silently stopped receiving message updates
-        // forever, even though messages were saving to the DB correctly the whole time.
         _isSocialChat.value = false
         _currentTrendTitle.value = title
         _messages.clear()
@@ -235,22 +283,6 @@ class ChatViewModel @Inject constructor(
         observeMessages()
     }
 
-    fun loadMoreMessages() {
-        if (isLastPage || _isLoading.value) return
-        
-        viewModelScope.launch {
-            _isLoading.value = true
-            val pagedMessages = repository.getPagedMessages(pageSize, currentOffset)
-            if (pagedMessages.isEmpty()) {
-                isLastPage = true
-            } else {
-                _messages.addAll(0, pagedMessages)
-                currentOffset += pageSize
-            }
-            _isLoading.value = false
-        }
-    }
-
     fun toggleTts(enabled: Boolean) {
         _isTtsEnabled.value = enabled
         viewModelScope.launch { preferenceManager.setTtsEnabled(enabled) }
@@ -261,13 +293,80 @@ class ChatViewModel @Inject constructor(
         viewModelScope.launch { preferenceManager.setSttEnabled(enabled) }
     }
 
+    fun setGuardianEnabled(enabled: Boolean) {
+        _guardianEnabled.value = enabled
+        viewModelScope.launch { preferenceManager.setGuardianEnabled(enabled) }
+    }
+
+    // Voice Recording Logic
+    fun startRecording() {
+        if (!_isSttEnabled.value) {
+            viewModelScope.launch { _errorEvents.emit("Voice input disabled in settings") }
+            return
+        }
+        _isRecording.value = true
+        _recordedFile.value = voiceRecorder.startRecording()
+        
+        recordingTimerJob?.cancel()
+        recordingTimerJob = viewModelScope.launch {
+            _recordingDuration.intValue = 0
+            while (_isRecording.value) {
+                kotlinx.coroutines.delay(1000)
+                _recordingDuration.intValue++
+            }
+        }
+    }
+
+    fun stopRecording() {
+        _isRecording.value = false
+        voiceRecorder.stopRecording()
+        recordingTimerJob?.cancel()
+    }
+
+    fun deleteRecording() {
+        _recordedFile.value?.let { voiceRecorder.deleteRecording(it) }
+        _recordedFile.value = null
+        _isRecording.value = false
+        recordingTimerJob?.cancel()
+    }
+
+    fun playRecording() {
+        _recordedFile.value?.let {
+            _isPlayingBack.value = true
+            voiceRecorder.playRecording(it) { _isPlayingBack.value = false }
+        }
+    }
+
+    fun sendVoiceMessage() {
+        _recordedFile.value?.let {
+            handleAudioInput(Uri.fromFile(it))
+        }
+        _recordedFile.value = null
+    }
+
+    fun handleAudioInput(uri: Uri?) {
+        _isListening.value = false
+        if (uri != null) {
+            sendMessage("", listOf(uri), "audio")
+        } else if (_isHandsFreeActive.value) {
+            viewModelScope.launch {
+                voiceManager.speak("I couldn't hear that. Are you still there?") {
+                    viewModelScope.launch { startListeningLoop() }
+                }
+            }
+        }
+    }
+
+    fun cancelRecording() {
+        deleteRecording()
+    }
+
     fun fetchAvailablePlatforms() {
         viewModelScope.launch {
-            val deviceId = android.provider.Settings.Secure.getString(context.contentResolver, android.provider.Settings.Secure.ANDROID_ID)
+            val deviceId = Settings.Secure.getString(context.contentResolver, Settings.Secure.ANDROID_ID)
             when (val result = infoRepository.getAvailablePlatforms(deviceId)) {
-                is Resource.Success<List<com.example.mistreal_mini.data.api.SocialPlatformResponse>> -> {
+                is Resource.Success -> {
                     _availablePlatforms.clear()
-                    // Fixed: Show all connected platforms without hardcoded tier filters
                     result.data?.let { platforms ->
                         _availablePlatforms.addAll(platforms)
                     }
@@ -288,20 +387,17 @@ class ChatViewModel @Inject constructor(
 
     fun fetchAvailableModels() {
         viewModelScope.launch {
-            val deviceId = android.provider.Settings.Secure.getString(context.contentResolver, android.provider.Settings.Secure.ANDROID_ID)
+            val deviceId = Settings.Secure.getString(context.contentResolver, Settings.Secure.ANDROID_ID)
             when (val result = repository.getAvailableModels(deviceId)) {
                 is Resource.Success -> {
                     val providers = result.data.orEmpty()
                     _availableProviders.clear()
                     
-                    // Always add Dynamic (Best Fit) - available for all tiers
                     _availableProviders.add(AiModelResponse("dynamic", "Dynamic (Best Fit)", "mistreal", false, "Free"))
                     
-                    // Filter providers based on tier
                     val filteredProviders = if (_isPro.value) {
-                        providers // Premium: show all
+                        providers 
                     } else {
-                        // Free: only show models marked as free tier
                         providers.filter { it.price == "Free" || it.price.lowercase() == "free" }
                     }
                     _availableProviders.addAll(filteredProviders)
@@ -313,6 +409,9 @@ class ChatViewModel @Inject constructor(
                     if (filteredProviders.none { it.id == _selectedProvider.value } && _selectedProvider.value != "dynamic") {
                         _selectedProvider.value = "dynamic"
                     }
+
+                    // 🛡️ Trigger Tactical Categorization
+                    groupModels(filteredProviders)
                 }
                 is Resource.Error -> {
                     _availableProviders.clear()
@@ -323,6 +422,38 @@ class ChatViewModel @Inject constructor(
                 else -> {}
             }
         }
+    }
+
+    private fun groupModels(models: List<AiModelResponse>) {
+        val groups = mutableMapOf<String, MutableList<AiModelResponse>>()
+        
+        // 1. COMMAND CENTER (Always at top)
+        groups["COMMAND CENTER"] = mutableListOf(
+            AiModelResponse("dynamic", "Mistreal Dynamic", "mistreal", false, "Free", "Optimized", 100)
+        )
+
+        models.forEach { model ->
+            val id = model.id.toLowerCase()
+            val category = when {
+                // GLOBAL OVERLORD: Large models
+                id.contains("gpt-4") || id.contains("claude-3") || id.contains("llama-3.1-405b") || 
+                id.contains("grok") || id.contains("deepseek") || id.contains("llama-3.1-70b") ||
+                (id.contains("gemini") && id.contains("pro") && !id.contains("flash")) -> "GLOBAL OVERLORD"
+
+                // OPTIC INTEL: Vision/Video/Flash
+                id.contains("vision") || id.contains("flash") || id.contains("video") || id.contains("kling") -> "OPTIC INTEL"
+
+                // GHOST PROTOCOL: Fast/Mini
+                id.contains("mini") || id.contains("haiku") || id.contains("8b") || id.contains("instant") -> "GHOST PROTOCOL"
+
+                // OPEN INTELLIGENCE: Everything else (Llama, Mistral, etc.)
+                else -> "OPEN INTELLIGENCE"
+            }
+            
+            groups.getOrPut(category) { mutableListOf() }.add(model)
+        }
+        
+        _categorizedModels.value = groups
     }
 
     fun switchChat(partner: String, platform: String = "ai") {
@@ -337,7 +468,6 @@ class ChatViewModel @Inject constructor(
             observeMessages()
         } else {
             _isSocialChat.value = true
-            // Update last interaction time to bump it to the top of the 5-slot window
             viewModelScope.launch {
                 val contact = _socialContacts.value.find { it.name == partner && it.platform == platform }
                 contact?.let {
@@ -348,7 +478,7 @@ class ChatViewModel @Inject constructor(
                             name = it.name,
                             avatarUrl = it.avatar,
                             lastInteractionTime = System.currentTimeMillis(),
-                            isEmergency = false, // Will be updated if identified as emergency
+                            isEmergency = false,
                             platformUserId = it.id
                         )
                     )
@@ -365,12 +495,12 @@ class ChatViewModel @Inject constructor(
     private fun fetchSocialHistory(partner: String, platform: String) {
         _isLoading.value = true
         viewModelScope.launch {
-            val deviceId = android.provider.Settings.Secure.getString(context.contentResolver, android.provider.Settings.Secure.ANDROID_ID)
+            val deviceId = Settings.Secure.getString(context.contentResolver, Settings.Secure.ANDROID_ID)
             val contact = _socialContacts.value.find { it.name == partner && it.platform == platform }
             
             if (contact != null) {
                 when (val result = infoRepository.getSocialHistory(deviceId, platform, contact.id)) {
-                    is Resource.Success<List<com.example.mistreal_mini.data.api.SocialHistoryMessage>> -> {
+                    is Resource.Success<List<SocialHistoryMessage>> -> {
                         _messages.clear()
                         result.data?.forEach { msg ->
                             _messages.add(
@@ -380,7 +510,7 @@ class ChatViewModel @Inject constructor(
                                     type = msg.attachments?.firstOrNull()?.type ?: "text",
                                     attachmentUrl = msg.attachments?.firstOrNull()?.url,
                                     provider = platform,
-                                    socialMetadata = com.example.mistreal_mini.data.model.SocialMetadata(
+                                    socialMetadata = SocialMetadata(
                                         type = "Direct Message",
                                         platform = platform,
                                         targetId = contact.id
@@ -392,7 +522,7 @@ class ChatViewModel @Inject constructor(
                             _messages.add(ChatMessage(role = "assistant", content = "No previous messages with $partner.", provider = "system"))
                         }
                     }
-                    is Resource.Error<List<com.example.mistreal_mini.data.api.SocialHistoryMessage>> -> {
+                    is Resource.Error<List<SocialHistoryMessage>> -> {
                         _errorEvents.emit("Failed to fetch history: ${result.message}")
                     }
                     else -> {}
@@ -419,7 +549,7 @@ class ChatViewModel @Inject constructor(
                 else -> "the user"
             }
 
-            val deviceId = android.provider.Settings.Secure.getString(context.contentResolver, android.provider.Settings.Secure.ANDROID_ID)
+            val deviceId = Settings.Secure.getString(context.contentResolver, Settings.Secure.ANDROID_ID)
             val result = sendMessageUseCase(
                 context = context,
                 prompt = "Draft a reply or analysis for $targetName about: $prompt",
@@ -438,7 +568,7 @@ class ChatViewModel @Inject constructor(
                     isTrend = _currentTrendTitle.value != null,
                     trendTitle = _currentTrendTitle.value,
                     socialMetadata = contact?.let { 
-                        com.example.mistreal_mini.data.model.SocialMetadata(
+                        SocialMetadata(
                             platform = it.platform,
                             type = "Direct Message",
                             targetId = it.id
@@ -454,20 +584,19 @@ class ChatViewModel @Inject constructor(
     fun fetchContacts(platform: String) {
         if (platform == "ai") return
         viewModelScope.launch {
-            val deviceId = android.provider.Settings.Secure.getString(context.contentResolver, android.provider.Settings.Secure.ANDROID_ID)
+            val deviceId = Settings.Secure.getString(context.contentResolver, Settings.Secure.ANDROID_ID)
             when (val result = infoRepository.getContacts(deviceId, platform)) {
                 is Resource.Success -> {
                     val rawContacts = result.data ?: emptyList()
                     _socialContacts.value = rawContacts
                     
-                    // Hydrate local cache
                     val entities = rawContacts.map { c ->
                         SocialContactEntity(
                             contactId = c.id,
                             platform = c.platform,
                             name = c.name,
                             avatarUrl = c.avatar,
-                            lastInteractionTime = System.currentTimeMillis(), // Initial sync
+                            lastInteractionTime = System.currentTimeMillis(),
                             isEmergency = false,
                             platformUserId = c.id
                         )
@@ -481,41 +610,31 @@ class ChatViewModel @Inject constructor(
 
     fun evictFromHotSlot(contactId: String) {
         viewModelScope.launch {
-            // "Evict" by setting last interaction time to 0, 
-            // causing it to fall out of the Top 5
             socialContactDao.updateInteractionTime(contactId, 0L)
-        }
-    }
-
-    private fun startAutoEvictionTimer() {
-        viewModelScope.launch {
-            while (true) {
-                kotlinx.coroutines.delay(60000) // Check every minute
-                val thirtyMinsAgo = System.currentTimeMillis() - (30 * 60 * 1000)
-                // Any 'Hot' contact older than 30 mins gets its interaction time reset if not actively chatted
-                // For now, we'll implement this as a cleanup call in the DAO if we add a flag, 
-                // but since it's just sorting, the Top 5 will naturally change.
-                // To strictly 'Clear', we'd need an 'isHot' boolean.
-            }
         }
     }
 
     fun searchContacts(platform: String, query: String) {
         viewModelScope.launch {
-            val deviceId = android.provider.Settings.Secure.getString(context.contentResolver, android.provider.Settings.Secure.ANDROID_ID)
-            // Query backend for discovery search
+            val deviceId = Settings.Secure.getString(context.contentResolver, Settings.Secure.ANDROID_ID)
             when (val result = infoRepository.searchContacts(deviceId, platform, query)) {
-                is Resource.Success<List<com.example.mistreal_mini.data.api.SocialContact>> -> _socialContacts.value = result.data ?: emptyList()
+                is Resource.Success<List<SocialContact>> -> _socialContacts.value = result.data ?: emptyList()
                 else -> {}
             }
         }
     }
 
+    private val _totalUnreadCount = mutableIntStateOf(0)
+    val totalUnreadCount: State<Int> = _totalUnreadCount
+
     fun fetchUnread() {
         viewModelScope.launch {
-            val deviceId = android.provider.Settings.Secure.getString(context.contentResolver, android.provider.Settings.Secure.ANDROID_ID)
+            val deviceId = Settings.Secure.getString(context.contentResolver, Settings.Secure.ANDROID_ID)
             when (val result = infoRepository.getUnreadMessages(deviceId)) {
-                is Resource.Success -> _unreadMessages.value = result.data ?: emptyList()
+                is Resource.Success -> {
+                    _unreadMessages.value = result.data ?: emptyList()
+                    _totalUnreadCount.intValue = _unreadMessages.value.size
+                }
                 else -> {}
             }
         }
@@ -536,13 +655,35 @@ class ChatViewModel @Inject constructor(
         _isSceneMode.value = enabled
     }
 
+    private val _isScreenRecording = mutableStateOf(false)
+    val isScreenRecording: State<Boolean> = _isScreenRecording
+
+    private val _isRecordingPaused = mutableStateOf(false)
+    val isRecordingPaused: State<Boolean> = _isRecordingPaused
+
+    fun startScreenRecord() {
+        _isScreenRecording.value = true
+        // Service handles logic
+    }
+
+    fun pauseScreenRecord() {
+        _isRecordingPaused.value = true
+    }
+
+    fun resumeScreenRecord() {
+        _isRecordingPaused.value = false
+    }
+
+    fun stopScreenRecord() {
+        _isScreenRecording.value = false
+        _isRecordingPaused.value = false
+    }
+
     fun clearChat() {
         viewModelScope.launch {
             repository.clearHistory()
             _messages.clear()
             _uniqueTrends.clear()
-            currentOffset = 0
-            isLastPage = false
         }
     }
 
@@ -557,19 +698,13 @@ class ChatViewModel @Inject constructor(
 
     fun nukeMainChat() {
         viewModelScope.launch {
-            // Delete all non-trend messages for current user
             val uid = repository.currentUserId
             repository.deleteNonTrendMessages(uid)
-            // No need to clear _messages if we're leaving the screen, 
-            // but we can for safety.
         }
     }
 
     fun clearSessionMessages() {
         _messages.clear()
-        currentOffset = 0
-        isLastPage = false
-        // No DB deletion, just UI session clear
     }
 
     fun deleteMessage(message: ChatMessage) {
@@ -596,7 +731,7 @@ class ChatViewModel @Inject constructor(
     fun approveSocialAction(draft: ChatMessage) {
         viewModelScope.launch {
             _isLoading.value = true
-            val deviceId = android.provider.Settings.Secure.getString(context.contentResolver, android.provider.Settings.Secure.ANDROID_ID)
+            val deviceId = Settings.Secure.getString(context.contentResolver, Settings.Secure.ANDROID_ID)
             val metadata = draft.socialMetadata
             
             val result = infoRepository.performSocialAction(
@@ -635,11 +770,17 @@ class ChatViewModel @Inject constructor(
 
     fun sendMessage(text: String, overrideAttachments: List<Uri>? = null, attachmentType: String = "text", trendTitle: String? = null) {
         val attachmentUris = overrideAttachments ?: _pendingAttachments.toList()
+        
+        // ⚠️ SCENE MODE VALIDATION
+        if (_isSceneMode.value && text.isBlank()) {
+            viewModelScope.launch { _errorEvents.emit("Video generation requires a descriptive prompt.") }
+            return
+        }
+        
         if (text.isBlank() && attachmentUris.isEmpty()) return
         
         val isVoiceRequest = attachmentType == "audio"
         
-        // 📍 Standardize Map Intel Trend Titles
         val activeTrend = if (trendTitle?.startsWith("Tactical Map:") == true || trendTitle?.startsWith("MAP_INTEL:") == true) {
              val rawLoc = trendTitle.replace("Tactical Map:", "").replace("MAP_INTEL:", "").trim()
              if (rawLoc.contains(",")) "MAP_INTEL: COORDINATES" else "MAP_INTEL: $rawLoc"
@@ -649,10 +790,16 @@ class ChatViewModel @Inject constructor(
 
         val isTrend = activeTrend != null
         
+        var enhancedText = text
+        val polygon = tacticalRepository.tacticalPolygon.value
+        if (polygon != null && activeTrend != null && activeTrend.startsWith("MAP_INTEL:")) {
+            enhancedText = "[TACTICAL_PERIMETER: $polygon]\n$text"
+        }
+
         if (_isSocialChat.value && _activeSocialContact.value != null) {
             viewModelScope.launch {
                 val contact = _activeSocialContact.value!!
-                val deviceId = android.provider.Settings.Secure.getString(context.contentResolver, android.provider.Settings.Secure.ANDROID_ID)
+                val deviceId = Settings.Secure.getString(context.contentResolver, Settings.Secure.ANDROID_ID)
                 val result = infoRepository.performSocialAction(
                     deviceId = deviceId,
                     type = "Direct Message",
@@ -680,7 +827,6 @@ class ChatViewModel @Inject constructor(
             trendTitle = activeTrend
         )
         
-        // 🚀 Fix: Immediate UI Echo - Add to list BEFORE network call
         _messages.add(userMessage)
 
         viewModelScope.launch {
@@ -690,7 +836,7 @@ class ChatViewModel @Inject constructor(
             repository.saveEntity(entity)
         }
         
-        val deviceId = android.provider.Settings.Secure.getString(context.contentResolver, android.provider.Settings.Secure.ANDROID_ID)
+        val deviceId = Settings.Secure.getString(context.contentResolver, Settings.Secure.ANDROID_ID)
         val imageUris = if (attachmentType == "image" || attachmentUris.isNotEmpty()) attachmentUris else null
         val audioUri = if (attachmentType == "audio" && attachmentUris.isNotEmpty()) attachmentUris[0] else null
         
@@ -705,16 +851,16 @@ class ChatViewModel @Inject constructor(
     fun syncSocials() {
         _isLoading.value = true
         viewModelScope.launch {
-            val deviceId = android.provider.Settings.Secure.getString(context.contentResolver, android.provider.Settings.Secure.ANDROID_ID)
+            val deviceId = Settings.Secure.getString(context.contentResolver, Settings.Secure.ANDROID_ID)
             when (val result = syncSocialsUseCase(deviceId)) {
-                is Resource.Success<com.example.mistreal.data.models.SocialSyncResponse> -> {
+                is Resource.Success<com.example.mistreal_mini.data.model.SocialSyncResponse> -> {
                     if (result.data?.summary == "CONNECTION_REQUIRED") {
                         _messages.add(ChatMessage(role = "assistant", content = "I don't have access to your social accounts yet. Please go to Settings and connect your profiles so I can sync your data.", provider = "system"))
                     } else {
                         _messages.add(ChatMessage(role = "assistant", content = "Sync Complete: ${result.data?.summary}", provider = "system"))
                     }
                 }
-                is Resource.Error<com.example.mistreal.data.models.SocialSyncResponse> -> {
+                is Resource.Error<com.example.mistreal_mini.data.model.SocialSyncResponse> -> {
                     if (result.message?.contains("CONNECTION_REQUIRED", ignoreCase = true) == true) {
                         _messages.add(ChatMessage(role = "assistant", content = "It looks like your social accounts aren't connected. Head over to Settings to link them.", provider = "system"))
                     } else {
@@ -731,15 +877,16 @@ class ChatViewModel @Inject constructor(
     fun performChatRequest(prompt: String, imageUris: List<Uri>?, audioUri: Uri?, deviceId: String?, isVoiceRequest: Boolean = false, trendTitle: String? = null) {
         _isLoading.value = true
         viewModelScope.launch {
-            // Include recent context for AI
             val history = _messages.takeLast(10).toList()
-            
-            // 🎭 DYNAMIC PERSONA RESOLUTION
             val activePersona = if (_currentPersona.value == "None") "" else _currentPersona.value
             
+            val systemPromptOverlay = if (_aiCustomName.value.isNotBlank()) {
+                "IDENTITY_OVERRIDE: Your designation is '${_aiCustomName.value}'. Always identify yourself by this name if asked."
+            } else ""
+
             val result = sendMessageUseCase(
                 context = context,
-                prompt = prompt,
+                prompt = if (systemPromptOverlay.isNotBlank()) "$systemPromptOverlay\n\n$prompt" else prompt,
                 persona = activePersona,
                 history = history,
                 provider = _selectedProvider.value,
@@ -752,20 +899,46 @@ class ChatViewModel @Inject constructor(
             when (result) {
                 is Resource.Success -> {
                     result.data?.let { response ->
+                        val content = response.content
+                        
+                        val blueprintRegex = Regex("\\[AI_BLUEPRINT: (.*?)\\]")
+                        blueprintRegex.find(content)?.let { match ->
+                            val geoJson = match.groupValues[1]
+                            tacticalRepository.addAiBlueprint(geoJson)
+                        }
+                        
+                        val markerRegex = Regex("\\[AI_MARKER: (.*?), (.*?), (.*?)\\]")
+                        markerRegex.findAll(content).forEach { match ->
+                            try {
+                                val lat = match.groupValues[1].toDouble()
+                                val lon = match.groupValues[2].toDouble()
+                                val label = match.groupValues[3]
+                                tacticalRepository.addPin(lat, lon, "AI: $label")
+                            } catch (e: Exception) {}
+                        }
+
+                        val feelingsRegex = Regex("\\[TRUE_FEELINGS: (.*?)\\]", RegexOption.DOT_MATCHES_ALL)
+                        val feelingsMatch = feelingsRegex.find(content)
+                        val trueFeelings = feelingsMatch?.groupValues?.get(1)
+                        val cleanContent = content
+                            .replace(blueprintRegex, "")
+                            .replace(markerRegex, "")
+                            .replace(feelingsRegex, "")
+                            .trim()
+
                         val assistantMsg = ChatMessage(
                             role = "assistant", 
-                            content = response.content, 
+                            content = cleanContent, 
                             provider = response.provider,
                             isTrend = trendTitle != null,
-                            trendTitle = trendTitle
+                            trendTitle = trendTitle,
+                            trueFeelings = trueFeelings
                         )
                         repository.saveMessage(assistantMsg)
-                        // _messages will be updated via observation
                         
-                        // 🎙️ TTS Logic: Respect strict enable/disable switch
                         if (_isTtsEnabled.value && (_isHandsFreeActive.value || isVoiceRequest)) {
-                            val cleanContent = TextSanitizer.sanitizeForTts(response.content)
-                            voiceManager.speak(cleanContent) {
+                            val speechContent = TextSanitizer.sanitizeForTts(cleanContent)
+                            voiceManager.speak(speechContent) {
                                 if (_isHandsFreeActive.value) {
                                     viewModelScope.launch { startListeningLoop() }
                                 }
@@ -798,20 +971,6 @@ class ChatViewModel @Inject constructor(
         }
     }
 
-    fun onVoiceReplyRecorded(uri: Uri?) {
-        _isListening.value = false
-        if (uri != null) {
-            sendMessage("", listOf(uri), "audio")
-        } else {
-            if (_isHandsFreeActive.value) {
-                viewModelScope.launch {
-                    voiceManager.speak("I couldn't hear that. Are you still there?") {
-                        viewModelScope.launch { startListeningLoop() }
-                    }
-                }
-            }
-        }
-    }
 
     fun onDistressDetected() {
         if (_guardianEnabled.value) {
@@ -823,10 +982,10 @@ class ChatViewModel @Inject constructor(
         }
     }
 
-    fun saveSettings(name: String, persona: String, delayMinutes: Int, guardianEnabled: Boolean? = null, contacts: List<com.example.mistreal_mini.data.api.EmergencyContact>? = null) {
+    fun saveSettings(name: String, persona: String, delayMinutes: Int, guardianEnabled: Boolean? = null, contacts: List<EmergencyContact>? = null) {
         viewModelScope.launch {
             _isLoading.value = true
-            val deviceId = android.provider.Settings.Secure.getString(context.contentResolver, android.provider.Settings.Secure.ANDROID_ID)
+            val deviceId = android.provider.Settings.Secure.getString(context.contentResolver, Settings.Secure.ANDROID_ID)
             
             val result = infoRepository.updateUserSettings(
                 deviceId = deviceId, 
@@ -850,10 +1009,15 @@ class ChatViewModel @Inject constructor(
         }
     }
 
-    fun readAloud(text: String) {
-        if (_isTtsEnabled.value) {
-            val cleanText = TextSanitizer.sanitizeForTts(text)
-            voiceManager.speak(cleanText)
+    fun secureAsScribe(sourcePost: com.example.mistreal_mini.data.model.SocialPost?, analysis: String) {
+        viewModelScope.launch {
+            scribeRepository.saveNote(
+                sourcePostId = sourcePost?.id,
+                platform = sourcePost?.platform,
+                author = sourcePost?.author,
+                content = sourcePost?.content,
+                analysis = analysis
+            )
         }
     }
 
@@ -866,6 +1030,13 @@ class ChatViewModel @Inject constructor(
                 provider = "system"
             )
             repository.saveMessage(noteMsg)
+            
+            // Also save to Scribe Repository for the persistent archive
+            scribeRepository.saveNote(
+                sourcePostId = "intel_${System.currentTimeMillis()}",
+                content = content,
+                analysis = "Manual archive from intelligence hub."
+            )
         }
     }
 
@@ -909,13 +1080,32 @@ class ChatViewModel @Inject constructor(
         viewModelScope.launch {
             fetchAvailablePlatforms()
             fetchUnread()
-            // Instant data hydration for common platforms
             listOf("instagram", "linkedin", "twitter", "x", "facebook", "whatsapp").forEach {
                 fetchContacts(it)
             }
-            // Background sync for Feeds and DMs
-            val deviceId = android.provider.Settings.Secure.getString(context.contentResolver, android.provider.Settings.Secure.ANDROID_ID)
+            val deviceId = Settings.Secure.getString(context.contentResolver, Settings.Secure.ANDROID_ID)
             syncSocialsUseCase(deviceId)
+        }
+    }
+
+    fun startScribe() {
+        _isScribing.value = true
+        scribeManager.startScribing()
+    }
+
+    fun stopScribe() {
+        _isScribing.value = false
+        scribeManager.stopScribing()
+    }
+
+    fun saveAsNote(message: ChatMessage) {
+        saveAsNote(message.content)
+    }
+
+    fun readAloud(text: String) {
+        if (_isTtsEnabled.value) {
+            val cleanText = TextSanitizer.sanitizeForTts(text)
+            voiceManager.speak(cleanText)
         }
     }
 }

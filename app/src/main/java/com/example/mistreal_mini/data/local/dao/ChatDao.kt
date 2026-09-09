@@ -1,5 +1,6 @@
 package com.example.mistreal_mini.data.local.dao
 
+import androidx.paging.PagingSource
 import androidx.room.Dao
 import androidx.room.Insert
 import androidx.room.OnConflictStrategy
@@ -18,8 +19,11 @@ interface ChatDao {
     @Query("SELECT * FROM chats WHERE userId = :userId AND isTrend = 1 ORDER BY timestamp DESC")
     fun getTrends(userId: String): Flow<List<ChatEntity>>
 
-    @Query("SELECT * FROM chats WHERE userId = :userId AND isTrend = 0 ORDER BY timestamp DESC LIMIT :limit OFFSET :offset")
-    suspend fun getPagedMessages(userId: String, limit: Int, offset: Int): List<ChatEntity>
+    @Query("SELECT * FROM chats WHERE userId = :userId AND isTrend = 0 ORDER BY timestamp DESC")
+    fun getPagedMessages(userId: String): PagingSource<Int, ChatEntity>
+
+    @Query("SELECT * FROM chats WHERE userId = :userId AND trendTitle = :trendTitle ORDER BY timestamp DESC")
+    fun getPagedTrendMessages(userId: String, trendTitle: String): PagingSource<Int, ChatEntity>
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertMessage(message: ChatEntity)

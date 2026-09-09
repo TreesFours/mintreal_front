@@ -17,11 +17,20 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.hilt.navigation.compose.hiltViewModel
+import com.example.mistreal_mini.ui.chat.ChatViewModel
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun SocialConnectionsScreen(onBack: () -> Unit) {
+fun SocialConnectionsScreen(
+    onBack: () -> Unit,
+    viewModel: ChatViewModel = hiltViewModel(),
+    settingsViewModel: com.example.mistreal_mini.ui.settings.SettingsViewModel = hiltViewModel()
+) {
     var searchQuery by remember { mutableStateOf("") }
+    val contacts by viewModel.recentContacts.collectAsStateWithLifecycle(initialValue = emptyList())
+    val platforms by settingsViewModel.availablePlatforms.collectAsStateWithLifecycle()
     
     Scaffold(
         topBar = {
@@ -33,8 +42,8 @@ fun SocialConnectionsScreen(onBack: () -> Unit) {
                     }
                 },
                 actions = {
-                    IconButton(onClick = { /* Add new */ }) {
-                        Icon(Icons.Default.PersonAdd, "Add Connection")
+                    IconButton(onClick = { viewModel.syncSocials() }) {
+                        Icon(Icons.Default.Sync, "Sync Platforms")
                     }
                 }
             )
@@ -53,26 +62,72 @@ fun SocialConnectionsScreen(onBack: () -> Unit) {
             LazyColumn(modifier = Modifier.fillMaxSize()) {
                 item {
                     Text(
-                        "Recent Connections", 
+                        "AVAILABLE PLATFORMS", 
                         modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
-                        style = MaterialTheme.typography.labelMedium,
-                        color = Color.Gray
+                        style = MaterialTheme.typography.labelSmall,
+                        color = Color.Gray,
+                        fontWeight = FontWeight.Black
                     )
                 }
                 
-                // Mock data for now
-                val mocks = listOf("Alpha", "Bravo", "Charlie", "Delta")
-                items(mocks.filter { it.contains(searchQuery, ignoreCase = true) }) { name ->
+                items(platforms) { platform ->
                     ListItem(
-                        headlineContent = { Text(name, fontWeight = FontWeight.Bold) },
-                        supportingContent = { Text("Last active 2h ago", fontSize = 12.sp) },
+                        headlineContent = { Text(platform.name) },
+                        leadingContent = { Text(platform.icon, fontSize = 24.sp) },
+                        trailingContent = {
+                            if (platform.isConnected) {
+                                Icon(Icons.Default.CheckCircle, null, tint = Color.Green)
+                            } else {
+                                Button(
+                                    onClick = { settingsViewModel.initiateSocialConnection(platform.id) },
+                                    shape = RoundedCornerShape(8.dp)
+                                ) {
+                                    Text("CONNECT", fontSize = 10.sp)
+                                }
+                            }
+                        }
+                    )
+                }
+
+                item { HorizontalDivider(modifier = Modifier.padding(16.dp)) }
+
+                item {
+                    Text(
+                        "RECENT CONTACTS", 
+                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+                        style = MaterialTheme.typography.labelSmall,
+                        color = Color.Gray,
+                        fontWeight = FontWeight.Black
+                    )
+                }
+                
+                val filteredContacts = contacts.filter { 
+                    it.name.contains(searchQuery, ignoreCase = true) || 
+                    it.platform.contains(searchQuery, ignoreCase = true)
+                }
+
+                if (filteredContacts.isEmpty()) {
+                    item {
+                        Box(modifier = Modifier.fillMaxWidth().padding(32.dp), contentAlignment = Alignment.Center) {
+                            Text("No connections found.", color = Color.Gray)
+                        }
+                    }
+                }
+
+                items(filteredContacts) { contact ->
+                    ListItem(
+                        headlineContent = { Text(contact.name, fontWeight = FontWeight.Bold) },
+                        supportingContent = { Text("${contact.platform.uppercase()} • Active recently", fontSize = 12.sp) },
                         leadingContent = {
                             Box(modifier = Modifier.size(40.dp).clip(CircleShape).background(MaterialTheme.colorScheme.primaryContainer), contentAlignment = Alignment.Center) {
-                                Text(name.take(1), fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+                                Text(contact.name.take(1), fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
                             }
                         },
                         trailingContent = {
-                            IconButton(onClick = { /* Message */ }) {
+                            IconButton(onClick = { 
+                                viewModel.switchChat(contact.name, contact.platform)
+                                onBack()
+                            }) {
                                 Icon(Icons.Default.Chat, null, tint = MaterialTheme.colorScheme.primary)
                             }
                         }

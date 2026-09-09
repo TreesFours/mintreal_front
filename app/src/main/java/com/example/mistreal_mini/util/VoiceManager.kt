@@ -10,17 +10,20 @@ import timber.log.Timber
 import java.util.*
 import javax.inject.Inject
 import javax.inject.Singleton
+import com.example.mistreal_mini.data.local.PreferenceManager
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.runBlocking
 
 @Singleton
 class VoiceManager @Inject constructor(
-    @ApplicationContext private val context: Context
+    @ApplicationContext private val context: Context,
+    private val preferenceManager: PreferenceManager
 ) : TextToSpeech.OnInitListener {
 
     private var tts: TextToSpeech? = null
     private var isInitialized = false
 
-    // 🎙️ Bridge for hands-free conversation mode: VoiceService emits recognized
-    // speech here; ChatViewModel collects it and forwards to the AI.
+    // ... recognized speech logic ...
     private val _transcripts = MutableSharedFlow<String>(extraBufferCapacity = 1)
     val transcripts: SharedFlow<String> = _transcripts.asSharedFlow()
 
@@ -38,15 +41,18 @@ class VoiceManager @Inject constructor(
 
     override fun onInit(status: Int) {
         if (status == TextToSpeech.SUCCESS) {
-            val result = tts?.setLanguage(Locale.US)
-            if (result == TextToSpeech.LANG_MISSING_DATA || result == TextToSpeech.LANG_NOT_SUPPORTED) {
-                Timber.e("Language not supported")
+            val voiceName = runBlocking { preferenceManager.ttsVoiceName.first() }
+            val selectedVoice = tts?.voices?.find { it.name == voiceName }
+            
+            if (selectedVoice != null) {
+                tts?.voice = selectedVoice
             } else {
-                isInitialized = true
-                // 🚀 SPEED PATCH: Make AI sound more natural/conversational
-                tts?.setSpeechRate(1.2f)
-                tts?.setPitch(1.0f)
+                tts?.setLanguage(Locale.US)
             }
+            
+            isInitialized = true
+            tts?.setSpeechRate(1.2f)
+            tts?.setPitch(1.0f)
         }
     }
 

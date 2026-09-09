@@ -1,31 +1,61 @@
 package com.example.mistreal_mini.data.repository
 
+import android.content.Context
+import android.provider.Settings
 import com.example.mistreal_mini.data.Resource
 import com.example.mistreal_mini.data.api.InfoApiService
 import com.example.mistreal_mini.data.api.WeatherResponse
 import com.example.mistreal_mini.data.api.NewsResponse
-import com.example.mistreal.data.models.SocialSyncResponse
+import com.example.mistreal_mini.data.model.SocialSyncResponse
 import com.example.mistreal_mini.data.api.SocialPlatformResponse
+import com.example.mistreal_mini.data.api.CelestialVectorResponse
+import com.example.mistreal_mini.data.repository.AuthRepository
+import dagger.hilt.android.qualifiers.ApplicationContext
 import javax.inject.Inject
 import javax.inject.Singleton
 
 @Singleton
 class InfoRepository @Inject constructor(
-    private val api: InfoApiService
+    private val api: InfoApiService,
+    private val authRepository: AuthRepository,
+    @ApplicationContext private val context: Context
 ) {
+    private val deviceId: String
+        get() = Settings.Secure.getString(context.contentResolver, Settings.Secure.ANDROID_ID)
+
     suspend fun getWeather(lat: Double, lon: Double): Resource<WeatherResponse> {
         return try {
-            Resource.Success(api.getWeather(lat, lon))
+            val firebaseUid = authRepository.currentUser?.uid
+            Resource.Success(api.getWeather(lat, lon, deviceId, firebaseUid))
         } catch (e: Exception) {
             Resource.Error(e.message ?: "Weather error")
         }
     }
 
-    suspend fun getNews(category: String?, location: String?): Resource<NewsResponse> {
+    suspend fun getNews(category: String?, location: String?, fastLoad: Boolean = false): Resource<NewsResponse> {
         return try {
-            Resource.Success(api.getNews(category, location))
+            val firebaseUid = authRepository.currentUser?.uid
+            Resource.Success(api.getNews(category, location, firebaseUid, fastLoad))
         } catch (e: Exception) {
             Resource.Error(e.message ?: "News error")
+        }
+    }
+
+    suspend fun togglePin(article: com.example.mistreal_mini.data.api.Article): Resource<Boolean> {
+        return try {
+            val firebaseUid = authRepository.currentUser?.uid ?: return Resource.Error("Auth required")
+            val isCurrentlyPinned = article.isPinned ?: false
+            val request = com.example.mistreal_mini.data.api.PinIntelRequest(
+                firebaseUid = firebaseUid,
+                itemTitle = article.title,
+                itemUrl = article.url,
+                itemType = article.type ?: "news"
+            )
+            val response = if (isCurrentlyPinned) api.unpinIntel(request) else api.pinIntel(request)
+            if (response["success"] == true) Resource.Success(true)
+            else Resource.Error("Pin action failed")
+        } catch (e: Exception) {
+            Resource.Error(e.message ?: "Network error")
         }
     }
 
@@ -76,7 +106,7 @@ class InfoRepository @Inject constructor(
 
     suspend fun updateLocation(deviceId: String, lat: Double, lon: Double): Resource<Boolean> {
         return try {
-            val response = api.updateLocation(com.example.mistreal_mini.data.api.LocationRequest(deviceId, lat, lon))
+            val response = api.updateLocation(com.example.mistreal_mini.data.api.LocationRequest(deviceId, authRepository.currentUser?.uid, lat, lon))
             if (response.success) Resource.Success(true)
             else Resource.Error(response.error ?: "Location update failed")
         } catch (e: Exception) {
@@ -96,7 +126,7 @@ class InfoRepository @Inject constructor(
         return try {
             val response = api.updateUserSettings(
                 com.example.mistreal_mini.data.api.UserSettingsRequest(
-                    deviceId, userName, aiPersona, aiAudience, autoReplyDelay, guardianEnabled, emergencyContacts
+                    deviceId, authRepository.currentUser?.uid, userName, aiPersona, aiAudience, autoReplyDelay, guardianEnabled, emergencyContacts
                 )
             )
             if (response.success) Resource.Success(true)
@@ -188,7 +218,7 @@ class InfoRepository @Inject constructor(
         return try {
             val response = api.sendEmergencyAlert(
                 com.example.mistreal_mini.data.api.EmergencyAlertRequest(
-                    deviceId, latitude, longitude, distressSignature
+                    deviceId, authRepository.currentUser?.uid, latitude, longitude, distressSignature
                 )
             )
             if (response.success) Resource.Success(true)
@@ -198,9 +228,9 @@ class InfoRepository @Inject constructor(
         }
     }
 
-    suspend fun getCelestialVectors(bodyId: String): Resource<com.example.mistreal_mini.data.api.CelestialVectorResponse> {
+    suspend fun getCelestialVectors(bodyId: String, lat: Double?, lon: Double?): Resource<CelestialVectorResponse> {
         return try {
-            Resource.Success(api.getCelestialVectors(bodyId))
+            Resource.Success(api.getCelestialVectors(bodyId, lat, lon))
         } catch (e: Exception) {
             Resource.Error(e.message ?: "Celestial data failure")
         }

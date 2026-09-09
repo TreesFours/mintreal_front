@@ -34,22 +34,25 @@ class SplashViewModel @Inject constructor(
     private fun performWarmupSequence() {
         viewModelScope.launch {
             try {
-                _statusText.value = "Waking up backend..."
+                _statusText.value = "Waking backend..."
                 aiRepository.warmupBackend()
 
                 val userId = authRepository.currentUser?.uid ?: "guest"
 
-                _statusText.value = "Loading your previous chats..."
+                _statusText.value = "Loading your stuff..."
                 val chatCount = try { chatDao.getUniqueTrendCount(userId) } catch (e: Exception) { 0 }
-
-                _statusText.value = "Loading your intelligence feeds..."
                 val intelCount = try { savedIntelDao.getIntelCount(userId) } catch (e: Exception) { 0 }
 
-                _statusText.value = "All systems synchronized ($chatCount chats, $intelCount intelligence feeds ready)..."
+                if (chatCount == 0 && intelCount == 0) {
+                    _statusText.value = "Welcome! System ready for first deployment..."
+                } else {
+                    _statusText.value = "Load complete. Synchronization successful..."
+                }
+
                 kotlinx.coroutines.delay(1200)
                 _isReady.value = true
             } catch (e: Exception) {
-                _statusText.value = "Backend awake. Initializing session..."
+                _statusText.value = "Backend awake. Deployment ready..."
                 kotlinx.coroutines.delay(1000)
                 _isReady.value = true
             }

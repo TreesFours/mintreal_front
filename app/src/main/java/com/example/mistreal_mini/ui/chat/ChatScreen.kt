@@ -1,13 +1,3 @@
-/** 🛡️ AI SYSTEM PROTOCOL 🛡️
- * SOURCE OF TRUTH: master_system_map.artifact.md
- * 
- * 🚀 FUNCTIONAL PIPELINE:
- * [Input]  <- Multi-modal commands (Text, Voice, Image, Files) via Operator
- * [Process] <- Processes natural language, executes social drafts, and manages audio synthesis
- * [Output] -> Encrypted chat records; triggers backend social actions and voice feedback
- *
- * ⚠️ MANDATORY: Never delete history. Only ADD updates/fixes to the Master Map table.
- */
 package com.example.mistreal_mini.ui.chat
 
 import android.app.Activity
@@ -17,57 +7,43 @@ import android.speech.RecognizerIntent
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.*
+import androidx.compose.animation.core.*
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.verticalScroll
-import androidx.compose.foundation.text.KeyboardActions
-import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
-import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
+import androidx.paging.compose.collectAsLazyPagingItems
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.platform.LocalFocusManager
-import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.core.content.FileProvider
 import androidx.hilt.navigation.compose.hiltViewModel
-import coil.compose.AsyncImage
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.mistreal_mini.data.model.ChatMessage
-import com.example.mistreal_mini.service.VoiceService
-import com.example.mistreal_mini.util.ScreenshotHelper
-import com.example.mistreal_mini.util.VoiceRecorder
-import com.example.mistreal_mini.util.NoteExporter
+import com.example.mistreal_mini.ui.chat.components.*
 import com.example.mistreal_mini.ui.util.AiInsightPopup
 import com.example.mistreal_mini.ui.util.NukeIcon
-import com.example.mistreal_mini.ui.util.LinkableText
-import com.example.mistreal_mini.ui.util.VideoPlayer
+import com.example.mistreal_mini.util.ScreenshotHelper
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
 import java.io.File
-import com.example.mistreal_mini.data.api.SocialContact
-import com.example.mistreal_mini.data.api.UnreadItem
-import androidx.compose.foundation.text.selection.SelectionContainer
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -85,24 +61,29 @@ fun ChatScreen(
     val isLoading by viewModel.isLoading
     val isListening by viewModel.isListening
     val isHandsFree by viewModel.isHandsFreeActive
-    val selectedProvider by viewModel.selectedProvider
     val currentChatPartner by viewModel.currentChatPartner
+    val pagedMessages = viewModel.pagedMessages.collectAsLazyPagingItems()
     val listState = rememberLazyListState()
     val snackbarHostState = remember { SnackbarHostState() }
     val focusManager = LocalFocusManager.current
 
-    // 🛡️ AI NOTE: If you overhaul or fix logic here, log it in the "History & Notes" column of the Master Map.
-    // Pagination logic
-    val isScrollingUp = listState.isScrollInProgress && listState.firstVisibleItemIndex == 0
-    LaunchedEffect(isScrollingUp) {
-        if (isScrollingUp) {
-            viewModel.loadMoreMessages()
-        }
-    }
+    val isRecording by viewModel.isRecording
+    val recordedFile by viewModel.recordedFile
+    val recordingDuration by viewModel.recordingDuration
+    val isPlayingBack by viewModel.isPlayingBack
+    
+    val bearing by viewModel.bearing
+    val orientation by viewModel.orientation
 
-    LaunchedEffect(messages.size) {
-        if (messages.isNotEmpty()) {
-            listState.animateScrollToItem(messages.size - 1)
+    LaunchedEffect(messages.size, pagedMessages.itemCount) {
+        if (viewModel.isSocialChat.value) {
+            if (messages.isNotEmpty()) {
+                listState.animateScrollToItem(messages.size - 1)
+            }
+        } else {
+            if (pagedMessages.itemCount > 0) {
+                listState.animateScrollToItem(0)
+            }
         }
     }
 
@@ -119,29 +100,11 @@ fun ChatScreen(
     var screenshotUri by remember { mutableStateOf<Uri?>(null) }
     var cameraUri by remember { mutableStateOf<Uri?>(null) }
 
-    val voiceRecorder = remember { VoiceRecorder(context) }
-    var isRecording by remember { mutableStateOf(false) }
-    var recordedFile by remember { mutableStateOf<File?>(null) }
-    var recordingDuration by remember { mutableIntStateOf(0) }
-    var isPlayingBack by remember { mutableStateOf(false) }
 
-    // ⏱️ Recording Timer logic
-    LaunchedEffect(isRecording) {
-        if (isRecording) {
-            recordingDuration = 0
-            while (isRecording) {
-                kotlinx.coroutines.delay(1000)
-                recordingDuration++
-            }
-        }
-    }
-    
-    // 📝 Scribe State
-    var showScribeResult by remember { mutableStateOf<String?>(null) }
-    val scribeLauncher = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
-        if (result.resultCode == Activity.RESULT_OK) {
-            val spokenText = result.data?.getStringArrayListExtra(RecognizerIntent.EXTRA_RESULTS)?.firstOrNull()
-            showScribeResult = spokenText
+    var videoUri by remember { mutableStateOf<Uri?>(null) }
+    val videoLauncher = rememberLauncherForActivityResult(ActivityResultContracts.CaptureVideo()) { success ->
+        if (success && videoUri != null) {
+            viewModel.addPendingAttachment(videoUri!!)
         }
     }
 
@@ -170,6 +133,22 @@ fun ChatScreen(
         cameraLauncher.launch(uri)
     }
 
+    fun captureVideo() {
+        val file = File(context.cacheDir, "camera_capture_${System.currentTimeMillis()}.mp4")
+        val uri = FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", file)
+        videoUri = uri
+        videoLauncher.launch(uri)
+    }
+
+    val isScribing by viewModel.isScribing
+    val scribeText by viewModel.scribeText.collectAsStateWithLifecycle()
+
+    LaunchedEffect(scribeText) {
+        if (scribeText.isNotBlank()) {
+            textState = scribeText
+        }
+    }
+
     Scaffold(
         modifier = Modifier.imePadding(),
         snackbarHost = { SnackbarHost(snackbarHostState) },
@@ -177,14 +156,113 @@ fun ChatScreen(
             TopAppBar(
                 title = { 
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        IconButton(onClick = { showContactList = true }) { Icon(Icons.Default.Menu, "Contacts") }
+                        // Platform/AI Logo
+                        val platform = viewModel.currentChatPartnerPlatform.value
+                        val logoIcon = when(platform.lowercase()) {
+                            "ai" -> Icons.Default.SmartToy
+                            "whatsapp" -> Icons.Default.Chat
+                            "twitter", "x" -> Icons.Default.Public
+                            "linkedin" -> Icons.Default.Business
+                            "facebook" -> Icons.Default.Facebook
+                            "instagram" -> Icons.Default.PhotoCamera
+                            else -> Icons.Default.Link
+                        }
+                        
+                        Box(
+                            modifier = Modifier
+                                .size(32.dp)
+                                .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.1f), CircleShape),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(logoIcon, null, modifier = Modifier.size(18.dp), tint = MaterialTheme.colorScheme.primary)
+                        }
+                        
+                        Spacer(modifier = Modifier.width(12.dp))
+                        
                         Column {
-                            val partnerText = viewModel.currentTrendTitle.value ?: currentChatPartner
-                            Text(partnerText, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-                            Text(viewModel.currentChatPartnerStatus.value, 
-                                style = MaterialTheme.typography.labelSmall, 
-                                color = if (viewModel.currentChatPartnerStatus.value == "Active") Color.Green else Color.Gray
+                            val partnerText = viewModel.currentTrendTitle.value ?: if (platform == "ai") viewModel.aiCustomName.value else currentChatPartner
+                            Text(
+                                text = partnerText.uppercase(), 
+                                style = MaterialTheme.typography.labelLarge, 
+                                fontWeight = FontWeight.Black,
+                                maxLines = 1,
+                                overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
                             )
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Text(viewModel.currentChatPartnerStatus.value, 
+                                    style = MaterialTheme.typography.labelSmall, 
+                                    color = if (viewModel.currentChatPartnerStatus.value == "Active") Color.Green else Color.Gray,
+                                    fontSize = 8.sp
+                                )
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text(
+                                    text = "$orientation | ${bearing.toInt()}°",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.primary,
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 8.sp
+                                )
+                            }
+                        }
+                    }
+                },
+                navigationIcon = {
+                    Box {
+                        val unreadCount by viewModel.totalUnreadCount
+                        val infiniteTransition = rememberInfiniteTransition(label = "drawer_hint")
+                        
+                        // 🚀 DRAWER HINT ANIMATION: Subtle pulse when unread messages exist
+                        val scale by infiniteTransition.animateFloat(
+                            initialValue = 1f,
+                            targetValue = if (unreadCount > 0) 1.15f else 1f,
+                            animationSpec = infiniteRepeatable(
+                                animation = tween(1200, easing = FastOutSlowInEasing),
+                                repeatMode = RepeatMode.Reverse
+                            ),
+                            label = "scale"
+                        )
+                        
+                        IconButton(
+                            onClick = { showContactList = true },
+                            modifier = Modifier.graphicsLayer(scaleX = scale, scaleY = scale)
+                        ) { 
+                            Box(contentAlignment = Alignment.Center) {
+                                Icon(
+                                    imageVector = if (unreadCount > 0) Icons.Default.NotificationsActive else Icons.Default.Menu, 
+                                    contentDescription = "Contacts",
+                                    tint = if (unreadCount > 0) MaterialTheme.colorScheme.primary else LocalContentColor.current
+                                )
+                                
+                                if (unreadCount > 0) {
+                                    // 🚀 DRAWER PULL HINT: Subtle arrow animation
+                                    val offsetX by infiniteTransition.animateFloat(
+                                        initialValue = 0f,
+                                        targetValue = 10f,
+                                        animationSpec = infiniteRepeatable(
+                                            animation = tween(800, easing = FastOutSlowInEasing),
+                                            repeatMode = RepeatMode.Reverse
+                                        ),
+                                        label = "arrow_offset"
+                                    )
+                                    Icon(
+                                        Icons.AutoMirrored.Filled.KeyboardArrowRight, 
+                                        null, 
+                                        modifier = Modifier.padding(start = 24.dp).offset(x = offsetX.dp).size(16.dp),
+                                        tint = MaterialTheme.colorScheme.primary
+                                    )
+                                }
+                            }
+                        }
+                        
+                        if (unreadCount > 0) {
+                            Badge(
+                                modifier = Modifier
+                                    .align(Alignment.TopEnd)
+                                    .padding(4.dp),
+                                containerColor = Color.Red
+                            ) {
+                                Text(unreadCount.toString(), color = Color.White, fontSize = 9.sp)
+                            }
                         }
                     }
                 },
@@ -194,13 +272,14 @@ fun ChatScreen(
                             Icon(Icons.Default.Close, "Exit Trend", tint = Color.Red) 
                         }
                     }
-                    IconButton(onClick = onArchiveClick) { Icon(Icons.Default.History, "History") }
-                    IconButton(onClick = onDashboardClick) { Icon(Icons.Default.Dashboard, "Dashboard") }
-                    IconButton(onClick = { viewModel.syncSocials() }) { Icon(Icons.Default.Sync, "Sync") }
+                    IconButton(onClick = onDashboardClick) { 
+                        Icon(Icons.Default.Psychology, "Intelligence Hub", tint = MaterialTheme.colorScheme.primary) 
+                    }
+                    IconButton(onClick = { viewModel.refreshSocialContacts() }) { Icon(Icons.Default.Sync, "Sync") }
                     IconButton(onClick = onSettingsClick) { Icon(Icons.Default.Settings, "Settings") }
                     IconButton(onClick = { showNukeConfirm = true }) { NukeIcon() }
                 },
-                colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.8f))
+                colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.95f))
             )
         },
         bottomBar = {
@@ -210,75 +289,62 @@ fun ChatScreen(
                     duration = recordingDuration,
                     recordedFile = recordedFile,
                     isPlayingBack = isPlayingBack,
-                    onStopRecording = {
-                        isRecording = false
-                        voiceRecorder.stopRecording()
-                    },
-                    onDelete = {
-                        recordedFile?.let { voiceRecorder.deleteRecording(it) }
-                        recordedFile = null
-                        isRecording = false
-                    },
-                    onPlay = {
-                        recordedFile?.let {
-                            isPlayingBack = true
-                            voiceRecorder.playRecording(it) { isPlayingBack = false }
-                        }
-                    },
-                    onSend = {
-                        recordedFile?.let {
-                            viewModel.sendAttachments(listOf(Uri.fromFile(it)), "audio")
-                        }
-                        recordedFile = null
-                    },
-                    onCancel = {
-                        recordedFile?.let { voiceRecorder.deleteRecording(it) }
-                        recordedFile = null
-                        isRecording = false
-                    }
+                    onStopRecording = { viewModel.stopRecording() },
+                    onDelete = { viewModel.deleteRecording() },
+                    onPlay = { viewModel.playRecording() },
+                    onSend = { viewModel.sendVoiceMessage() },
+                    onCancel = { viewModel.cancelRecording() }
                 )
             } else {
                 ChatInputBar(
                     text = textState,
-                            onTextChange = { textState = it },
-                            onSend = { 
-                                viewModel.sendMessage(textState)
-                                textState = "" 
-                                focusManager.clearFocus()
-                            },
-                            onScreenshotClick = { 
-                                (context as? Activity)?.let { activity ->
-                                    coroutineScope.launch {
-                                        screenshotUri = com.example.mistreal_mini.util.ScreenshotHelper.captureAndSave(activity)
-                                    }
-                                }
-                            },
-                            onCameraClick = { captureImage() },
-                            onFileClick = { filePickerLauncher.launch("*/*") },
-                            onVoiceClick = { 
-                                if (viewModel.isSttEnabled.value) {
-                                    isRecording = true
-                                    recordedFile = voiceRecorder.startRecording()
-                                } else {
-                                    coroutineScope.launch { snackbarHostState.showSnackbar("Voice input disabled in settings") }
-                                }
-                            },
-                            onScribeClick = {
-                                val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
-                                    putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
-                                }
-                                scribeLauncher.launch(intent)
-                            },
-                            onDraftClick = if (viewModel.isSocialChat.value) { 
-                                { viewModel.draftSocialReply(textState); textState = "" } 
-                            } else null,
-                            isLoading = isLoading,
-                            pendingAttachments = viewModel.pendingAttachments,
-                            onRemoveAttachment = { viewModel.removePendingAttachment(it) },
-                            isSceneMode = viewModel.isSceneMode.value,
-                            onToggleSceneMode = { viewModel.toggleSceneMode(it) }
-                        )
-                    }
+                    onTextChange = { textState = it },
+                    onSend = { 
+                        viewModel.sendMessage(textState)
+                        textState = "" 
+                        focusManager.clearFocus()
+                    },
+                    onScreenshotClick = { 
+                        (context as? Activity)?.let { activity ->
+                            coroutineScope.launch {
+                                screenshotUri = ScreenshotHelper.captureAndSave(activity)
+                            }
+                        }
+                    },
+                    onScreenRecordClick = {
+                        viewModel.startScreenRecord()
+                        val recordIntent = Intent(context, com.example.mistreal_mini.service.recording.ScreenRecordService::class.java).apply {
+                            action = "START"
+                        }
+                        context.startForegroundService(recordIntent)
+                    },
+                    onCameraClick = { captureImage() },
+                    onVideoClick = { captureVideo() },
+                    onFileClick = { filePickerLauncher.launch("*/*") },
+                    onVoiceClick = { viewModel.startRecording() },
+                    onConversationClick = { viewModel.startHandsFreeLoop(textState) },
+                    onScribeClick = {
+                        if (isScribing) viewModel.stopScribe() else viewModel.startScribe()
+                    },
+                    isScribing = isScribing,
+                    onClearScribe = { textState = "" },
+                    onSaveScribe = { 
+                        viewModel.sendMessage(textState)
+                        textState = ""
+                        viewModel.stopScribe()
+                    },
+                    onDraftClick = if (viewModel.isSocialChat.value) { 
+                        { viewModel.draftSocialReply(textState); textState = "" } 
+                    } else null,
+                    isLoading = isLoading,
+                    pendingAttachments = viewModel.pendingAttachments,
+                    onRemoveAttachment = { viewModel.removePendingAttachment(it) },
+                    isSceneMode = viewModel.isSceneMode.value,
+                    onToggleSceneMode = { viewModel.toggleSceneMode(it) },
+                    isAutoReplyEnabled = viewModel.guardianEnabled.value,
+                    onToggleAutoReply = { viewModel.setGuardianEnabled(it) }
+                )
+            }
         }
     ) { padding ->
         Box(modifier = Modifier
@@ -290,6 +356,7 @@ fun ChatScreen(
         ) {
             LazyColumn(
                 state = listState, 
+                reverseLayout = !viewModel.isSocialChat.value,
                 modifier = Modifier
                     .fillMaxSize()
                     .padding(horizontal = 16.dp)
@@ -299,11 +366,9 @@ fun ChatScreen(
                                 val isTopHalf = offset.y < size.height / 2
                                 coroutineScope.launch {
                                     if (isTopHalf) {
-                                        listState.animateScrollToItem(0)
+                                        listState.animateScrollToItem(if (viewModel.isSocialChat.value) 0 else pagedMessages.itemCount)
                                     } else {
-                                        if (messages.isNotEmpty()) {
-                                            listState.animateScrollToItem(messages.size - 1)
-                                        }
+                                        listState.animateScrollToItem(0)
                                     }
                                 }
                             },
@@ -311,25 +376,69 @@ fun ChatScreen(
                         )
                     }
             ) {
-                item { Spacer(modifier = Modifier.height(8.dp)) }
-                items(messages) { msg -> 
-                    ChatBubble(
-                        message = msg,
-                        viewModel = viewModel,
-                        onAiInsight = { text ->
-                            insightContext = text
-                            showInsightPopup = true
-                        },
-                        onReadAloud = { text, mode ->
-                            when (mode) {
-                                InteractionMode.SINGLE -> viewModel.readAloud(text)
-                                InteractionMode.HANDS_FREE -> viewModel.startHandsFreeLoop(text)
-                                InteractionMode.RADIO -> viewModel.startRadioMode(text)
-                            }
-                        },
-                        snackbarHostState = snackbarHostState,
-                        coroutineScope = coroutineScope
-                    ) 
+                if (viewModel.isSocialChat.value) {
+                    if (messages.isEmpty() && !isLoading) {
+                        item {
+                            EmptyChatState(
+                                title = "No messages with $currentChatPartner",
+                                subtitle = "Start a conversation to see it here."
+                            )
+                        }
+                    }
+                    item { Spacer(modifier = Modifier.height(8.dp)) }
+                    items(messages) { msg -> 
+                        ChatBubble(
+                            message = msg,
+                            viewModel = viewModel,
+                            onAiInsight = { text ->
+                                insightContext = text
+                                showInsightPopup = true
+                            },
+                            onReadAloud = { text, mode ->
+                                when (mode) {
+                                    InteractionMode.SINGLE -> viewModel.readAloud(text)
+                                    InteractionMode.HANDS_FREE -> viewModel.startHandsFreeLoop(text)
+                                    InteractionMode.RADIO -> viewModel.startRadioMode(text)
+                                }
+                            },
+                            snackbarHostState = snackbarHostState,
+                            coroutineScope = coroutineScope,
+                            targetLang = viewModel.defaultTranslationLang.value
+                        )
+                    }
+                } else {
+                    if (pagedMessages.itemCount == 0 && !isLoading) {
+                        item {
+                            EmptyChatState(
+                                title = "Welcome to Mistreal",
+                                subtitle = "Deploy your first intelligence query or start a chat."
+                            )
+                        }
+                    }
+                    item { Spacer(modifier = Modifier.height(8.dp)) }
+                    items(count = pagedMessages.itemCount) { index ->
+                        val msg = pagedMessages[index]
+                        if (msg != null) {
+                            ChatBubble(
+                                message = msg,
+                                viewModel = viewModel,
+                                onAiInsight = { text ->
+                                    insightContext = text
+                                    showInsightPopup = true
+                                },
+                                onReadAloud = { text, mode ->
+                                    when (mode) {
+                                        InteractionMode.SINGLE -> viewModel.readAloud(text)
+                                        InteractionMode.HANDS_FREE -> viewModel.startHandsFreeLoop(text)
+                                        InteractionMode.RADIO -> viewModel.startRadioMode(text)
+                                    }
+                                },
+                                snackbarHostState = snackbarHostState,
+                                coroutineScope = coroutineScope,
+                                targetLang = viewModel.defaultTranslationLang.value
+                            )
+                        }
+                    }
                 }
                 if (isLoading) item { TypingIndicator() }
                 item { Spacer(modifier = Modifier.height(16.dp)) }
@@ -428,687 +537,24 @@ fun ChatScreen(
                 )
             }
             
-            // 📝 Scribe Result Dialog
-            if (showScribeResult != null) {
-                AlertDialog(
-                    onDismissRequest = { showScribeResult = null },
-                    title = { Text("Speech Transcribed") },
-                    text = { 
-                        Column {
-                            OutlinedTextField(
-                                value = showScribeResult!!,
-                                onValueChange = { showScribeResult = it },
-                                modifier = Modifier.fillMaxWidth().heightIn(max = 200.dp)
-                            )
-                            Spacer(modifier = Modifier.height(8.dp))
-                            Text("Would you like to save this as a local note?", style = MaterialTheme.typography.labelSmall)
-                        }
-                    },
-                    confirmButton = {
-                        Row {
-                            TextButton(onClick = { 
-                                viewModel.saveAsNote(showScribeResult!!)
-                                coroutineScope.launch { snackbarHostState.showSnackbar("Note saved to Scribe Records") }
-                                showScribeResult = null
-                            }) { Text("Secure Note") }
-                            
-                            Button(onClick = { 
-                                viewModel.sendMessage(showScribeResult!!)
-                                showScribeResult = null
-                            }) { Text("Send to AI") }
-                        }
-                    },
-                    dismissButton = {
-                        TextButton(onClick = { showScribeResult = null }) { Text("Discard") }
-                    }
-                )
-            }
 
             if (showContactList) {
-                var selectedCategory by remember { mutableStateOf("ai") }
-                var searchPlatformQuery by remember { mutableStateOf("") }
-                val contacts by viewModel.socialContacts
-                val unreadItems by viewModel.unreadMessages
-                
-                val recentContacts by viewModel.recentContacts.collectAsState(initial = emptyList())
-                val emergencyContacts by viewModel.emergencyContacts.collectAsState(initial = emptyList())
-                var rollingOffset by remember { mutableIntStateOf(0) }
-                val visibleSocials = recentContacts.drop(rollingOffset).take(5)
-
-                ModalNavigationDrawer(
-                    drawerContent = {
-                        ModalDrawerSheet {
-                            Row(modifier = Modifier.fillMaxSize()) {
-                                Column(
-                                    modifier = Modifier
-                                        .fillMaxHeight()
-                                        .width(75.dp)
-                                        .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f)),
-                                    horizontalAlignment = Alignment.CenterHorizontally
-                                ) {
-                                    Spacer(modifier = Modifier.height(16.dp))
-                                    CategoryIcon(Icons.Default.Shield, "SOS", selectedCategory == "emergency") { 
-                                        selectedCategory = "emergency"
-                                    }
-                                    Divider(modifier = Modifier.padding(horizontal = 8.dp, vertical = 8.dp))
-                                    CategoryIcon(Icons.Default.Psychology, "AI", selectedCategory == "ai") { 
-                                        selectedCategory = "ai"
-                                    }
-                                    Spacer(modifier = Modifier.height(8.dp))
-                                    if (rollingOffset > 0) {
-                                        IconButton(onClick = { rollingOffset-- }) { Icon(Icons.Default.KeyboardArrowUp, null) }
-                                    }
-                                    visibleSocials.forEach { contact ->
-                                        CategoryIcon(
-                                            icon = when(contact.platform.lowercase()) {
-                                                "whatsapp" -> Icons.Default.Chat
-                                                "instagram" -> Icons.Default.CameraAlt
-                                                else -> Icons.Default.Link
-                                            },
-                                            label = contact.name.take(4),
-                                            isSelected = selectedCategory == contact.platform
-                                        ) {
-                                            selectedCategory = contact.platform
-                                            viewModel.fetchContacts(contact.platform)
-                                        }
-                                    }
-                                    if (recentContacts.size > rollingOffset + 5) {
-                                        IconButton(onClick = { rollingOffset++ }) { Icon(Icons.Default.KeyboardArrowDown, null) }
-                                    }
-                                    Spacer(modifier = Modifier.weight(1f))
-                                    CategoryIcon(Icons.Default.AllInbox, "Inbox", selectedCategory == "unread") { 
-                                        selectedCategory = "unread"
-                                        viewModel.fetchUnread()
-                                    }
-                                }
-
-                                Column(modifier = Modifier.fillMaxSize().padding(16.dp)) {
-                                    Text(
-                                        text = selectedCategory.uppercase(),
-                                        style = MaterialTheme.typography.titleMedium,
-                                        fontWeight = FontWeight.Bold,
-                                        color = MaterialTheme.colorScheme.primary
-                                    )
-                                    
-                                    if (selectedCategory != "ai" && selectedCategory != "unread" && selectedCategory != "emergency") {
-                                        OutlinedTextField(
-                                            value = searchPlatformQuery,
-                                            onValueChange = { 
-                                                searchPlatformQuery = it
-                                                if (it.length >= 3) viewModel.searchContacts(selectedCategory, it)
-                                            },
-                                            modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
-                                            placeholder = { Text("Search...", fontSize = 12.sp) },
-                                            leadingIcon = { Icon(Icons.Default.Search, null, modifier = Modifier.size(16.dp)) },
-                                            shape = RoundedCornerShape(8.dp)
-                                        )
-                                    }
-
-                                    Spacer(modifier = Modifier.height(8.dp))
-                                    
-                                    LazyColumn {
-                                        if (selectedCategory == "unread") {
-                                            items(unreadItems) { item ->
-                                                UnreadListItem(item) { 
-                                                    viewModel.switchChat(item.sender, item.platform)
-                                                    showContactList = false 
-                                                }
-                                            }
-                                        } else if (selectedCategory == "emergency") {
-                                            items(emergencyContacts) { contact ->
-                                                ListItem(
-                                                    headlineContent = { Text(contact.name) },
-                                                    leadingContent = { Icon(Icons.Default.ContactPhone, null, tint = Color.Red) },
-                                                    modifier = Modifier.clickable { 
-                                                        viewModel.switchChat(contact.name, contact.platform)
-                                                        showContactList = false 
-                                                    }
-                                                )
-                                            }
-                                        } else if (selectedCategory == "ai") {
-                                            items(viewModel.availableProviders) { model ->
-                                                NavigationDrawerItem(
-                                                    label = { Text(model.name) },
-                                                    selected = viewModel.selectedProvider.value == model.id,
-                                                    onClick = { 
-                                                        viewModel.setProvider(model.id)
-                                                        viewModel.switchChat(model.name, "ai")
-                                                        showContactList = false 
-                                                    }
-                                                )
-                                            }
-                                        } else {
-                                            items(contacts) { contact ->
-                                                ContactListItem(contact) {
-                                                    viewModel.switchChat(contact.name, contact.platform)
-                                                    showContactList = false
-                                                }
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    },
-                    content = {}
+                ContactListDrawer(
+                    viewModel = viewModel,
+                    onClose = { showContactList = false }
                 )
             }
-        }
-    }
-}
 
-@Composable
-fun CategoryIcon(icon: Any, label: String, isSelected: Boolean, onClick: () -> Unit) {
-    Column(
-        horizontalAlignment = Alignment.CenterHorizontally,
-        modifier = Modifier.clickable { onClick() }
-    ) {
-        Box(
-            modifier = Modifier
-                .size(48.dp)
-                .clip(CircleShape)
-                .background(if (isSelected) MaterialTheme.colorScheme.primary else Color.Transparent),
-            contentAlignment = Alignment.Center
-        ) {
-            when (icon) {
-                is androidx.compose.ui.graphics.vector.ImageVector -> {
-                    Icon(icon, null, tint = if (isSelected) Color.White else Color.Gray, modifier = Modifier.size(24.dp))
-                }
-                is String -> {
-                    // Handle emoji or text - FIXED COLOR logic
-                    Text(icon, fontSize = 24.sp, color = if (isSelected) Color.White else MaterialTheme.colorScheme.onSurface)
-                }
-            }
-        }
-        Text(
-            label, 
-            style = MaterialTheme.typography.labelSmall, 
-            color = if (isSelected) MaterialTheme.colorScheme.primary else Color.Gray,
-            maxLines = 1,
-            fontSize = 10.sp
-        )
-    }
-}
-
-@Composable
-fun ContactListItem(contact: SocialContact, onClick: () -> Unit) {
-    NavigationDrawerItem(
-        label = { 
-            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
-                Column(modifier = Modifier.weight(1f)) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text(contact.name, modifier = Modifier.weight(1f))
-                        // Online status indicator
-                        if (contact.isOnline) {
-                            Box(
-                                modifier = Modifier
-                                    .size(8.dp)
-                                    .clip(CircleShape)
-                                    .background(Color.Green)
-                            )
-                        }
-                    }
-                    // Show last seen or status message
-                    contact.lastSeen?.let {
-                        Text(it, style = MaterialTheme.typography.labelSmall, color = Color.Gray, fontSize = 10.sp)
-                    }
-                }
-                if (contact.unreadCount > 0) {
-                    Badge { Text(contact.unreadCount.toString()) }
-                }
-            }
-        },
-        selected = false,
-        onClick = onClick
-    )
-}
-
-@Composable
-fun UnreadListItem(item: UnreadItem, onClick: () -> Unit) {
-    Card(
-        modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp).clickable { onClick() },
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
-    ) {
-        Column(modifier = Modifier.padding(8.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Icon(
-                    imageVector = when(item.platform) {
-                        "whatsapp" -> Icons.Default.Chat
-                        "twitter" -> Icons.Default.Public
-                        "instagram" -> Icons.Default.CameraAlt
-                        "facebook" -> Icons.Default.Facebook
-                        else -> Icons.Default.Psychology
-                    },
-                    contentDescription = null,
-                    modifier = Modifier.size(14.dp),
-                    tint = MaterialTheme.colorScheme.primary
-                )
-                Spacer(modifier = Modifier.width(4.dp))
-                Text(item.sender, style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
-                // Online status indicator
-                if (item.isOnline) {
-                    Box(
-                        modifier = Modifier
-                            .size(6.dp)
-                            .clip(CircleShape)
-                            .background(Color.Green)
+            if (viewModel.isScreenRecording.value) {
+                Box(modifier = Modifier.fillMaxSize().padding(top = 100.dp), contentAlignment = Alignment.TopCenter) {
+                    ScreenRecordingOverlay(
+                        isPaused = viewModel.isRecordingPaused.value,
+                        onPause = { viewModel.pauseScreenRecord() },
+                        onResume = { viewModel.resumeScreenRecord() },
+                        onStop = { viewModel.stopScreenRecord() }
                     )
                 }
             }
-            Spacer(modifier = Modifier.height(4.dp))
-            Text(item.text, maxLines = 1, style = MaterialTheme.typography.bodySmall, color = Color.Gray)
-            if (item.lastSeen != null) {
-                Text(item.lastSeen, style = MaterialTheme.typography.labelSmall, color = Color.Gray.copy(alpha = 0.7f), fontSize = 9.sp)
-            }
         }
     }
 }
-
-@Composable
-fun ChatBubble(
-    message: ChatMessage,
-    viewModel: ChatViewModel,
-    onAiInsight: (String) -> Unit,
-    onReadAloud: (String, InteractionMode) -> Unit,
-    snackbarHostState: SnackbarHostState,
-    coroutineScope: kotlinx.coroutines.CoroutineScope
-) {
-    val isUser = message.role == "user"
-    val align = if (isUser) Alignment.End else Alignment.Start
-    val bubbleColor = if (isUser) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant
-    val textColor = if (isUser) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant
-
-    Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 6.dp),
-        horizontalAlignment = align
-    ) {
-        Surface(
-            color = bubbleColor,
-            shape = RoundedCornerShape(
-                topStart = 16.dp,
-                topEnd = 16.dp,
-                bottomStart = if (isUser) 16.dp else 4.dp,
-                bottomEnd = if (isUser) 4.dp else 16.dp
-            ),
-            modifier = Modifier.widthIn(max = 300.dp),
-            tonalElevation = 2.dp,
-            shadowElevation = 2.dp
-        ) {
-            SelectionContainer {
-                Column(modifier = Modifier.padding(12.dp)) {
-                    // 🎞️ Video Attachment Rendering
-                    if (message.type == "video" || message.attachmentUrl?.endsWith(".mp4") == true) {
-                        message.attachmentUrl?.let { url ->
-                            VideoPlayer(
-                                videoUrl = url,
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .height(200.dp)
-                                    .clip(RoundedCornerShape(12.dp))
-                            )
-                            Spacer(modifier = Modifier.height(8.dp))
-                        }
-                    }
-
-                    if (message.type == "image") {
-                        val attachments = mutableListOf<String>()
-                        message.attachmentPaths?.let { attachments.addAll(it) }
-                        message.attachmentUrl?.let { attachments.add(it) }
-                        
-                        if (attachments.isNotEmpty()) {
-                            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                                attachments.forEach { path ->
-                                    AsyncImage(
-                                        model = path,
-                                        contentDescription = "Image attachment",
-                                        modifier = Modifier
-                                            .fillMaxWidth()
-                                            .heightIn(max = 240.dp)
-                                            .clip(RoundedCornerShape(12.dp)),
-                                        contentScale = ContentScale.Crop
-                                    )
-                                }
-                            }
-                            Spacer(modifier = Modifier.height(8.dp))
-                        }
-                    }
-                    
-                    if (message.content.isNotEmpty()) {
-                        val displayContent = message.content.replace(Regex("\\[FILE_REQUEST:.*?\\]"), "📄 Secure File generated and encrypted.")
-                        LinkableText(
-                            text = displayContent,
-                            textColor = textColor
-                        )
-                    }
-
-                    if (message.type == "social_draft") {
-                        Row(modifier = Modifier.padding(top = 12.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            Button(
-                                onClick = { viewModel.approveSocialAction(message) },
-                                modifier = Modifier.weight(1f),
-                                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF4CAF50)),
-                                shape = RoundedCornerShape(8.dp)
-                            ) {
-                                Icon(Icons.Default.Send, null, modifier = Modifier.size(14.dp))
-                                Spacer(modifier = Modifier.width(4.dp))
-                                Text("Execute", fontSize = 10.sp, fontWeight = FontWeight.Bold)
-                            }
-                            OutlinedButton(
-                                onClick = { viewModel.discardSocialAction(message) },
-                                modifier = Modifier.weight(1f),
-                                shape = RoundedCornerShape(8.dp)
-                            ) {
-                                Text("Discard", fontSize = 10.sp)
-                            }
-                        }
-                    }
-
-                    // --- PROFESSIONAL TACTICAL TOOLBAR ---
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(top = 8.dp),
-                        horizontalArrangement = Arrangement.End,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        if (!isUser) {
-                            val context = LocalContext.current
-                            IconButton(
-                                onClick = { 
-                                    viewModel.saveAsNote(message.content)
-                                    coroutineScope.launch { snackbarHostState.showSnackbar("Intel synchronized to Scribe Notes.") }
-                                },
-                                modifier = Modifier.size(24.dp)
-                            ) {
-                                Icon(Icons.Default.DriveFileRenameOutline, "Note", modifier = Modifier.size(14.dp), tint = textColor.copy(alpha = 0.5f))
-                            }
-                            Spacer(modifier = Modifier.width(4.dp))
-
-                            IconButton(
-                                onClick = { 
-                                    com.example.mistreal_mini.util.NoteExporter.saveAsTxt(context, message.content)
-                                    coroutineScope.launch { snackbarHostState.showSnackbar("Intel archived to storage.") }
-                                },
-                                modifier = Modifier.size(24.dp)
-                            ) {
-                                Icon(Icons.Default.Archive, "Archive", modifier = Modifier.size(14.dp), tint = textColor.copy(alpha = 0.5f))
-                            }
-                            Spacer(modifier = Modifier.width(4.dp))
-                        }
-
-                        IconButton(
-                            onClick = { onAiInsight(message.content) },
-                            modifier = Modifier.size(24.dp)
-                        ) {
-                            Icon(Icons.Default.AutoAwesome, "Insight", modifier = Modifier.size(14.dp), tint = textColor.copy(alpha = 0.5f))
-                        }
-                        
-                        Spacer(modifier = Modifier.width(4.dp))
-                        
-                        IconButton(
-                            onClick = { onReadAloud(message.content, InteractionMode.SINGLE) },
-                            modifier = Modifier.size(24.dp)
-                        ) {
-                            Icon(Icons.Default.Hearing, "Audio", modifier = Modifier.size(14.dp), tint = textColor.copy(alpha = 0.5f))
-                        }
-                    }
-                }
-            }
-        }
-        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(top = 2.dp, start = 4.dp, end = 4.dp)) {
-            Text(
-                text = if (isUser) "OPERATOR" else message.provider.uppercase(), 
-                style = MaterialTheme.typography.labelSmall,
-                color = Color.Gray,
-                fontSize = 8.sp,
-                fontWeight = FontWeight.Black
-            )
-            if (message.isTrend) {
-                Spacer(modifier = Modifier.width(4.dp))
-                Icon(Icons.Default.Link, null, modifier = Modifier.size(8.dp), tint = Color.Gray)
-            }
-        }
-    }
-}
-
-enum class InteractionMode { SINGLE, RADIO, HANDS_FREE }
-
-@Composable
-fun VoiceRecordingBar(
-    isRecording: Boolean,
-    duration: Int,
-    recordedFile: File?,
-    isPlayingBack: Boolean,
-    onStopRecording: () -> Unit,
-    onDelete: () -> Unit,
-    onPlay: () -> Unit,
-    onSend: () -> Unit,
-    onCancel: () -> Unit
-) {
-    Surface(
-        tonalElevation = 4.dp,
-        shadowElevation = 8.dp,
-        modifier = Modifier.fillMaxWidth().navigationBarsPadding()
-    ) {
-        Row(
-            modifier = Modifier.padding(12.dp).fillMaxWidth(),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.SpaceBetween
-        ) {
-            if (isRecording) {
-                Icon(Icons.Default.Mic, contentDescription = null, tint = Color.Red)
-                Text(
-                    text = String.format("%02d:%02d", duration / 60, duration % 60),
-                    style = MaterialTheme.typography.bodyLarge,
-                    modifier = Modifier.weight(1f).padding(horizontal = 16.dp)
-                )
-                Button(onClick = onStopRecording) {
-                    Text("Stop")
-                }
-            } else {
-                IconButton(onClick = onDelete) {
-                    Icon(Icons.Default.Delete, contentDescription = "Delete", tint = Color.Gray)
-                }
-                
-                Row(modifier = Modifier.weight(1f), verticalAlignment = Alignment.CenterVertically) {
-                    IconButton(onClick = onPlay) {
-                        Icon(if (isPlayingBack) Icons.Default.Stop else Icons.Default.PlayArrow, contentDescription = "Play")
-                    }
-                    Text("Voice Preview", style = MaterialTheme.typography.bodyMedium)
-                }
-                
-                FloatingActionButton(
-                    onClick = onSend,
-                    modifier = Modifier.size(48.dp),
-                    containerColor = MaterialTheme.colorScheme.primary,
-                    contentColor = Color.White,
-                    shape = RoundedCornerShape(24.dp)
-                ) {
-                    Icon(Icons.Default.Send, contentDescription = "Send")
-                }
-            }
-        }
-    }
-}
-
-// 🛡️ AI CHECKPOINT: Did you update the Master System Map? If not, do it now.
-
-@Composable
-fun ChatInputBar(
-    text: String,
-    onTextChange: (String) -> Unit,
-    onSend: () -> Unit,
-    onScreenshotClick: () -> Unit,
-    onCameraClick: () -> Unit,
-    onFileClick: () -> Unit,
-    onVoiceClick: () -> Unit,
-    onScribeClick: () -> Unit,
-    isLoading: Boolean,
-    onDraftClick: (() -> Unit)? = null,
-    pendingAttachments: List<Uri> = emptyList(),
-    onRemoveAttachment: (Uri) -> Unit = {},
-    isSceneMode: Boolean = false,
-    onToggleSceneMode: (Boolean) -> Unit = {}
-) {
-    val focusManager = LocalFocusManager.current
-    val context = LocalContext.current
-    Surface(
-        tonalElevation = 8.dp, 
-        shadowElevation = 12.dp,
-        color = MaterialTheme.colorScheme.surface,
-        modifier = Modifier.navigationBarsPadding(),
-        shape = RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp)
-    ) {
-        Column(modifier = Modifier.padding(12.dp).fillMaxWidth()) {
-            // 📎 PENDING ATTACHMENTS PREVIEW
-            if (pendingAttachments.isNotEmpty()) {
-                LazyRow(
-                    modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    itemsIndexed(pendingAttachments) { index, uri ->
-                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                            Box(modifier = Modifier.size(60.dp)) {
-                                val isImage = context.contentResolver.getType(uri)?.startsWith("image") == true
-                                if (isImage) {
-                                    AsyncImage(
-                                        model = uri,
-                                        contentDescription = null,
-                                        modifier = Modifier.fillMaxSize().clip(RoundedCornerShape(8.dp)),
-                                        contentScale = ContentScale.Crop
-                                    )
-                                } else {
-                                    Box(
-                                        modifier = Modifier
-                                            .fillMaxSize()
-                                            .clip(RoundedCornerShape(8.dp))
-                                            .background(MaterialTheme.colorScheme.secondaryContainer),
-                                        contentAlignment = Alignment.Center
-                                    ) {
-                                        Icon(Icons.Default.InsertDriveFile, null, tint = MaterialTheme.colorScheme.onSecondaryContainer)
-                                    }
-                                }
-                                IconButton(
-                                    onClick = { onRemoveAttachment(uri) },
-                                    modifier = Modifier.size(20.dp).align(Alignment.TopEnd).background(Color.Black.copy(alpha = 0.6f), CircleShape)
-                                ) {
-                                    Icon(Icons.Default.Close, null, tint = Color.White, modifier = Modifier.size(12.dp))
-                                }
-                            }
-                            if (isSceneMode) {
-                                val label = when(index) {
-                                    0 -> "START"
-                                    1 -> "END"
-                                    else -> "EXTRA"
-                                }
-                                Text(label, style = MaterialTheme.typography.labelSmall, fontSize = 8.sp, color = MaterialTheme.colorScheme.primary)
-                            }
-                        }
-                    }
-                }
-            }
-
-            if (isSceneMode && pendingAttachments.size == 1) {
-                Text(
-                    "💡 Tip: Most video models prefer a Start and End frame.",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.tertiary,
-                    modifier = Modifier.padding(bottom = 8.dp)
-                )
-            }
-
-            Row(
-                modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                val iconTint = MaterialTheme.colorScheme.primary
-                IconButton(onClick = onScreenshotClick) { Icon(Icons.Default.LensBlur, "Visual Sync", tint = iconTint) }
-                IconButton(onClick = onCameraClick) { Icon(Icons.Default.PhotoCamera, "Optic Intel", tint = iconTint) }
-                IconButton(onClick = onFileClick) { Icon(Icons.Default.AttachFile, "Data Package", tint = iconTint) }
-                IconButton(onClick = onVoiceClick) { Icon(Icons.Default.Mic, "Voice Protocol", tint = iconTint) }
-                IconButton(onClick = onScribeClick) { Icon(Icons.Default.HistoryEdu, "Scribe Alpha", tint = iconTint) }
-                
-                if (onDraftClick != null) {
-                    IconButton(onClick = onDraftClick) {
-                        Icon(Icons.Default.AutoFixHigh, "Draft AI", tint = MaterialTheme.colorScheme.tertiary)
-                    }
-                }
-
-                Spacer(modifier = Modifier.weight(1f))
-
-                // Scene Mode Toggle in Bar
-                IconButton(onClick = { onToggleSceneMode(!isSceneMode) }) {
-                    Icon(
-                        Icons.Default.Movie, 
-                        "Scene Mode", 
-                        tint = if (isSceneMode) MaterialTheme.colorScheme.primary else Color.Gray
-                    )
-                }
-            }
-            
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                TextField(
-                    value = text, 
-                    onValueChange = onTextChange, 
-                    modifier = Modifier.weight(1f), 
-                    placeholder = { Text("Enter command...", style = MaterialTheme.typography.bodyMedium, color = Color.Gray) },
-                    maxLines = 4,
-                    colors = TextFieldDefaults.colors(
-                        focusedIndicatorColor = Color.Transparent, 
-                        unfocusedIndicatorColor = Color.Transparent,
-                        focusedContainerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f),
-                        unfocusedContainerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f)
-                    ),
-                    shape = RoundedCornerShape(16.dp),
-                    textStyle = MaterialTheme.typography.bodyMedium,
-                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send),
-                    keyboardActions = KeyboardActions(onSend = {
-                        if (text.isNotBlank() && !isLoading) {
-                            onSend()
-                            focusManager.clearFocus()
-                        }
-                    })
-                )
-                Spacer(modifier = Modifier.width(12.dp))
-                FloatingActionButton(
-                    onClick = { if (text.isNotBlank() && !isLoading) onSend() },
-                    modifier = Modifier.size(48.dp),
-                    containerColor = if (text.isNotBlank() && !isLoading) MaterialTheme.colorScheme.primary else Color.Gray.copy(alpha = 0.3f),
-                    contentColor = if (text.isNotBlank() && !isLoading) MaterialTheme.colorScheme.onPrimary else Color.Gray,
-                    shape = CircleShape,
-                    elevation = FloatingActionButtonDefaults.elevation(0.dp, 0.dp, 0.dp, 0.dp)
-                ) {
-                    if (isLoading) {
-                        CircularProgressIndicator(modifier = Modifier.size(24.dp), strokeWidth = 2.dp, color = Color.White)
-                    } else {
-                        Icon(Icons.Default.ArrowUpward, "Transmit")
-                    }
-                }
-            }
-        }
-    }
-}
-
-// 🛡️ AI CHECKPOINT: Did you update the Master System Map? If not, do it now.
-
-@Composable
-fun TypingIndicator() {
-    Row(
-        verticalAlignment = Alignment.CenterVertically,
-        modifier = Modifier.padding(8.dp)
-    ) {
-        Text(
-            "AI is thinking...",
-            style = MaterialTheme.typography.labelSmall,
-            color = MaterialTheme.colorScheme.primary
-        )
-    }
-}
-
-// 🛡️ AI CHECKPOINT: Did you update the Master System Map? If not, do it now.

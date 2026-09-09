@@ -18,6 +18,7 @@ interface AiApiService {
         @Part("provider") provider: RequestBody,
         @Part("history") history: RequestBody,
         @Part("deviceId") deviceId: RequestBody?,
+        @Part("firebaseUid") firebaseUid: RequestBody?,
         @Part images: List<MultipartBody.Part>?,
         @Part audio: MultipartBody.Part?
     ): ChatResponse
@@ -35,5 +36,7 @@ data class AiModelResponse(
     val name: String,
     val provider: String,
     val isProOnly: Boolean,
-    val price: String
+    val price: String,
+    val quota: String? = null,
+    val health: Int? = null
 )
