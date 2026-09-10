@@ -272,6 +272,9 @@ fun ChatScreen(
                             Icon(Icons.Default.Close, "Exit Trend", tint = Color.Red) 
                         }
                     }
+                    IconButton(onClick = onArchiveClick) { 
+                        Icon(Icons.Default.History, "History", tint = MaterialTheme.colorScheme.primary) 
+                    }
                     IconButton(onClick = onDashboardClick) { 
                         Icon(Icons.Default.Psychology, "Intelligence Hub", tint = MaterialTheme.colorScheme.primary) 
                     }

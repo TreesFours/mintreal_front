@@ -63,20 +63,23 @@ fun ContactListDrawer(
                         
                         // Use dynamic platforms if available, otherwise fallback to recent
                         val platformsToShow = if (availablePlatforms.isNotEmpty()) {
-                            availablePlatforms.map { it.id }
+                            availablePlatforms.filter { it.isConnected }.map { it.id }
                         } else {
                             recentContacts.map { it.platform }.distinct()
                         }
                         
                         platformsToShow.drop(rollingOffset).take(5).forEach { platform ->
                             val platformUnread = unreadItems.count { it.platform.lowercase() == platform.lowercase() }
+                            val icon = when(platform.lowercase()) {
+                                "whatsapp" -> Icons.Default.Chat
+                                "instagram" -> Icons.Default.CameraAlt
+                                "twitter", "x" -> Icons.Default.Public
+                                "linkedin" -> Icons.Default.Business
+                                "facebook" -> Icons.Default.Facebook
+                                else -> Icons.Default.Link
+                            }
                             CategoryIcon(
-                                icon = when(platform.lowercase()) {
-                                    "whatsapp" -> Icons.Default.Chat
-                                    "instagram" -> Icons.Default.CameraAlt
-                                    "twitter", "x" -> Icons.Default.Public
-                                    else -> Icons.Default.Public
-                                },
+                                icon = icon,
                                 label = platform.take(4),
                                 isSelected = selectedCategory == platform,
                                 badgeCount = platformUnread

@@ -362,6 +362,16 @@ fun InteractiveMapView(
                             }
                         }
 
+                        // TACTICAL TABS CONTENT
+                        Box(modifier = Modifier.fillMaxWidth().heightIn(min = 120.dp, max = 280.dp).padding(horizontal = 8.dp)) {
+                            when (selectedNavTab) {
+                                0 -> ExploreTabView(mapViewModel)
+                                1 -> HistoryTabView(mapViewModel)
+                                2 -> IntelTabView(mapViewModel, savedIntel)
+                                3 -> ScanTabView(mapViewModel)
+                            }
+                        }
+
                         Row(modifier = Modifier.fillMaxWidth().padding(16.dp), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
                             Row(modifier = Modifier.background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f), RoundedCornerShape(12.dp)).padding(4.dp)) {
                                 listOf("EXPLORE", "YOU", "INTEL", "SCAN").forEachIndexed { index, title ->
@@ -485,7 +495,11 @@ fun SaveIntelDialog(
                     Spacer(modifier = Modifier.height(8.dp))
                     LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         items(existingGroups) { g ->
-                            FilterChip(selected = groupName == g, onClick = { groupName = g }, label = { Text(g, fontSize = 12.sp) })
+                            FilterChip(
+                                selected = groupName == g, 
+                                onClick = { groupName = if (groupName == g) "" else g }, 
+                                label = { Text(g, fontSize = 12.sp) }
+                            )
                         }
                     }
                 }
