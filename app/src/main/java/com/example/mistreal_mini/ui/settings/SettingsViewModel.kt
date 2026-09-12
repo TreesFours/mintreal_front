@@ -223,11 +223,11 @@ class SettingsViewModel @Inject constructor(
         viewModelScope.launch {
             val deviceId = android.provider.Settings.Secure.getString(context.contentResolver, android.provider.Settings.Secure.ANDROID_ID)
             val response = infoRepository.initiateConnection(deviceId, platform)
-            if (response is Resource.Success<String> && response.data != null) {
+            if (response is Resource.Success<String> && response.data != null && response.data.isNotBlank()) {
                 _socialConnectUrl.emit(response.data)
             } else {
                 val error = response.message ?: "Connection init failed"
-                if (error.contains("LIMIT_REACHED")) {
+                if (error.contains("LIMIT_REACHED", ignoreCase = true)) {
                     _errorEvent.emit("PLATFORM_LIMIT_REACHED")
                 } else {
                     _errorEvent.emit(error)
@@ -256,20 +256,28 @@ class SettingsViewModel @Inject constructor(
         viewModelScope.launch {
             if (success) {
                 _isSyncing.value = true
-                _syncMessage.value = "Fetching Profile..."
+                _syncMessage.value = "Initializing Secure Sync..."
                 _syncProgress.value = 0.2f
                 
                 try {
-                    _syncMessage.value = "Syncing Contacts..."
-                    _syncProgress.value = 0.5f
                     val deviceId = android.provider.Settings.Secure.getString(context.contentResolver, android.provider.Settings.Secure.ANDROID_ID)
                     
-                    val contactsResponse = infoRepository.getContacts(deviceId, platform)
+                    // 🔄 Step 1: Trigger Cloud Sync First
+                    _syncMessage.value = "Fetching Latest Cloud Data..."
+                    _syncProgress.value = 0.4f
+                    infoRepository.syncSocials(deviceId)
+                    
+                    // 📥 Step 2: Fetch and Map Local Contacts
+                    _syncMessage.value = "Mapping Social Graph..."
+                    _syncProgress.value = 0.7f
+                    val normalizedPlatform = platform.lowercase()
+                    val contactsResponse = infoRepository.getContacts(deviceId, normalizedPlatform)
+                    
                     if (contactsResponse is Resource.Success) {
                         val entities = contactsResponse.data?.map { contact ->
                             SocialContactEntity(
-                                contactId = contact.id,
-                                platform = contact.platform,
+                                contactId = "${normalizedPlatform}_${contact.id}", // 🛡️ Prevent Collision
+                                platform = normalizedPlatform,
                                 name = contact.name,
                                 avatarUrl = contact.avatar,
                                 lastInteractionTime = System.currentTimeMillis(),
@@ -277,12 +285,11 @@ class SettingsViewModel @Inject constructor(
                                 platformUserId = contact.id
                             )
                         } ?: emptyList()
+                        
+                        // Clean up any old contacts without prefix to avoid confusion
+                        socialContactDao.deleteByPlatform(normalizedPlatform)
                         socialContactDao.upsertAll(entities)
                     }
-                    
-                    _syncMessage.value = "Syncing Threads..."
-                    _syncProgress.value = 0.8f
-                    infoRepository.syncSocials(deviceId)
 
                     _syncMessage.value = "Finalizing..."
                     _syncProgress.value = 1.0f

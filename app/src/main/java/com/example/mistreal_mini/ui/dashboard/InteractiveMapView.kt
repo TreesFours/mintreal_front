@@ -103,7 +103,6 @@ fun InteractiveMapView(
                 is CitySearchResult.Success -> {
                     mapSearchQuery = ""
                     focusManager.clearFocus()
-                    viewModel.loadTrend("Tactical Sector: ${mapViewModel.mapLocation.value}")
                 }
                 is CitySearchResult.Ambiguous -> {
                     focusManager.clearFocus()
@@ -118,6 +117,7 @@ fun InteractiveMapView(
 
     var isChatVisible by remember { mutableStateOf(false) }
     var selectedNavTab by remember { mutableIntStateOf(0) }
+    var isHudExpanded by remember { mutableStateOf(true) }
     
     val history by mapViewModel.locationHistory.collectAsState()
     val intelLog = mapViewModel.intelLog
@@ -134,6 +134,9 @@ fun InteractiveMapView(
     val calibrationProgress = dashboardViewModel.calibrationProgress.value
     val isLocationEnabled = mapViewModel.isLocationEnabled.value
     val searchMarker = mapViewModel.searchMarker.value
+    val teleportRequest = mapViewModel.teleportRequest.value
+    val ghostMarkersRequest = mapViewModel.ghostMarkersRequest.value
+    val targetPoints = mapViewModel.targetPoints
     
     var webViewInstance by remember { mutableStateOf<WebView?>(null) }
 
@@ -153,13 +156,38 @@ fun InteractiveMapView(
         mapVisibleCategories = null
     }
 
+    LaunchedEffect(teleportRequest) {
+        teleportRequest?.let { (lat, lon, zoom) ->
+            webViewInstance?.evaluateJavascript("teleportTo($lat, $lon, $zoom)", null)
+            mapViewModel.clearTeleport()
+            isHudExpanded = false
+        }
+    }
+
+    LaunchedEffect(ghostMarkersRequest) {
+        ghostMarkersRequest?.let { json ->
+            webViewInstance?.evaluateJavascript("showGhostMarkers('$json')", null)
+            mapViewModel.clearGhostMarkers()
+        }
+    }
+
+    LaunchedEffect(targetPoints.size) {
+        val json = com.google.gson.Gson().toJson(targetPoints.map { mapOf("lat" to it.first, "lon" to it.second) })
+        webViewInstance?.evaluateJavascript("setTargetBox('$json')", null)
+    }
+
     LaunchedEffect(tacticalCircle) {
-        if (tacticalCircle == null) isDrawMode = false
+        if (tacticalCircle == null && targetPoints.isEmpty()) isDrawMode = false
     }
 
     DisposableEffect(Unit) {
         onDispose { viewModel.exitTrend() }
     }
+
+    val hudHeight by animateDpAsState(
+        targetValue = if (isHudExpanded) 340.dp else 110.dp,
+        animationSpec = tween(400, easing = FastOutSlowInEasing), label = "hud_height"
+    )
 
     Card(
         modifier = Modifier.fillMaxWidth(0.98f).fillMaxHeight(0.95f),
@@ -183,7 +211,7 @@ fun InteractiveMapView(
                             fun onMapLongClick(lat: Double, lon: Double) {
                                 coroutineScope.launch {
                                     if (isDrawMode) {
-                                        mapViewModel.setTacticalCircle(lat, lon, tacticalCircle?.radius ?: 500.0)
+                                        mapViewModel.addPointToTarget(lat, lon)
                                     } else {
                                         mapViewModel.addPin(lat, lon)
                                     }
@@ -195,24 +223,27 @@ fun InteractiveMapView(
                                     mapViewModel.startDrawingCircle(lat, lon)
                                 }
                             }
+                            @android.webkit.JavascriptInterface
+                            fun onGhostMarkerSelected(lat: Double, lon: Double, label: String) {
+                                coroutineScope.launch {
+                                    mapViewModel.confirmAmbiguousLocation(lat, lon, label)
+                                }
+                            }
                         }, "AndroidMap")
 
                         loadDataWithBaseURL(null, getMapHtml(), "text/html", "UTF-8", null)
                     }
                 },
                 update = { webView ->
-                    mapViewModel.mapFocusCoords.value?.let { 
-                        webView.evaluateJavascript("map.setView([${it.first}, ${it.second}], 15);", null)
-                    }
-                    
                     mapViewModel.searchMarker.value?.let { entry ->
-                        webView.evaluateJavascript("updateSearchMarker(${entry.latitude}, ${entry.longitude}, '${entry.label}')", null)
+                        val safeLabel = entry.label.replace("'", "\\'")
+                        webView.evaluateJavascript("updateSearchMarker(${entry.latitude}, ${entry.longitude}, '$safeLabel')", null)
                     }
 
                     if (isLocationEnabled) {
                         coroutineScope.launch {
                             mapViewModel.locationHelper.getCurrentLocation()?.let { 
-                                webView.evaluateJavascript("updateGpsLocation(${it.latitude}, ${it.longitude}, true)", null)
+                                webView.evaluateJavascript("updateGpsLocation(${it.latitude}, ${it.longitude}, false)", null)
                             }
                         }
                     }
@@ -225,12 +256,13 @@ fun InteractiveMapView(
                         } else {
                             webView.evaluateJavascript("if(focusPlaceMarker) map.removeLayer(focusPlaceMarker);", null)
                         }
-                    } ?: webView.evaluateJavascript("if(tacticalCircle) map.removeLayer(tacticalCircle); if(satLayer) map.removeLayer(satLayer); if(focusPlaceMarker) map.removeLayer(focusPlaceMarker);", null)
+                    } ?: webView.evaluateJavascript("if(tacticalCircle) map.removeLayer(tacticalCircle); if(focusPlaceMarker) map.removeLayer(focusPlaceMarker);", null)
 
                     webView.evaluateJavascript("pins.clearLayers();", null)
                     if (!isDrawMode) {
                         mapViewModel.intelLog.filter { it.type == "PIN" }.forEach { pin ->
-                            webView.evaluateJavascript("addTacticalPin(${pin.latitude}, ${pin.longitude}, '${pin.label}')", null)
+                            val safePinLabel = pin.label.replace("'", "\\'")
+                            webView.evaluateJavascript("addTacticalPin(${pin.latitude}, ${pin.longitude}, '$safePinLabel')", null)
                         }
                     }
 
@@ -242,11 +274,13 @@ fun InteractiveMapView(
                             mapVisibleCategories?.let { filter -> mapViewModel.discoveryResults.filter { it.category in filter } }
                                 ?: mapViewModel.discoveryResults
                         }
-                        val json = com.google.gson.Gson().toJson(visible)
+                        val json = com.google.gson.Gson().toJson(visible).replace("'", "\\'")
                         webView.evaluateJavascript("renderDiscovery('$json', ${center.first}, ${center.second})", null)
                     }
                 },
-                modifier = Modifier.fillMaxSize()
+                modifier = Modifier.fillMaxSize().pointerInput(Unit) {
+                    detectTapGestures(onTap = { isHudExpanded = false })
+                }
             )
 
             Column(modifier = Modifier.fillMaxSize()) {
@@ -320,10 +354,17 @@ fun InteractiveMapView(
                 Surface(
                     color = MaterialTheme.colorScheme.surface.copy(alpha = 0.96f),
                     tonalElevation = 12.dp,
-                    shape = RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp)
+                    shape = RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp),
+                    modifier = Modifier.height(hudHeight).clickable { isHudExpanded = true }
                 ) {
                     Column {
-                        if (tacticalCircle != null && isDrawMode) {
+                        if (isDrawMode) {
+                            TargetingControls(
+                                points = targetPoints,
+                                onClear = { mapViewModel.clearTargetBox() },
+                                onExit = { isDrawMode = false; mapViewModel.clearTargetBox() }
+                            )
+                        } else if (tacticalCircle != null) {
                             Row(
                                 modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp),
                                 verticalAlignment = Alignment.CenterVertically
@@ -338,18 +379,9 @@ fun InteractiveMapView(
                                 }, modifier = Modifier.size(28.dp)) { Icon(Icons.Default.BookmarkBorder, "Save", modifier = Modifier.size(18.dp)) }
                                 IconButton(onClick = { isDrawMode = false; mapViewModel.clearTacticalCircle() }, modifier = Modifier.size(28.dp)) { Icon(Icons.Default.Close, "Exit Scope", tint = MaterialTheme.colorScheme.error, modifier = Modifier.size(18.dp)) }
                             }
-                            Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.padding(bottom = 4.dp)) {
-                                IconButton(onClick = { mapViewModel.nudgeTacticalCircle(0.0) }, modifier = Modifier.size(26.dp)) { Icon(Icons.Default.KeyboardArrowUp, null, modifier = Modifier.size(18.dp)) }
-                                Row(verticalAlignment = Alignment.CenterVertically) {
-                                    IconButton(onClick = { mapViewModel.nudgeTacticalCircle(270.0) }, modifier = Modifier.size(26.dp)) { Icon(Icons.AutoMirrored.Filled.KeyboardArrowLeft, null, modifier = Modifier.size(18.dp)) }
-                                    Spacer(modifier = Modifier.width(26.dp))
-                                    IconButton(onClick = { mapViewModel.nudgeTacticalCircle(90.0) }, modifier = Modifier.size(26.dp)) { Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, null, modifier = Modifier.size(18.dp)) }
-                                }
-                                IconButton(onClick = { mapViewModel.nudgeTacticalCircle(180.0) }, modifier = Modifier.size(26.dp)) { Icon(Icons.Default.KeyboardArrowDown, null, modifier = Modifier.size(18.dp)) }
-                            }
                         }
 
-                        if (intelLog.isNotEmpty() || tacticalCircle != null) {
+                        if (intelLog.isNotEmpty()) {
                             LazyRow(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                                 items(intelLog) { entry ->
                                     FilterChip(
@@ -362,13 +394,15 @@ fun InteractiveMapView(
                             }
                         }
 
-                        // TACTICAL TABS CONTENT
-                        Box(modifier = Modifier.fillMaxWidth().heightIn(min = 120.dp, max = 280.dp).padding(horizontal = 8.dp)) {
-                            when (selectedNavTab) {
-                                0 -> ExploreTabView(mapViewModel)
-                                1 -> HistoryTabView(mapViewModel)
-                                2 -> IntelTabView(mapViewModel, savedIntel)
-                                3 -> ScanTabView(mapViewModel)
+                        if (isHudExpanded) {
+                            // TACTICAL TABS CONTENT
+                            Box(modifier = Modifier.fillMaxWidth().weight(1f).padding(horizontal = 8.dp)) {
+                                when (selectedNavTab) {
+                                    0 -> ExploreTabView(mapViewModel)
+                                    1 -> HistoryTabView(mapViewModel)
+                                    2 -> IntelTabView(mapViewModel, savedIntel)
+                                    3 -> ScanTabView(mapViewModel)
+                                }
                             }
                         }
 
@@ -376,7 +410,7 @@ fun InteractiveMapView(
                             Row(modifier = Modifier.background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f), RoundedCornerShape(12.dp)).padding(4.dp)) {
                                 listOf("EXPLORE", "YOU", "INTEL", "SCAN").forEachIndexed { index, title ->
                                     val sel = selectedNavTab == index
-                                    TextButton(onClick = { selectedNavTab = index }, colors = ButtonDefaults.textButtonColors(containerColor = if(sel) MaterialTheme.colorScheme.primary else Color.Transparent, contentColor = if(sel) Color.White else MaterialTheme.colorScheme.onSurface), modifier = Modifier.height(36.dp), contentPadding = PaddingValues(horizontal = 10.dp)) { Text(title, fontSize = 9.sp, fontWeight = FontWeight.ExtraBold) }
+                                    TextButton(onClick = { selectedNavTab = index; isHudExpanded = true }, colors = ButtonDefaults.textButtonColors(containerColor = if(sel) MaterialTheme.colorScheme.primary else Color.Transparent, contentColor = if(sel) Color.White else MaterialTheme.colorScheme.onSurface), modifier = Modifier.height(36.dp), contentPadding = PaddingValues(horizontal = 10.dp)) { Text(title, fontSize = 9.sp, fontWeight = FontWeight.ExtraBold) }
                                 }
                             }
                             FloatingActionButton(onClick = { isChatVisible = !isChatVisible }, containerColor = MaterialTheme.colorScheme.primary, modifier = Modifier.size(48.dp)) { Icon(if(isChatVisible) Icons.Default.ExpandMore else Icons.Default.Psychology, null) }
@@ -520,19 +554,85 @@ private fun getMapHtml(): String = """
         <style>
             #map { height: 100vh; width: 100vw; background: #000; }
             .leaflet-container { background: #000 !important; }
+            .mask-overlay {
+                position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+                background: rgba(0, 0, 0, 0.6); pointer-events: none; z-index: 1000;
+                transition: opacity 0.5s;
+            }
+            .mask-hole {
+                fill: transparent; stroke: cyan; stroke-width: 2;
+                filter: drop-shadow(0 0 5px cyan);
+            }
         </style>
     </head>
     <body>
         <div id="map"></div>
+        <div id="mask" class="mask-overlay" style="opacity: 0;">
+            <svg width="100%" height="100%" id="maskSvg">
+                <defs>
+                    <mask id="holeMask">
+                        <rect width="100%" height="100%" fill="white"/>
+                        <polygon id="holePolygon" points="" fill="black"/>
+                    </mask>
+                </defs>
+                <rect width="100%" height="100%" fill="rgba(0,0,0,0.7)" mask="url(#holeMask)"/>
+            </svg>
+        </div>
         <script>
             var map = L.map('map', { zoomControl: false, attributionControl: false }).setView([0,0], 2);
-            L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(map);
+            var baseLayer = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(map);
+            var satLayer = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {
+                attribution: 'Tiles &copy; Esri'
+            });
             var pins = L.layerGroup().addTo(map);
-            var tacticalCircle, satLayer, focusPlaceMarker, searchMarker, gpsMarker;
+            var ghostMarkers = L.layerGroup().addTo(map);
+            var discoveryLayer = L.layerGroup().addTo(map);
+            var tacticalCircle, focusPlaceMarker, searchMarker, gpsMarker;
+
+            function teleportTo(lat, lon, zoom) {
+                map.flyTo([lat, lon], zoom, { duration: 1.5 });
+            }
+
+            function showGhostMarkers(json) {
+                ghostMarkers.clearLayers();
+                var points = JSON.parse(json);
+                points.forEach(function(p) {
+                    var m = L.marker([p.lat, p.lon], { opacity: 0.6 }).addTo(ghostMarkers);
+                    m.on('click', function() { AndroidMap.onGhostMarkerSelected(p.lat, p.lon, p.label); });
+                });
+            }
+
+            function setTargetBox(jsonPoints) {
+                var points = JSON.parse(jsonPoints);
+                var mask = document.getElementById('mask');
+                if (points.length < 3) {
+                    mask.style.opacity = "0";
+                    if(map.hasLayer(satLayer)) map.removeLayer(satLayer);
+                    return;
+                }
+                
+                if(!map.hasLayer(satLayer)) satLayer.addTo(map);
+                mask.style.opacity = "1";
+                
+                var svgPoints = points.map(function(p) {
+                    var pixel = map.latLngToContainerPoint([p.lat, p.lon]);
+                    return pixel.x + "," + pixel.y;
+                }).join(" ");
+                
+                document.getElementById('holePolygon').setAttribute("points", svgPoints);
+            }
+
+            map.on('move', function() {
+                var poly = document.getElementById('holePolygon');
+                if (poly.getAttribute("points")) {
+                   // Redraw logic for mask if needed
+                }
+            });
 
             function updateSearchMarker(lat, lon, label) {
                 if(searchMarker) map.removeLayer(searchMarker);
                 searchMarker = L.marker([lat, lon]).addTo(map).bindPopup(label).openPopup();
+                ghostMarkers.clearLayers();
             }
             function addTacticalPin(lat, lon, label) {
                 L.marker([lat, lon]).addTo(pins).bindPopup(label);
@@ -547,8 +647,8 @@ private fun getMapHtml(): String = """
             }
             function updateGpsLocation(lat, lon, center) {
                 if(gpsMarker) map.removeLayer(gpsMarker);
-                gpsMarker = L.circleMarker([lat, lon], { radius: 8, color: 'green' }).addTo(map);
-                if(center) map.setView([lat, lon], 15);
+                gpsMarker = L.circleMarker([lat, lon], { radius: 8, color: 'green', weight: 3, fillOpacity: 0.8 }).addTo(map);
+                if(center) teleportTo(lat, lon, 15);
             }
             function reportMapCenter() {
                 var center = map.getCenter();
@@ -558,7 +658,23 @@ private fun getMapHtml(): String = """
                 AndroidMap.onMapLongClick(e.latlng.lat, e.latlng.lng);
             });
             function renderDiscovery(json, cLat, cLon) {
-                // Clear existing markers if any (simplified)
+                discoveryLayer.clearLayers();
+                try {
+                    var results = JSON.parse(json);
+                    results.forEach(function(r) {
+                        var color = r.category === 'threat' ? '#ff0000' : '#00ff00';
+                        if (r.category === 'point_of_interest') color = '#ffff00';
+                        
+                        var marker = L.circleMarker([r.latitude, r.longitude], {
+                            radius: 6,
+                            color: '#000',
+                            weight: 1,
+                            fillColor: color,
+                            fillOpacity: 0.8
+                        }).addTo(discoveryLayer);
+                        marker.bindPopup("<b>" + r.name + "</b><br>" + r.category.toUpperCase());
+                    });
+                } catch(e) { console.error("Discovery Parse Error:", e); }
             }
         </script>
     </body>

@@ -7,6 +7,7 @@ import dagger.Module
 import dagger.Provides
 import dagger.hilt.InstallIn
 import dagger.hilt.components.SingletonComponent
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.runBlocking
 import okhttp3.CertificatePinner
 import okhttp3.Dns
@@ -27,7 +28,12 @@ object NetworkModule {
     @Singleton
     fun provideLoggingInterceptor(): HttpLoggingInterceptor {
         return HttpLoggingInterceptor().apply {
-            level = HttpLoggingInterceptor.Level.BODY
+            level = if (com.example.mistreal_mini.BuildConfig.DEBUG) {
+                HttpLoggingInterceptor.Level.BODY
+            } else {
+                HttpLoggingInterceptor.Level.NONE
+            }
+            redactHeader("Authorization")
         }
     }
 
@@ -47,7 +53,9 @@ object NetworkModule {
             .certificatePinner(certificatePinner)
             .addInterceptor(loggingInterceptor)
             .addInterceptor(Interceptor { chain ->
-                val token = runBlocking { authRepository.getIdToken() }
+                val token = runBlocking(Dispatchers.IO) {
+                    authRepository.getIdToken()
+                }
                 val request = if (token != null) {
                     chain.request().newBuilder()
                         .addHeader("Authorization", "Bearer $token")

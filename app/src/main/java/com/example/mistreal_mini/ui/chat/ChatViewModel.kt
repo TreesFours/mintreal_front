@@ -585,15 +585,16 @@ class ChatViewModel @Inject constructor(
         if (platform == "ai") return
         viewModelScope.launch {
             val deviceId = Settings.Secure.getString(context.contentResolver, Settings.Secure.ANDROID_ID)
-            when (val result = infoRepository.getContacts(deviceId, platform)) {
+            val normalizedPlatform = platform.lowercase()
+            when (val result = infoRepository.getContacts(deviceId, normalizedPlatform)) {
                 is Resource.Success -> {
                     val rawContacts = result.data ?: emptyList()
                     _socialContacts.value = rawContacts
                     
                     val entities = rawContacts.map { c ->
                         SocialContactEntity(
-                            contactId = c.id,
-                            platform = c.platform,
+                            contactId = "${normalizedPlatform}_${c.id}", // 🛡️ Prefixed ID
+                            platform = normalizedPlatform,
                             name = c.name,
                             avatarUrl = c.avatar,
                             lastInteractionTime = System.currentTimeMillis(),
@@ -601,6 +602,8 @@ class ChatViewModel @Inject constructor(
                             platformUserId = c.id
                         )
                     }
+                    // Clean up legacy non-prefixed records for this platform
+                    socialContactDao.deleteByPlatform(normalizedPlatform)
                     socialContactDao.upsertAll(entities)
                 }
                 else -> {}
@@ -1078,13 +1081,17 @@ class ChatViewModel @Inject constructor(
 
     fun refreshSocialContacts() {
         viewModelScope.launch {
+            val deviceId = Settings.Secure.getString(context.contentResolver, Settings.Secure.ANDROID_ID)
+            
+            // 🔄 Step 1: Sync with Zernio Cloud First
+            syncSocialsUseCase(deviceId)
+            
+            // 📥 Step 2: Refresh local metadata
             fetchAvailablePlatforms()
             fetchUnread()
             listOf("instagram", "linkedin", "twitter", "x", "facebook", "whatsapp").forEach {
                 fetchContacts(it)
             }
-            val deviceId = Settings.Secure.getString(context.contentResolver, Settings.Secure.ANDROID_ID)
-            syncSocialsUseCase(deviceId)
         }
     }
 

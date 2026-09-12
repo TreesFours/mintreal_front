@@ -2,10 +2,10 @@
 <data-extraction-rules>
     <cloud-backup>
         <include domain="sharedpref" path="."/>
-        <include domain="database" path="."/>
+        <!-- 🛡️ Do not include any database files in automatic cloud backup -->
     </cloud-backup>
     <device-transfer>
         <include domain="sharedpref" path="."/>
-        <include domain="database" path="."/>
+        <!-- 🛡️ Do not include any database files in device-to-device transfers -->
     </device-transfer>
 </data-extraction-rules>

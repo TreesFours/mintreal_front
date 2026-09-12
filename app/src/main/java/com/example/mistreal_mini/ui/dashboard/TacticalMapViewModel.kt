@@ -71,6 +71,13 @@ class TacticalMapViewModel @Inject constructor(
     val selectedPins = tacticalRepository.selectedPins
     val focusPlaceLabel = tacticalRepository.focusPlaceLabel
     val searchMarker = tacticalRepository.searchMarker
+    val targetPoints = tacticalRepository.targetPoints
+
+    private val _teleportRequest = mutableStateOf<Triple<Double, Double, Int>?>(null)
+    val teleportRequest: State<Triple<Double, Double, Int>?> = _teleportRequest
+
+    private val _ghostMarkersRequest = mutableStateOf<String?>(null)
+    val ghostMarkersRequest: State<String?> = _ghostMarkersRequest
 
     private val _isSniperModeActive = mutableStateOf(false)
     val isSniperModeActive: State<Boolean> = _isSniperModeActive
@@ -119,6 +126,11 @@ class TacticalMapViewModel @Inject constructor(
 
         val result = if (addresses != null && addresses.size > 1) {
             _ambiguousLocations.addAll(addresses)
+            val ghosts = addresses.map { addr ->
+                val city = addr.locality ?: addr.adminArea ?: "Unknown"
+                mapOf("lat" to addr.latitude, "lon" to addr.longitude, "label" to city)
+            }
+            _ghostMarkersRequest.value = Gson().toJson(ghosts)
             CitySearchResult.Ambiguous
         } else if (addresses != null && addresses.isNotEmpty()) {
             val addr = addresses[0]
@@ -130,6 +142,10 @@ class TacticalMapViewModel @Inject constructor(
             _mapFocusCoords.value = addr.latitude to addr.longitude
             _discoveryResults.clear()
             clearTacticalCircle()
+            
+            // Precision Zoom Logic
+            val zoom = if (addr.thoroughfare != null || addr.featureName != null) 18 else if (addr.locality != null) 13 else 8
+            _teleportRequest.value = Triple(addr.latitude, addr.longitude, zoom)
 
             val isPrecise = addr.subLocality != null || addr.thoroughfare != null || addr.featureName != null || addr.subAdminArea != null
             _suggestedCircleRadius.value = if (isPrecise) 500.0 else 5000.0
@@ -385,6 +401,31 @@ class TacticalMapViewModel @Inject constructor(
 
     fun toggleLocation(enabled: Boolean) {
         _isLocationEnabled.value = enabled
+    }
+
+    fun addPointToTarget(lat: Double, lon: Double) {
+        tacticalRepository.addTargetPoint(lat, lon)
+    }
+
+    fun clearTargetBox() {
+        tacticalRepository.clearTargetBox()
+    }
+
+    fun confirmAmbiguousLocation(lat: Double, lon: Double, label: String) {
+        _mapLocation.value = label.uppercase()
+        _mapFocusCoords.value = lat to lon
+        _teleportRequest.value = Triple(lat, lon, 15)
+        _ambiguousLocations.clear()
+        _ghostMarkersRequest.value = null
+        addToIntelLog(IntelLogEntry(label.uppercase(), lat, lon, "SEARCH", System.currentTimeMillis()))
+    }
+
+    fun clearTeleport() {
+        _teleportRequest.value = null
+    }
+
+    fun clearGhostMarkers() {
+        _ghostMarkersRequest.value = null
     }
 
     fun addToIntelLog(entry: IntelLogEntry) {

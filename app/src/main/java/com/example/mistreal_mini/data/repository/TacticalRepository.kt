@@ -33,6 +33,18 @@ class TacticalRepository @Inject constructor() {
     private val _searchMarker = mutableStateOf<IntelLogEntry?>(null)
     val searchMarker: State<IntelLogEntry?> = _searchMarker
 
+    private val _targetPoints = mutableStateListOf<Pair<Double, Double>>()
+    val targetPoints: List<Pair<Double, Double>> = _targetPoints
+
+    fun addTargetPoint(lat: Double, lon: Double) {
+        if (_targetPoints.size >= 4) _targetPoints.clear()
+        _targetPoints.add(lat to lon)
+    }
+
+    fun clearTargetBox() {
+        _targetPoints.clear()
+    }
+
     fun addPin(lat: Double, lon: Double, label: String) {
         val entry = IntelLogEntry(label, lat, lon, "PIN", System.currentTimeMillis())
         _intelLog.add(0, entry)

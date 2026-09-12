@@ -120,6 +120,28 @@ fun IntelTabView(viewModel: TacticalMapViewModel, savedIntel: List<SavedIntelEnt
 }
 
 @Composable
+fun TargetingControls(
+    points: List<Pair<Double, Double>>,
+    onClear: () -> Unit,
+    onExit: () -> Unit
+) {
+    Row(
+        modifier = Modifier.fillMaxWidth().padding(16.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.SpaceBetween
+    ) {
+        Column {
+            Text("TARGETING MODE", style = MaterialTheme.typography.labelSmall, color = Color.Cyan, fontWeight = FontWeight.Bold)
+            Text("${points.size}/4 POINTS SET", style = MaterialTheme.typography.bodySmall, color = Color.Gray)
+        }
+        Row {
+            IconButton(onClick = onClear) { Icon(Icons.Default.Refresh, "Clear", tint = Color.Yellow) }
+            IconButton(onClick = onExit) { Icon(Icons.Default.Close, "Exit", tint = Color.Red) }
+        }
+    }
+}
+
+@Composable
 fun ScanTabView(viewModel: TacticalMapViewModel) {
     val categories = listOf("restaurant", "cafe", "atm", "hospital", "police", "pharmacy", "gas_station")
     Column(modifier = Modifier.fillMaxSize().padding(8.dp)) {

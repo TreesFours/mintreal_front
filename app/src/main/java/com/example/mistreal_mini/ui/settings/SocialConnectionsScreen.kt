@@ -14,6 +14,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -26,11 +27,51 @@ fun SocialConnectionsScreen(
     onBack: () -> Unit,
     settingsViewModel: com.example.mistreal_mini.ui.settings.SettingsViewModel = hiltViewModel()
 ) {
+    val context = LocalContext.current
     val platforms by settingsViewModel.availablePlatforms.collectAsStateWithLifecycle()
     val isLoading by settingsViewModel.isLoadingPlatforms.collectAsStateWithLifecycle()
+    var showLimitDialog by remember { mutableStateOf(false) }
     
     LaunchedEffect(Unit) {
         settingsViewModel.fetchPlatforms()
+    }
+
+    LaunchedEffect(Unit) {
+        settingsViewModel.socialConnectUrl.collect { url ->
+            if (url.isNotBlank()) {
+                val intent = android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse(url))
+                context.startActivity(intent)
+            }
+        }
+    }
+
+    LaunchedEffect(Unit) {
+        settingsViewModel.errorEvent.collect { error ->
+            if (error == "PLATFORM_LIMIT_REACHED") {
+                showLimitDialog = true
+            }
+        }
+    }
+
+    if (showLimitDialog) {
+        AlertDialog(
+            onDismissRequest = { showLimitDialog = false },
+            title = { Text("Connection Limit Reached") },
+            text = { Text("Your current tier has reached its maximum number of social connections. Upgrade to connect more platforms.") },
+            confirmButton = {
+                Button(onClick = { 
+                    showLimitDialog = false
+                    // Navigate to subscription or handle upgrade
+                }) {
+                    Text("UPGRADE")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showLimitDialog = false }) {
+                    Text("CANCEL")
+                }
+            }
+        )
     }
 
     Scaffold(
@@ -79,7 +120,15 @@ fun SocialConnectionsScreen(
                             },
                             trailingContent = {
                                 if (platform.isConnected) {
-                                    Icon(Icons.Default.CheckCircle, null, tint = Color.Green)
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        Icon(Icons.Default.CheckCircle, null, tint = Color.Green, modifier = Modifier.size(20.dp))
+                                        Spacer(modifier = Modifier.width(8.dp))
+                                        TextButton(
+                                            onClick = { settingsViewModel.disconnectSocial(platform.id) }
+                                        ) {
+                                            Text("UNLINK", fontSize = 10.sp, color = MaterialTheme.colorScheme.error)
+                                        }
+                                    }
                                 } else {
                                     Button(
                                         onClick = { settingsViewModel.initiateSocialConnection(platform.id) },

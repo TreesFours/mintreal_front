@@ -50,14 +50,23 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
 
-            <!-- 🔗 Social Connection Deep Link -->
-            <intent-filter android:label="Mistreal Social Link">
+            <!-- 🔗 Secure Verified Social Connection App Link -->
+            <intent-filter android:autoVerify="true" android:label="Mistreal Social Link">
                 <action android:name="android.intent.action.VIEW" />
                 <category android:name="android.intent.category.DEFAULT" />
                 <category android:name="android.intent.category.BROWSABLE" />
-                <data
-                    android:scheme="mistreal"
-                    android:host="social-connected" />
+                <data android:scheme="https" />
+                <data android:host="mistreal-backend.onrender.com" />
+                <data android:pathPrefix="/social-connected" />
+            </intent-filter>
+
+            <!-- 🔗 Legacy Custom Scheme Fallback -->
+            <intent-filter android:label="Mistreal Legacy Social Link">
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="mistreal" />
+                <data android:host="social-connected" />
             </intent-filter>
         </activity>
 
