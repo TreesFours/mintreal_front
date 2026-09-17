@@ -69,6 +69,16 @@ fun SocialAuthScreen(
     }
 
     LaunchedEffect(Unit) {
+        viewModel.socialConnectUrl.collect { url ->
+            if (url != null && url.isNotBlank()) {
+                val intent = android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse(url))
+                context.startActivity(intent)
+                viewModel.clearSocialConnectUrl()
+            }
+        }
+    }
+
+    LaunchedEffect(Unit) {
         viewModel.fetchPlatforms()
     }
 

@@ -46,7 +46,7 @@ interface InfoApiService {
     suspend fun performSocialAction(@Body request: SocialActionRequest): SocialActionResponse
 
     @POST("api/social/init-connection")
-    suspend fun initiateConnection(@Body request: Map<String, String>): Map<String, String>
+    suspend fun initiateConnection(@Body request: Map<String, String>): Map<String, Any>
 
     @POST("api/user/settings")
     suspend fun updateUserSettings(@Body request: UserSettingsRequest): SocialActionResponse

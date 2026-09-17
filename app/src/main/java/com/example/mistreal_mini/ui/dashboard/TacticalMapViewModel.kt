@@ -144,7 +144,7 @@ class TacticalMapViewModel @Inject constructor(
             clearTacticalCircle()
             
             // Precision Zoom Logic
-            val zoom = if (addr.thoroughfare != null || addr.featureName != null) 18 else if (addr.locality != null) 13 else 8
+            val zoom = if (addr.thoroughfare != null || addr.featureName != null) 17 else if (addr.locality != null) 14 else 10
             _teleportRequest.value = Triple(addr.latitude, addr.longitude, zoom)
 
             val isPrecise = addr.subLocality != null || addr.thoroughfare != null || addr.featureName != null || addr.subAdminArea != null
@@ -295,8 +295,10 @@ class TacticalMapViewModel @Inject constructor(
         clearTacticalCircle()
         _suggestedCircleRadius.value = 5000.0
 
-        addToIntelLog(IntelLogEntry(fullLabel, address.latitude, address.longitude, "SEARCH", System.currentTimeMillis()))
-        tacticalRepository.clearAmbiguousLocations() // Oh wait, I didn't add clearAmbiguousLocations to TacticalRepository
+        val entry = IntelLogEntry(fullLabel, address.latitude, address.longitude, "SEARCH", System.currentTimeMillis())
+        tacticalRepository.setSearchMarker(entry)
+        addToIntelLog(entry)
+        tacticalRepository.clearAmbiguousLocations()
     }
 
     fun setTacticalCircle(lat: Double, lon: Double, radius: Double) {
@@ -312,6 +314,7 @@ class TacticalMapViewModel @Inject constructor(
     fun viewPlace(lat: Double, lon: Double, label: String, radius: Double = 200.0) {
         tacticalRepository.setFocusPlaceLabel(label)
         setTacticalCircle(lat, lon, radius)
+        _teleportRequest.value = Triple(lat, lon, 16)
     }
 
     fun clearTacticalCircle() {
@@ -385,6 +388,8 @@ class TacticalMapViewModel @Inject constructor(
                 listOfNotNull(addr.thoroughfare, addr.subLocality, addr.locality).distinct().joinToString(", ")
             } ?: "$lat, $lon"
 
+            val entry = IntelLogEntry(preciseLabel, lat, lon, "PIN", System.currentTimeMillis())
+            tacticalRepository.setSearchMarker(entry)
             tacticalRepository.addPin(lat, lon, preciseLabel)
             
             _mapLocation.value = preciseLabel.uppercase()
@@ -412,12 +417,14 @@ class TacticalMapViewModel @Inject constructor(
     }
 
     fun confirmAmbiguousLocation(lat: Double, lon: Double, label: String) {
+        val entry = IntelLogEntry(label.uppercase(), lat, lon, "SEARCH", System.currentTimeMillis())
+        tacticalRepository.setSearchMarker(entry)
         _mapLocation.value = label.uppercase()
         _mapFocusCoords.value = lat to lon
         _teleportRequest.value = Triple(lat, lon, 15)
         _ambiguousLocations.clear()
         _ghostMarkersRequest.value = null
-        addToIntelLog(IntelLogEntry(label.uppercase(), lat, lon, "SEARCH", System.currentTimeMillis()))
+        addToIntelLog(entry)
     }
 
     fun clearTeleport() {

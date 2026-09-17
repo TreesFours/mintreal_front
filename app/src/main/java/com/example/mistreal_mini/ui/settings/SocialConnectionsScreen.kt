@@ -38,9 +38,10 @@ fun SocialConnectionsScreen(
 
     LaunchedEffect(Unit) {
         settingsViewModel.socialConnectUrl.collect { url ->
-            if (url.isNotBlank()) {
+            if (url != null && url.isNotBlank()) {
                 val intent = android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse(url))
                 context.startActivity(intent)
+                settingsViewModel.clearSocialConnectUrl()
             }
         }
     }

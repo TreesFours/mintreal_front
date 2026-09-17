@@ -47,6 +47,16 @@ class TacticalRepository @Inject constructor() {
 
     fun addPin(lat: Double, lon: Double, label: String) {
         val entry = IntelLogEntry(label, lat, lon, "PIN", System.currentTimeMillis())
+        
+        // 🛰️ RELATION LOGIC: Check if pin is within active tactical circle
+        _tacticalCircle.value?.let { circle ->
+            val results = FloatArray(1)
+            Location.distanceBetween(lat, lon, circle.latitude, circle.longitude, results)
+            if (results[0] <= circle.radius) {
+                // Pin is inside tactical zone - could add metadata or highlight
+            }
+        }
+
         _intelLog.add(0, entry)
         if (_intelLog.size > 50) _intelLog.removeAt(_intelLog.size - 1)
         

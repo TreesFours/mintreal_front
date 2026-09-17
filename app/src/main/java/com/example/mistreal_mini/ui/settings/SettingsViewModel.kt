@@ -38,8 +38,8 @@ class SettingsViewModel @Inject constructor(
     private val _errorEvent = MutableSharedFlow<String>()
     val errorEvent = _errorEvent.asSharedFlow()
 
-    private val _socialConnectUrl = MutableSharedFlow<String>()
-    val socialConnectUrl = _socialConnectUrl.asSharedFlow()
+    private val _socialConnectUrl = MutableStateFlow<String?>(null)
+    val socialConnectUrl = _socialConnectUrl.asStateFlow()
 
     private val _availablePlatforms = MutableStateFlow<List<SocialPlatformResponse>>(emptyList())
     val availablePlatforms = _availablePlatforms.asStateFlow()
@@ -224,7 +224,7 @@ class SettingsViewModel @Inject constructor(
             val deviceId = android.provider.Settings.Secure.getString(context.contentResolver, android.provider.Settings.Secure.ANDROID_ID)
             val response = infoRepository.initiateConnection(deviceId, platform)
             if (response is Resource.Success<String> && response.data != null && response.data.isNotBlank()) {
-                _socialConnectUrl.emit(response.data)
+                _socialConnectUrl.value = response.data
             } else {
                 val error = response.message ?: "Connection init failed"
                 if (error.contains("LIMIT_REACHED", ignoreCase = true)) {
@@ -234,6 +234,10 @@ class SettingsViewModel @Inject constructor(
                 }
             }
         }
+    }
+
+    fun clearSocialConnectUrl() {
+        _socialConnectUrl.value = null
     }
 
     fun disconnectSocial(platform: String) {

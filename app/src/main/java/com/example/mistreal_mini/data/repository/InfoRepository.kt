@@ -162,8 +162,15 @@ class InfoRepository @Inject constructor(
     suspend fun initiateConnection(deviceId: String, platform: String): Resource<String> {
         return try {
             val response = api.initiateConnection(mapOf("deviceId" to deviceId, "platform" to platform))
-            if (response["success"] == "true") Resource.Success(response["connectUrl"] ?: "")
-            else Resource.Error(response["error"] ?: "Connection initiation failed")
+            val success = response["success"]
+            val isSuccess = when (success) {
+                is Boolean -> success
+                is String -> success.lowercase() == "true"
+                else -> false
+            }
+            
+            if (isSuccess) Resource.Success(response["connectUrl"]?.toString() ?: "")
+            else Resource.Error(response["error"]?.toString() ?: "Connection initiation failed")
         } catch (e: Exception) {
             Resource.Error(e.message ?: "Network error")
         }

@@ -150,8 +150,11 @@ fun SettingsScreen(
 
     LaunchedEffect(Unit) {
         viewModel.socialConnectUrl.collectLatest { url ->
-            val intent = android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse(url))
-            context.startActivity(intent)
+            if (!url.isNullOrBlank()) {
+                val intent = android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse(url))
+                context.startActivity(intent)
+                viewModel.clearSocialConnectUrl()
+            }
         }
     }
 
