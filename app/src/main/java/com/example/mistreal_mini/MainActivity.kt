@@ -103,32 +103,42 @@ class MainActivity : FragmentActivity() {
                 val navController = rememberNavController()
                 var backPressedTime by rememberSaveable { mutableLongStateOf(0L) }
 
-                Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
-                    val chatViewModel: ChatViewModel = hiltViewModel()
-                    val dashboardViewModel: DashboardViewModel = hiltViewModel()
-                    val settingsViewModel: SettingsViewModel = hiltViewModel()
+                    Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
+                        val chatViewModel: ChatViewModel = hiltViewModel()
+                        val dashboardViewModel: DashboardViewModel = hiltViewModel()
+                        val feedViewModel: com.example.mistreal_mini.ui.dashboard.FeedViewModel = hiltViewModel()
+                        val settingsViewModel: SettingsViewModel = hiltViewModel()
 
-                    // 🔗 Deep Link Handler
-                    LaunchedEffect(intentState) {
-                        intentState?.data?.let { uri ->
-                            if (uri.scheme == "mistreal" && uri.host == "social-connected") {
-                                val platform = uri.getQueryParameter("platform") ?: "platform"
-                                val success = uri.getQueryParameter("success") == "true"
-                                val deviceId = android.provider.Settings.Secure.getString(contentResolver, android.provider.Settings.Secure.ANDROID_ID)
+                        // 🔗 Deep Link Handler
+                        LaunchedEffect(intentState) {
+                            intentState?.data?.let { uri ->
+                                val isMistrealScheme = uri.scheme == "mistreal" && uri.host == "social-connected"
+                                val isHttpsAppLink = uri.scheme == "https" && 
+                                                    uri.host == "mistreal-backend.onrender.com" && 
+                                                    uri.path?.contains("social-connected") == true
                                 
-                                if (success) {
-                                    Toast.makeText(this@MainActivity, "✅ $platform linked successfully!", Toast.LENGTH_LONG).show()
-                                    settingsViewModel.onSocialConnectionResult(platform, true)
-                                    dashboardViewModel.loadDashboardData(deviceId)
-                                    chatViewModel.refreshSocialContacts() 
-                                } else {
-                                    val error = uri.getQueryParameter("error") ?: "Connection failed"
-                                    Toast.makeText(this@MainActivity, "❌ Error: $error", Toast.LENGTH_LONG).show()
-                                    settingsViewModel.onSocialConnectionResult(platform, false)
+                                if (isMistrealScheme || isHttpsAppLink) {
+                                    val platform = uri.getQueryParameter("platform") ?: "platform"
+                                    val success = uri.getQueryParameter("success") == "true"
+                                    val deviceId = android.provider.Settings.Secure.getString(contentResolver, android.provider.Settings.Secure.ANDROID_ID)
+                                    
+                                    if (success) {
+                                        Toast.makeText(this@MainActivity, "✅ $platform linked successfully!", Toast.LENGTH_LONG).show()
+                                        settingsViewModel.onSocialConnectionResult(platform, true)
+                                        dashboardViewModel.loadDashboardData(deviceId)
+                                        feedViewModel.loadFeed(deviceId)
+                                        chatViewModel.refreshSocialContacts() 
+                                    } else {
+                                        val error = uri.getQueryParameter("error") ?: "Connection failed"
+                                        Toast.makeText(this@MainActivity, "❌ Error: $error", Toast.LENGTH_LONG).show()
+                                        settingsViewModel.onSocialConnectionResult(platform, false)
+                                    }
+                                    
+                                    // Clear intent to prevent re-triggering on configuration change
+                                    _intentState.value = null
                                 }
                             }
                         }
-                    }
 
                     // 🛡️ Back Navigation Handler (Survives Rotation & Exit Logic)
                     BackHandler(enabled = true) {

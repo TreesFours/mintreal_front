@@ -44,6 +44,10 @@ class PreferenceManager @Inject constructor(
     private val CONVERSATION_COUNTER_KEY = androidx.datastore.preferences.core.intPreferencesKey("conversation_counter")
     private val THEME_MODE_KEY = androidx.datastore.preferences.core.stringPreferencesKey("theme_mode") // "fire", "sand", "auto"
     private val LAST_INTERACTION_TIME_KEY = androidx.datastore.preferences.core.longPreferencesKey("last_interaction_time")
+    private val DEEP_ANALYSIS_ENABLED_KEY = booleanPreferencesKey("deep_analysis_enabled")
+    private val GOD_MODE_ENABLED_KEY = booleanPreferencesKey("god_mode_enabled")
+    private val GOD_MODE_TASK_KEY = androidx.datastore.preferences.core.stringPreferencesKey("god_mode_task")
+    private val GOD_MODE_STYLE_KEY = androidx.datastore.preferences.core.stringPreferencesKey("god_mode_style")
 
     val isOnboarded: Flow<Boolean> = context.dataStore.data
         .map { preferences ->
@@ -173,6 +177,26 @@ class PreferenceManager @Inject constructor(
     val lastInteractionTime: Flow<Long> = context.dataStore.data
         .map { preferences ->
             preferences[LAST_INTERACTION_TIME_KEY] ?: System.currentTimeMillis()
+        }
+
+    val isDeepAnalysisEnabled: Flow<Boolean> = context.dataStore.data
+        .map { preferences ->
+            preferences[DEEP_ANALYSIS_ENABLED_KEY] ?: false
+        }
+
+    val isGodModeEnabled: Flow<Boolean> = context.dataStore.data
+        .map { preferences ->
+            preferences[GOD_MODE_ENABLED_KEY] ?: false
+        }
+
+    val godModeTask: Flow<String> = context.dataStore.data
+        .map { preferences ->
+            preferences[GOD_MODE_TASK_KEY] ?: ""
+        }
+
+    val godModeStyle: Flow<String> = context.dataStore.data
+        .map { preferences ->
+            preferences[GOD_MODE_STYLE_KEY] ?: "Standard"
         }
 
     suspend fun setOnboarded(onboarded: Boolean) {
@@ -328,6 +352,30 @@ class PreferenceManager @Inject constructor(
     suspend fun setLastInteractionTime(time: Long) {
         context.dataStore.edit { preferences ->
             preferences[LAST_INTERACTION_TIME_KEY] = time
+        }
+    }
+
+    suspend fun setDeepAnalysisEnabled(enabled: Boolean) {
+        context.dataStore.edit { preferences ->
+            preferences[DEEP_ANALYSIS_ENABLED_KEY] = enabled
+        }
+    }
+
+    suspend fun setGodModeEnabled(enabled: Boolean) {
+        context.dataStore.edit { preferences ->
+            preferences[GOD_MODE_ENABLED_KEY] = enabled
+        }
+    }
+
+    suspend fun setGodModeTask(task: String) {
+        context.dataStore.edit { preferences ->
+            preferences[GOD_MODE_TASK_KEY] = task
+        }
+    }
+
+    suspend fun setGodModeStyle(style: String) {
+        context.dataStore.edit { preferences ->
+            preferences[GOD_MODE_STYLE_KEY] = style
         }
     }
 }

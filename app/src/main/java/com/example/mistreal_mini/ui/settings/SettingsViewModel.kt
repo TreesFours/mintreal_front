@@ -47,6 +47,9 @@ class SettingsViewModel @Inject constructor(
     private val _isLoadingPlatforms = MutableStateFlow(false)
     val isLoadingPlatforms = _isLoadingPlatforms.asStateFlow()
 
+    private val _isConnectingSocial = MutableStateFlow(false)
+    val isConnectingSocial = _isConnectingSocial.asStateFlow()
+
     private val _socialConnectionSuccess = MutableSharedFlow<String>()
     val socialConnectionSuccess = _socialConnectionSuccess.asSharedFlow()
 
@@ -103,6 +106,18 @@ class SettingsViewModel @Inject constructor(
     private val _isPersistentSceneModeEnabled = mutableStateOf(false)
     val isPersistentSceneModeEnabled: State<Boolean> = _isPersistentSceneModeEnabled
 
+    private val _isDeepAnalysisEnabled = mutableStateOf(false)
+    val isDeepAnalysisEnabled: State<Boolean> = _isDeepAnalysisEnabled
+
+    private val _isGodModeEnabled = mutableStateOf(false)
+    val isGodModeEnabled: State<Boolean> = _isGodModeEnabled
+
+    private val _godModeTask = mutableStateOf("")
+    val godModeTask: State<String> = _godModeTask
+
+    private val _godModeStyle = mutableStateOf("Standard")
+    val godModeStyle: State<String> = _godModeStyle
+
     private val gson = Gson()
 
     init {
@@ -123,6 +138,18 @@ class SettingsViewModel @Inject constructor(
         }
         viewModelScope.launch {
             preferenceManager.isPersistentSceneModeEnabled.collect { _isPersistentSceneModeEnabled.value = it }
+        }
+        viewModelScope.launch {
+            preferenceManager.isDeepAnalysisEnabled.collect { _isDeepAnalysisEnabled.value = it }
+        }
+        viewModelScope.launch {
+            preferenceManager.isGodModeEnabled.collect { _isGodModeEnabled.value = it }
+        }
+        viewModelScope.launch {
+            preferenceManager.godModeTask.collect { _godModeTask.value = it }
+        }
+        viewModelScope.launch {
+            preferenceManager.godModeStyle.collect { _godModeStyle.value = it }
         }
         viewModelScope.launch {
             preferenceManager.customPersonas.collect { json ->
@@ -221,18 +248,23 @@ class SettingsViewModel @Inject constructor(
 
     fun initiateSocialConnection(platform: String) {
         viewModelScope.launch {
+            _isConnectingSocial.value = true
+            timber.log.Timber.d("🚀 Initiating social connection for platform: $platform")
             val deviceId = android.provider.Settings.Secure.getString(context.contentResolver, android.provider.Settings.Secure.ANDROID_ID)
             val response = infoRepository.initiateConnection(deviceId, platform)
             if (response is Resource.Success<String> && response.data != null && response.data.isNotBlank()) {
+                timber.log.Timber.d("✅ Connection initiated successfully. URL: ${response.data}")
                 _socialConnectUrl.value = response.data
             } else {
                 val error = response.message ?: "Connection init failed"
+                timber.log.Timber.e("❌ Social connection initiation failed: $error")
                 if (error.contains("LIMIT_REACHED", ignoreCase = true)) {
                     _errorEvent.emit("PLATFORM_LIMIT_REACHED")
                 } else {
                     _errorEvent.emit(error)
                 }
             }
+            _isConnectingSocial.value = false
         }
     }
 
@@ -444,6 +476,32 @@ class SettingsViewModel @Inject constructor(
     fun setPersistentSceneModeEnabled(enabled: Boolean) {
         _isPersistentSceneModeEnabled.value = enabled
         viewModelScope.launch { preferenceManager.setPersistentSceneModeEnabled(enabled) }
+    }
+
+    fun setDeepAnalysisEnabled(enabled: Boolean) {
+        _isDeepAnalysisEnabled.value = enabled
+        viewModelScope.launch { preferenceManager.setDeepAnalysisEnabled(enabled) }
+    }
+
+    fun setGodModeEnabled(enabled: Boolean) {
+        _isGodModeEnabled.value = enabled
+        viewModelScope.launch { preferenceManager.setGodModeEnabled(enabled) }
+    }
+
+    fun setGodModeTask(task: String) {
+        _godModeTask.value = task
+        viewModelScope.launch { preferenceManager.setGodModeTask(task) }
+    }
+
+    fun setGodModeStyle(style: String) {
+        val lower = style.lowercase()
+        val forbidden = listOf("racist", "hate", "supremacist", "bigot", "nazi")
+        if (forbidden.any { lower.contains(it) }) {
+            viewModelScope.launch { _errorEvent.emit("Style rejected: Must adhere to non-discriminatory principles.") }
+            return
+        }
+        _godModeStyle.value = style
+        viewModelScope.launch { preferenceManager.setGodModeStyle(style) }
     }
 
     fun saveRandomFreq(freq: String) {

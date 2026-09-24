@@ -288,8 +288,65 @@ fun SettingsScreen(
                         )
                     }
 
+                    // --- SECTION: GOD MODE AI ---
+                    SettingsSection(title = "GOD MODE AI", icon = Icons.Default.Bolt) {
+                        ProtocolSwitch(
+                            title = "God Mode Protocol",
+                            desc = "Topmost researcher, zero-mistake fact verification & precision fact pulling.",
+                            checked = viewModel.isGodModeEnabled.value,
+                            onCheckedChange = { viewModel.setGodModeEnabled(it) }
+                        )
+
+                        if (viewModel.isGodModeEnabled.value) {
+                            Spacer(modifier = Modifier.height(12.dp))
+                            
+                            var tempGodTask by remember { mutableStateOf(viewModel.godModeTask.value) }
+                            var tempGodStyle by remember { mutableStateOf(viewModel.godModeStyle.value) }
+
+                            OutlinedTextField(
+                                value = tempGodTask,
+                                onValueChange = { tempGodTask = it },
+                                label = { Text("God Mode Research Task") },
+                                placeholder = { Text("e.g. Verify quantum computing benchmarks") },
+                                modifier = Modifier.fillMaxWidth(),
+                                singleLine = true,
+                                trailingIcon = {
+                                    IconButton(onClick = { viewModel.setGodModeTask(tempGodTask) }) {
+                                        Icon(Icons.Default.Check, "Set Task", tint = MaterialTheme.colorScheme.primary)
+                                    }
+                                }
+                            )
+
+                            Spacer(modifier = Modifier.height(8.dp))
+
+                            OutlinedTextField(
+                                value = tempGodStyle,
+                                onValueChange = { tempGodStyle = it },
+                                label = { Text("Explanation Mode (Mode_Human)") },
+                                placeholder = { Text("e.g. baby, expert, concise") },
+                                modifier = Modifier.fillMaxWidth(),
+                                singleLine = true,
+                                supportingText = { Text("e.g. 'baby' explains deep knowledge in simple terms like to a child.", fontSize = 10.sp, color = Color.Gray) },
+                                trailingIcon = {
+                                    IconButton(onClick = { viewModel.setGodModeStyle(tempGodStyle) }) {
+                                        Icon(Icons.Default.Check, "Set Style", tint = MaterialTheme.colorScheme.primary)
+                                    }
+                                }
+                            )
+                        }
+                    }
+
                     // --- SECTION 3: AI MISSION PARAMETERS ---
                     SettingsSection(title = "MISSION PARAMETERS", icon = Icons.Default.Psychology) {
+                        ProtocolSwitch(
+                            title = "Deep Analysis (High Performance)",
+                            desc = "Maximum reasoning depth & exhaustive audit intensity.",
+                            checked = viewModel.isDeepAnalysisEnabled.value,
+                            onCheckedChange = { viewModel.setDeepAnalysisEnabled(it) }
+                        )
+
+                        Spacer(modifier = Modifier.height(16.dp))
+
                         Text("Current Behavior Protocol", style = MaterialTheme.typography.labelMedium, color = Color.Gray)
                         Spacer(modifier = Modifier.height(8.dp))
                         

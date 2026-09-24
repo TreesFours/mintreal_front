@@ -37,10 +37,46 @@ class SendMessageUseCase @Inject constructor(
         val isTherapist = preferenceManager.isSupportiveTruthTellerEnabled.first()
         val isSparkEnabled = preferenceManager.isIntelligenceSparkEnabled.first()
         val isWellnessEnabled = preferenceManager.isWellnessShieldEnabled.first()
+        val isDeepAnalysis = preferenceManager.isDeepAnalysisEnabled.first()
+        val isGodMode = preferenceManager.isGodModeEnabled.first()
+        val godModeTask = preferenceManager.godModeTask.first()
+        val godModeStyle = preferenceManager.godModeStyle.first()
         val counter = preferenceManager.conversationCounter.first()
         
         // 🧠 Core Shadow-Friend Instructions
         var systemInstructions = "Current Date/Time is $currentDate\n"
+
+        // 🛰️ WEB RESEARCH PROTOCOL (Core - Always Available)
+        systemInstructions += """
+            PROTOCOL 'RESEARCH_AUDIT':
+            - If you lack real-time data (live scores, stock prices, breaking news) or encounter a training cutoff, you MUST use your search capabilities.
+            - Do not guess. Perform a professional web/database audit to retrieve facts.
+            - Ensure results are integrated naturally into your reply.
+        """.trimIndent()
+
+        if (isDeepAnalysis) {
+            systemInstructions += """
+                
+                PROTOCOL 'DEEP_ANALYSIS' ACTIVE (HIGH PERFORMANCE MODE):
+                - Provide maximum reasoning depth. Perform exhaustive audits of every database vector.
+                - If investigating a situation, perform a "Structural Integrity Audit" (Engineering focus) and "Tactical Risk Assessment".
+                - cross-verify facts across multiple simulated search queries to ensure 100% accuracy.
+                - Use precise, professional terminology.
+            """.trimIndent()
+        }
+
+        if (isGodMode) {
+            systemInstructions += """
+                
+                PROTOCOL 'GOD_MODE_AI' ACTIVE:
+                - You are in GOD MODE AI: You are the topmost researcher, ultra-precise fact-puller and verifier.
+                - ZERO MISTAKES: Carefully cross-verify every claim against authoritative sources before answering.
+                - Mission/Task Objective: ${if (godModeTask.isNotBlank()) godModeTask else "Topmost exhaustive research and precision fact verification."}
+                - Explanation Mode (Mode_Human): Format your output using style '$godModeStyle'. If style is 'baby' or 'simple', break down all deep knowledge into extremely clear, simple terms as if explaining to a beginner/child. If 'expert' or 'technical', provide rigorous depth.
+                - Policy Constraint: Do not express bias or discriminatory statements against race, religion, or legally protected groups.
+            """.trimIndent()
+        }
+
         if (isTherapist) {
             systemInstructions += """
                 PROTOCOL: Shadow-Friend/Therapist Active.

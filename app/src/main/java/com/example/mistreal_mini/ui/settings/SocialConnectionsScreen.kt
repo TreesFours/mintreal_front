@@ -30,6 +30,7 @@ fun SocialConnectionsScreen(
     val context = LocalContext.current
     val platforms by settingsViewModel.availablePlatforms.collectAsStateWithLifecycle()
     val isLoading by settingsViewModel.isLoadingPlatforms.collectAsStateWithLifecycle()
+    val isConnecting by settingsViewModel.isConnectingSocial.collectAsStateWithLifecycle()
     var showLimitDialog by remember { mutableStateOf(false) }
     
     LaunchedEffect(Unit) {
@@ -39,7 +40,10 @@ fun SocialConnectionsScreen(
     LaunchedEffect(Unit) {
         settingsViewModel.socialConnectUrl.collect { url ->
             if (url != null && url.isNotBlank()) {
-                val intent = android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse(url))
+                timber.log.Timber.d("🔗 Launching Zernio Connect: $url")
+                val intent = android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse(url)).apply {
+                    addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
+                }
                 context.startActivity(intent)
                 settingsViewModel.clearSocialConnectUrl()
             }
@@ -50,6 +54,8 @@ fun SocialConnectionsScreen(
         settingsViewModel.errorEvent.collect { error ->
             if (error == "PLATFORM_LIMIT_REACHED") {
                 showLimitDialog = true
+            } else {
+                android.widget.Toast.makeText(context, "❌ Error: $error", android.widget.Toast.LENGTH_LONG).show()
             }
         }
     }
@@ -133,7 +139,8 @@ fun SocialConnectionsScreen(
                                 } else {
                                     Button(
                                         onClick = { settingsViewModel.initiateSocialConnection(platform.id) },
-                                        shape = RoundedCornerShape(8.dp)
+                                        shape = RoundedCornerShape(8.dp),
+                                        enabled = !isConnecting
                                     ) {
                                         Text("LINK", fontSize = 10.sp)
                                     }
@@ -147,6 +154,29 @@ fun SocialConnectionsScreen(
                         item {
                             Box(modifier = Modifier.fillMaxWidth().padding(32.dp), contentAlignment = Alignment.Center) {
                                 Text("No platforms available.", color = Color.Gray)
+                            }
+                        }
+                    }
+                }
+            }
+
+            if (isConnecting) {
+                Surface(
+                    modifier = Modifier.fillMaxSize(),
+                    color = Color.Black.copy(alpha = 0.3f)
+                ) {
+                    Box(contentAlignment = Alignment.Center) {
+                        Card(
+                            shape = RoundedCornerShape(16.dp),
+                            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
+                        ) {
+                            Column(
+                                modifier = Modifier.padding(24.dp),
+                                horizontalAlignment = Alignment.CenterHorizontally
+                            ) {
+                                CircularProgressIndicator()
+                                Spacer(modifier = Modifier.height(16.dp))
+                                Text("Initializing connection...", style = MaterialTheme.typography.bodyMedium)
                             }
                         }
                     }

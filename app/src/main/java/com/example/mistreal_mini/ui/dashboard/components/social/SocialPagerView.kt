@@ -112,6 +112,12 @@ fun StrategicIntelligenceCard(
                 }
                 Spacer(modifier = Modifier.width(12.dp))
                 Column(modifier = Modifier.weight(1f)) {
+                    val label = when(post.type.lowercase()) {
+                        "message", "dm" -> "DIRECT SIGNAL"
+                        "comment" -> "FEEDBACK LOOP"
+                        else -> "INTELLIGENCE REPORT"
+                    }
+                    Text(label, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Black)
                     Text(post.author, style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold)
                     Text("${post.fetchDisplayName()} • ${post.getRelativeTime()}", style = MaterialTheme.typography.labelSmall, color = Color.Gray)
                 }

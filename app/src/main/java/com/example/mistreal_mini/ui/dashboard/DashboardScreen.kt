@@ -63,6 +63,7 @@ fun DashboardScreen(
     var showFullSolarSystem by remember { mutableStateOf(false) }
 
     val weather by viewModel.weather
+    val unreadCount by viewModel.unreadMessagesCount
     val isLoading by viewModel.isLoading
     val orientation by viewModel.orientation
     val bearing by viewModel.bearing
@@ -102,7 +103,11 @@ fun DashboardScreen(
                 title = { Text(if (isArchitectMode) "MISTREAL ARCHITECT" else "MISTREAL TACTICAL", fontWeight = FontWeight.Black) },
                 actions = {
                     IconButton(onClick = onDmClick) {
-                        BadgedBox(badge = { Badge { Text("3") } }) {
+                        BadgedBox(badge = { 
+                            if (unreadCount > 0) {
+                                Badge { Text(unreadCount.toString()) } 
+                            }
+                        }) {
                             Icon(Icons.Default.Chat, "Direct Messages")
                         }
                     }

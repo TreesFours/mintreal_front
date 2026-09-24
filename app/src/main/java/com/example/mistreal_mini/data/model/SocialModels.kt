@@ -6,6 +6,7 @@ data class SocialPost(
     val author: String,
     val content: String,
     val timestamp: String, 
+    val type: String = "post", // "post", "message", "comment"
     val imageUrl: String? = null,
     val likes: Int? = null,
     val commentsCount: Int? = null,

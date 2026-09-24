@@ -64,6 +64,8 @@ fun SocialAuthScreen(
         viewModel.errorEvent.collectLatest { error ->
             if (error == "PLATFORM_LIMIT_REACHED") {
                 showLimitDialog = true
+            } else {
+                android.widget.Toast.makeText(context, "❌ Error: $error", android.widget.Toast.LENGTH_LONG).show()
             }
         }
     }
@@ -71,7 +73,10 @@ fun SocialAuthScreen(
     LaunchedEffect(Unit) {
         viewModel.socialConnectUrl.collect { url ->
             if (url != null && url.isNotBlank()) {
-                val intent = android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse(url))
+                timber.log.Timber.d("🔗 Launching Zernio Connect (AuthScreen): $url")
+                val intent = android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse(url)).apply {
+                    addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
+                }
                 context.startActivity(intent)
                 viewModel.clearSocialConnectUrl()
             }

@@ -55,6 +55,9 @@ class DashboardViewModel @Inject constructor(
     private val _compassSupported = mutableStateOf(true)
     val compassSupported: State<Boolean> = _compassSupported
 
+    private val _unreadMessagesCount = androidx.compose.runtime.mutableIntStateOf(0)
+    val unreadMessagesCount: State<Int> = _unreadMessagesCount
+
     val currentPersona = preferenceManager.aiPersona
 
     init {
@@ -97,23 +100,38 @@ class DashboardViewModel @Inject constructor(
         _isLoading.value = true
         viewModelScope.launch {
             val loc = locationHelper.getCurrentLocation()
-            if (loc != null && deviceId != null) {
-                infoRepository.updateUserSettings(
-                    deviceId = deviceId,
-                    userName = null,
-                    aiPersona = null,
-                    aiAudience = null,
-                    autoReplyDelay = null,
-                    guardianEnabled = null,
-                    emergencyContacts = null
-                )
+            if (deviceId != null) {
+                fetchUnreadCount(deviceId)
                 
-                when (val result = getIntelligenceFeedUseCase.getWeather()) {
-                    is Resource.Success -> _weather.value = result.data
-                    else -> {}
+                if (loc != null) {
+                    infoRepository.updateUserSettings(
+                        deviceId = deviceId,
+                        userName = null,
+                        aiPersona = null,
+                        aiAudience = null,
+                        autoReplyDelay = null,
+                        guardianEnabled = null,
+                        emergencyContacts = null
+                    )
+                    
+                    when (val result = getIntelligenceFeedUseCase.getWeather()) {
+                        is Resource.Success -> _weather.value = result.data
+                        else -> {}
+                    }
                 }
             }
             _isLoading.value = false
+        }
+    }
+
+    fun fetchUnreadCount(deviceId: String) {
+        viewModelScope.launch {
+            when (val result = infoRepository.getUnreadMessages(deviceId)) {
+                is Resource.Success -> {
+                    _unreadMessagesCount.intValue = result.data?.size ?: 0
+                }
+                else -> {}
+            }
         }
     }
 
