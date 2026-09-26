@@ -24,6 +24,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.example.mistreal_mini.data.api.Article
 import com.example.mistreal_mini.ui.chat.ChatViewModel
@@ -116,14 +117,54 @@ fun DashboardScreen(
         }
     ) { padding ->
         Column(modifier = Modifier.padding(padding).fillMaxSize()) {
-            TabRow(selectedTabIndex = selectedTab) {
-                Tab(selected = selectedTab == 0, onClick = { selectedTab = 0 }, text = { Text("INTEL") })
-                Tab(selected = selectedTab == 1, onClick = { selectedTab = 1 }, text = { Text("MAP") })
+            TabRow(
+                selectedTabIndex = selectedTab,
+                containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f),
+                contentColor = MaterialTheme.colorScheme.primary
+            ) {
+                Tab(
+                    selected = selectedTab == 0,
+                    onClick = { selectedTab = 0 },
+                    icon = { Icon(Icons.Default.RssFeed, contentDescription = "Intel", modifier = Modifier.size(18.dp)) },
+                    text = { Text("INTEL", fontSize = 11.sp, fontWeight = FontWeight.Bold) }
+                )
+                Tab(
+                    selected = selectedTab == 1,
+                    onClick = { selectedTab = 1 },
+                    icon = { Icon(Icons.Default.Map, contentDescription = "Map", modifier = Modifier.size(18.dp)) },
+                    text = { Text("MAP", fontSize = 11.sp, fontWeight = FontWeight.Bold) }
+                )
                 if (isArchitectMode) {
-                    Tab(selected = selectedTab == 2, onClick = { selectedTab = 2 }, text = { Text("DESIGN") })
+                    Tab(
+                        selected = selectedTab == 2,
+                        onClick = { selectedTab = 2 },
+                        icon = { Icon(Icons.Default.Architecture, contentDescription = "Design", modifier = Modifier.size(18.dp)) },
+                        text = { Text("DESIGN", fontSize = 11.sp, fontWeight = FontWeight.Bold) }
+                    )
                 }
-                Tab(selected = selectedTab == (if(isArchitectMode) 3 else 2), onClick = { selectedTab = if(isArchitectMode) 3 else 2 }, text = { Text("SOCIAL") })
-                Tab(selected = selectedTab == (if(isArchitectMode) 4 else 3), onClick = { selectedTab = if(isArchitectMode) 4 else 3 }, text = { Text("DISPATCH") })
+                val socialIndex = if (isArchitectMode) 3 else 2
+                Tab(
+                    selected = selectedTab == socialIndex,
+                    onClick = { selectedTab = socialIndex },
+                    icon = {
+                        BadgedBox(badge = {
+                            val socialCount = feedViewModel.socialPosts.size
+                            if (socialCount > 0) {
+                                Badge { Text(socialCount.toString()) }
+                            }
+                        }) {
+                            Icon(Icons.Default.Public, contentDescription = "Social Slider", modifier = Modifier.size(18.dp))
+                        }
+                    },
+                    text = { Text("SOCIAL", fontSize = 11.sp, fontWeight = FontWeight.Bold) }
+                )
+                val dispatchIndex = if (isArchitectMode) 4 else 3
+                Tab(
+                    selected = selectedTab == dispatchIndex,
+                    onClick = { selectedTab = dispatchIndex },
+                    icon = { Icon(Icons.Default.BroadcastOnPersonal, contentDescription = "Broadcast Deck", modifier = Modifier.size(18.dp)) },
+                    text = { Text("BROADCAST", fontSize = 11.sp, fontWeight = FontWeight.Bold) }
+                )
             }
 
             Box(modifier = Modifier.weight(1f)) {

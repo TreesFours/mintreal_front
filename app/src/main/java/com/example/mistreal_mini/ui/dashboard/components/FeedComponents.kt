@@ -85,6 +85,8 @@ fun IntelligenceFeedView(
 ) {
     var showIntelPopup by remember { mutableStateOf<Article?>(null) }
 
+    var selectedCategory by remember { mutableStateOf("ALL") }
+
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
         contentPadding = PaddingValues(16.dp),
@@ -97,37 +99,66 @@ fun IntelligenceFeedView(
             )
         }
 
-        // --- HORIZONTAL INTEL SECTIONS (Novel, Wiki, Journal) ---
+        // --- CATEGORY FILTER CHIPS ---
         item {
-            val horizontalTypes = listOf("novel", "wiki", "journal")
-            val horizontalArticles = articles.filter { it.type in horizontalTypes }
-            if (horizontalArticles.isNotEmpty()) {
-                Column {
-                    Text("RESEARCH & LITERATURE", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Black, color = Color.Gray)
-                    Spacer(modifier = Modifier.height(8.dp))
-                    LazyRow(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                        items(horizontalArticles) { art ->
-                            IntelMiniCard(art, onClick = { showIntelPopup = art })
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                listOf("ALL", "NEWS", "ORBITAL", "RESEARCH").forEach { category ->
+                    FilterChip(
+                        selected = selectedCategory == category,
+                        onClick = { selectedCategory = category },
+                        label = { Text(category, fontSize = 11.sp, fontWeight = FontWeight.Bold) }
+                    )
+                }
+            }
+        }
+
+        // --- HORIZONTAL INTEL SECTIONS (Novel, Wiki, Journal) ---
+        if (selectedCategory == "ALL" || selectedCategory == "RESEARCH") {
+            item {
+                val horizontalTypes = listOf("novel", "wiki", "journal")
+                val horizontalArticles = articles.filter { it.type in horizontalTypes }
+                if (horizontalArticles.isNotEmpty()) {
+                    Column {
+                        Text("RESEARCH & LITERATURE", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Black, color = Color.Gray)
+                        Spacer(modifier = Modifier.height(8.dp))
+                        LazyRow(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                            items(horizontalArticles) { art ->
+                                IntelMiniCard(art, onClick = { showIntelPopup = art })
+                            }
                         }
                     }
                 }
             }
         }
 
-        item {
-            Card(
-                modifier = Modifier.fillMaxWidth().clickable { onOrbitalClick() },
-                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.secondaryContainer)
-            ) {
-                Row(modifier = Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Icon(Icons.Default.Public, null, tint = MaterialTheme.colorScheme.secondary)
-                    Spacer(modifier = Modifier.width(12.dp))
-                    Text("Celestial Intelligence Dashboard", fontWeight = FontWeight.Bold)
+        if (selectedCategory == "ALL" || selectedCategory == "ORBITAL") {
+            item {
+                Card(
+                    modifier = Modifier.fillMaxWidth().clickable { onOrbitalClick() },
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.secondaryContainer)
+                ) {
+                    Row(modifier = Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Icon(Icons.Default.Public, null, tint = MaterialTheme.colorScheme.secondary)
+                        Spacer(modifier = Modifier.width(12.dp))
+                        Text("Celestial Intelligence Dashboard", fontWeight = FontWeight.Bold)
+                    }
                 }
             }
         }
 
-        items(articles.filter { it.type !in listOf("novel", "wiki", "journal") }) { article ->
+        val filteredArticles = articles.filter { article ->
+            when (selectedCategory) {
+                "NEWS" -> article.type == "news" || article.type == null
+                "ORBITAL" -> article.type == "astro"
+                "RESEARCH" -> article.type in listOf("novel", "wiki", "journal")
+                else -> article.type !in listOf("novel", "wiki", "journal")
+            }
+        }
+
+        items(filteredArticles) { article ->
             if (article.type == "astro") {
                 NasaApodCard(
                     article = article,

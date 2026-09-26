@@ -12,7 +12,10 @@ import com.example.mistreal_mini.data.model.SocialPost
 import com.example.mistreal_mini.domain.usecase.GetIntelligenceFeedUseCase
 import com.example.mistreal_mini.domain.usecase.SyncSocialsUseCase
 import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.async
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.supervisorScope
+import kotlinx.coroutines.supervisorScope
 import timber.log.Timber
 import javax.inject.Inject
 
@@ -41,8 +44,12 @@ class FeedViewModel @Inject constructor(
     fun loadFeed(deviceId: String) {
         viewModelScope.launch {
             _isLoading.value = true
-            fetchIntelligence(fastLoad = true)
-            syncSocials(deviceId)
+            supervisorScope {
+                val intelDeferred = async { fetchIntelligence(fastLoad = true) }
+                val socialDeferred = async { syncSocials(deviceId) }
+                intelDeferred.await()
+                socialDeferred.await()
+            }
             _isLoading.value = false
         }
     }

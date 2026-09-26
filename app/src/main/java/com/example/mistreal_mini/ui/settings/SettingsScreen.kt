@@ -542,6 +542,30 @@ fun SettingsScreen(
 
                     // --- SECTION 3: GUARDIAN & PRIVACY ---
                     SettingsSection(title = "GUARDIAN PROTOCOLS", icon = Icons.Default.Security) {
+                        // Location Intelligence Switch
+                        ProtocolSwitch(
+                            title = "Location Intelligence",
+                            desc = "Secure local positioning for weather, celestial vectors, and discovery.",
+                            checked = localIntelligenceEnabled,
+                            onCheckedChange = { enabled ->
+                                localIntelligenceEnabled = enabled
+                                if (enabled) {
+                                    locationPermissionLauncher.launch(
+                                        arrayOf(
+                                            android.Manifest.permission.ACCESS_FINE_LOCATION,
+                                            android.Manifest.permission.ACCESS_COARSE_LOCATION
+                                        )
+                                    )
+                                } else {
+                                    viewModel.setLocationEnabled(false)
+                                    scope.launch { snackbarHostState.showSnackbar("Location Intelligence Disabled") }
+                                }
+                            }
+                        )
+
+                        Spacer(modifier = Modifier.height(16.dp))
+                        HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp), thickness = 0.5.dp, color = MaterialTheme.colorScheme.outlineVariant)
+
                         // Supportive Truth-Teller
                         ProtocolSwitch(
                             title = "Supportive Truth-Teller",

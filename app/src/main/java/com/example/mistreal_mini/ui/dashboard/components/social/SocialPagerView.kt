@@ -88,13 +88,19 @@ fun StrategicIntelligenceCard(
     onReadAloud: (String) -> Unit
 ) {
     val scrollState = rememberScrollState()
-    
+    val brandColor = try {
+        Color(android.graphics.Color.parseColor(post.platformColor))
+    } catch (e: Exception) {
+        MaterialTheme.colorScheme.primary
+    }
+
     Card(
         modifier = Modifier
             .fillMaxSize()
             .padding(vertical = 16.dp),
         shape = RoundedCornerShape(24.dp),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)),
+        border = androidx.compose.foundation.BorderStroke(1.dp, brandColor.copy(alpha = 0.3f))
     ) {
         Column(
             modifier = Modifier
@@ -105,10 +111,13 @@ fun StrategicIntelligenceCard(
             // Top Deck: Platform & Timestamp
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Box(
-                    modifier = Modifier.size(32.dp).clip(CircleShape).background(Color.Gray),
+                    modifier = Modifier
+                        .size(36.dp)
+                        .clip(CircleShape)
+                        .background(brandColor.copy(alpha = 0.2f)),
                     contentAlignment = Alignment.Center
                 ) {
-                    Text(post.platformIcon, fontSize = 16.sp)
+                    Text(post.platformIcon, fontSize = 18.sp)
                 }
                 Spacer(modifier = Modifier.width(12.dp))
                 Column(modifier = Modifier.weight(1f)) {
@@ -117,12 +126,12 @@ fun StrategicIntelligenceCard(
                         "comment" -> "FEEDBACK LOOP"
                         else -> "INTELLIGENCE REPORT"
                     }
-                    Text(label, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Black)
+                    Text(label, style = MaterialTheme.typography.labelSmall, color = brandColor, fontWeight = FontWeight.Black)
                     Text(post.author, style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold)
                     Text("${post.fetchDisplayName()} • ${post.getRelativeTime()}", style = MaterialTheme.typography.labelSmall, color = Color.Gray)
                 }
                 IconButton(onClick = onAiClick) {
-                    Icon(Icons.Default.Psychology, "AI Analysis", tint = MaterialTheme.colorScheme.primary)
+                    Icon(Icons.Default.Psychology, "AI Analysis", tint = brandColor)
                 }
             }
 
@@ -165,6 +174,19 @@ fun StrategicIntelligenceCard(
                     }
                 }
                 Text("${post.commentsCount ?: 0} COMMENTS", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+            }
+
+            Spacer(modifier = Modifier.height(16.dp))
+            
+            Button(
+                onClick = onAiClick,
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(12.dp),
+                colors = ButtonDefaults.buttonColors(containerColor = brandColor.copy(alpha = 0.85f))
+            ) {
+                Icon(Icons.Default.Psychology, null)
+                Spacer(modifier = Modifier.width(8.dp))
+                Text("DRAFT AI RESPONSE", fontWeight = FontWeight.Bold)
             }
 
             Spacer(modifier = Modifier.height(16.dp))

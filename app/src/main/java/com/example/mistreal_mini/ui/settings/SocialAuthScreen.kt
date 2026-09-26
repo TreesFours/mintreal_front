@@ -95,6 +95,11 @@ fun SocialAuthScreen(
                     IconButton(onClick = onBack) {
                         Icon(Icons.Default.ArrowBack, contentDescription = "Back")
                     }
+                },
+                actions = {
+                    IconButton(onClick = { viewModel.fetchPlatforms() }) {
+                        Icon(Icons.Default.Refresh, contentDescription = "Refresh Zernio Connections")
+                    }
                 }
             )
         }
