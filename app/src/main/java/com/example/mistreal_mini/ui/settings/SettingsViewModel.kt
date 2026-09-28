@@ -50,6 +50,9 @@ class SettingsViewModel @Inject constructor(
     private val _isConnectingSocial = MutableStateFlow(false)
     val isConnectingSocial = _isConnectingSocial.asStateFlow()
 
+    private val _connectingPlatform = MutableStateFlow<String?>(null)
+    val connectingPlatform = _connectingPlatform.asStateFlow()
+
     private val _socialConnectionSuccess = MutableSharedFlow<String>()
     val socialConnectionSuccess = _socialConnectionSuccess.asSharedFlow()
 
@@ -249,6 +252,7 @@ class SettingsViewModel @Inject constructor(
     fun initiateSocialConnection(platform: String) {
         viewModelScope.launch {
             _isConnectingSocial.value = true
+            _connectingPlatform.value = platform
             timber.log.Timber.d("🚀 Initiating social connection for platform: $platform")
             val deviceId = android.provider.Settings.Secure.getString(context.contentResolver, android.provider.Settings.Secure.ANDROID_ID)
             val response = infoRepository.initiateConnection(deviceId, platform)
@@ -265,6 +269,7 @@ class SettingsViewModel @Inject constructor(
                 }
             }
             _isConnectingSocial.value = false
+            _connectingPlatform.value = null
         }
     }
 

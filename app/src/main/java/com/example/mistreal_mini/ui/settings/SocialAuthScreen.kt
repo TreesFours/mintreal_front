@@ -32,6 +32,7 @@ fun SocialAuthScreen(
     val context = LocalContext.current
     val platforms by viewModel.availablePlatforms.collectAsStateWithLifecycle()
     val isLoading by viewModel.isLoadingPlatforms.collectAsStateWithLifecycle()
+    val connectingPlatform by viewModel.connectingPlatform.collectAsStateWithLifecycle()
     val isSyncing by viewModel.isSyncing.collectAsStateWithLifecycle()
     val syncProgress by viewModel.syncProgress.collectAsStateWithLifecycle()
     val syncMessage by viewModel.syncMessage.collectAsStateWithLifecycle()
@@ -134,7 +135,9 @@ fun SocialAuthScreen(
                     items(platforms) { platform ->
                         PlatformCard(
                             platform = platform,
+                            isConnecting = connectingPlatform == platform.id,
                             onClick = {
+                                if (connectingPlatform != null) return@PlatformCard
                                 if (platform.isConnected) {
                                     // Maybe show "Already Connected" or disconnect option?
                                 } else if (platform.isProOnly) {
@@ -169,9 +172,10 @@ fun SocialAuthScreen(
 }
 
 @Composable
-fun PlatformCard(platform: SocialPlatformResponse, onClick: () -> Unit) {
+fun PlatformCard(platform: SocialPlatformResponse, isConnecting: Boolean = false, onClick: () -> Unit) {
     Card(
         onClick = onClick,
+        enabled = !isConnecting,
         modifier = Modifier.fillMaxWidth().height(120.dp),
         colors = CardDefaults.cardColors(
             containerColor = when {
@@ -188,7 +192,9 @@ fun PlatformCard(platform: SocialPlatformResponse, onClick: () -> Unit) {
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.Center
             ) {
-                if (platform.icon.length <= 2) { // Likely an emoji or short symbol
+                if (isConnecting) {
+                    CircularProgressIndicator(modifier = Modifier.size(32.dp))
+                } else if (platform.icon.length <= 2) { // Likely an emoji or short symbol
                     Text(platform.icon, fontSize = 32.sp)
                 } else {
                     Icon(
@@ -210,7 +216,7 @@ fun PlatformCard(platform: SocialPlatformResponse, onClick: () -> Unit) {
                     )
                 }
                 Spacer(modifier = Modifier.height(8.dp))
-                Text(platform.name, fontWeight = FontWeight.Bold)
+                Text(if (isConnecting) "Connecting..." else platform.name, fontWeight = FontWeight.Bold)
                 if (platform.isConnected) {
                     Text("CONNECTED", fontSize = 9.sp, fontWeight = FontWeight.Black, color = Color(0xFF81C784))
                 }
