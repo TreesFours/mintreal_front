@@ -29,6 +29,25 @@ import kotlin.coroutines.resume
  */
 object MediaEditorUtil {
 
+    /** Decodes a base64-encoded image (as returned by Gemini/Imagen generation) into a cached file. */
+    suspend fun saveBase64Image(context: Context, base64: String, mimeType: String?): Uri? =
+        withContext(Dispatchers.IO) {
+            try {
+                val bytes = android.util.Base64.decode(base64, android.util.Base64.DEFAULT)
+                val extension = when {
+                    mimeType?.contains("png") == true -> "png"
+                    mimeType?.contains("webp") == true -> "webp"
+                    else -> "jpg"
+                }
+                val file = File(context.cacheDir, "ai_generated_${System.currentTimeMillis()}.$extension")
+                FileOutputStream(file).use { it.write(bytes) }
+                FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", file)
+            } catch (e: Exception) {
+                Timber.e(e, "Failed to save AI-generated image")
+                null
+            }
+        }
+
     private fun saveBitmapAndGetUri(context: Context, bitmap: Bitmap, prefix: String): Uri? {
         return try {
             val file = File(context.cacheDir, "${prefix}_${System.currentTimeMillis()}.png")

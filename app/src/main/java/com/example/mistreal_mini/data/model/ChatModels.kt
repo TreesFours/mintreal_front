@@ -35,5 +35,8 @@ data class ChatResponse(
     val content: String,
     val provider: String,
     val success: Boolean,
-    val error: String? = null
+    val error: String? = null,
+    val generatedImageBase64: String? = null,
+    val generatedImageMimeType: String? = null,
+    val generatedVideoUrl: String? = null
 )

@@ -259,11 +259,26 @@ fun ModelCategoryAccordion(
                             label = {
                                 Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
                                     Column(modifier = Modifier.weight(1f)) {
-                                        Text(
-                                            text = model.name,
-                                            color = if (isLocked) Color.Gray else MaterialTheme.colorScheme.onSurface,
-                                            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal
-                                        )
+                                        Row(verticalAlignment = Alignment.CenterVertically) {
+                                            Text(
+                                                text = model.name,
+                                                modifier = Modifier.weight(1f, fill = false),
+                                                color = if (isLocked) Color.Gray else MaterialTheme.colorScheme.onSurface,
+                                                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
+                                                maxLines = 1
+                                            )
+                                            model.capabilities?.let { caps ->
+                                                if (caps.imageGen) {
+                                                    Icon(Icons.Default.Image, "Generates images", modifier = Modifier.padding(start = 4.dp).size(12.dp), tint = MaterialTheme.colorScheme.secondary)
+                                                }
+                                                if (caps.videoGen) {
+                                                    Icon(Icons.Default.Movie, "Generates video", modifier = Modifier.padding(start = 4.dp).size(12.dp), tint = MaterialTheme.colorScheme.secondary)
+                                                }
+                                                if (caps.voice) {
+                                                    Icon(Icons.Default.Mic, "Supports voice", modifier = Modifier.padding(start = 4.dp).size(12.dp), tint = MaterialTheme.colorScheme.tertiary)
+                                                }
+                                            }
+                                        }
                                         Row(verticalAlignment = Alignment.CenterVertically) {
                                             // Quota Health Bar
                                             val health = model.health ?: 100

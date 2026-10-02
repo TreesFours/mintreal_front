@@ -458,7 +458,7 @@ class ChatViewModel @Inject constructor(
                 // OPTIC INTEL: Vision/Video/Flash. Prefer real backend capability
                 // metadata over id-substring guessing; fall back to the old
                 // heuristic only when capabilities weren't provided (rollout safety).
-                model.capabilities?.let { it.videoGen || it.voice } == true -> "OPTIC INTEL"
+                model.capabilities?.let { it.videoGen || it.voice || it.imageGen } == true -> "OPTIC INTEL"
                 model.capabilities == null &&
                     (id.contains("vision") || id.contains("flash") || id.contains("video") || id.contains("kling")) -> "OPTIC INTEL"
 
@@ -1034,7 +1034,44 @@ class ChatViewModel @Inject constructor(
                             mood = mood
                         )
                         repository.saveMessage(assistantMsg)
-                        
+
+                        // AI-generated media comes back as a separate message (not an
+                        // attachment on the text reply) so it renders through the same
+                        // ChatBubble image/video paths as a user-sent attachment would.
+                        response.generatedImageBase64?.let { base64 ->
+                            val uri = com.example.mistreal_mini.util.MediaEditorUtil.saveBase64Image(
+                                context, base64, response.generatedImageMimeType
+                            )
+                            if (uri != null) {
+                                repository.saveMessage(
+                                    ChatMessage(
+                                        role = "assistant",
+                                        content = "",
+                                        type = "image",
+                                        attachmentPaths = listOf(uri.toString()),
+                                        provider = response.provider,
+                                        isTrend = trendTitle != null,
+                                        trendTitle = trendTitle
+                                    )
+                                )
+                            } else {
+                                _errorEvents.emit("AI generated an image but it couldn't be saved.")
+                            }
+                        }
+                        response.generatedVideoUrl?.let { videoUrl ->
+                            repository.saveMessage(
+                                ChatMessage(
+                                    role = "assistant",
+                                    content = "",
+                                    type = "video",
+                                    attachmentPaths = listOf(videoUrl),
+                                    provider = response.provider,
+                                    isTrend = trendTitle != null,
+                                    trendTitle = trendTitle
+                                )
+                            )
+                        }
+
                         if (_isTtsEnabled.value && (_isHandsFreeActive.value || isVoiceRequest)) {
                             val speechContent = TextSanitizer.sanitizeForTts(cleanContent)
                             voiceManager.speak(speechContent) {
