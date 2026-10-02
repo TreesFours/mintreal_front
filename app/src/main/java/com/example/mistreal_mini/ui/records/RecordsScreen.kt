@@ -9,6 +9,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
+import androidx.compose.material.icons.outlined.PushPin
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -69,8 +70,10 @@ fun RecordsScreen(
             if (selectedTab == 0) {
                 RecordList(
                     trends = uniqueTrends,
+                    pinnedTitles = chatViewModel.pinnedTrendTitles,
                     onTrendClick = onTrendClick,
-                    onDeleteTrend = { chatViewModel.deleteTrend(it) }
+                    onDeleteTrend = { chatViewModel.deleteTrend(it) },
+                    onTogglePin = { chatViewModel.toggleTrendPinned(it) }
                 )
             } else {
                 ScribeNoteList(
@@ -101,8 +104,10 @@ fun RecordsScreen(
 @Composable
 fun RecordList(
     trends: List<ChatMessage>,
+    pinnedTitles: List<String>,
     onTrendClick: (String) -> Unit,
-    onDeleteTrend: (String) -> Unit
+    onDeleteTrend: (String) -> Unit,
+    onTogglePin: (String) -> Unit
 ) {
     if (trends.isEmpty()) {
         Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
@@ -140,6 +145,14 @@ fun RecordList(
                         Column(modifier = Modifier.weight(1f)) {
                             Text(title, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
                             Text(trend.content, style = MaterialTheme.typography.bodySmall, maxLines = 1, overflow = TextOverflow.Ellipsis, color = Color.Gray)
+                        }
+                        val isPinned = pinnedTitles.contains(title)
+                        IconButton(onClick = { onTogglePin(title) }) {
+                            Icon(
+                                if (isPinned) Icons.Default.PushPin else Icons.Outlined.PushPin,
+                                if (isPinned) "Unpin (allow auto-expiry)" else "Pin (never auto-expire)",
+                                tint = if (isPinned) MaterialTheme.colorScheme.primary else Color.Gray.copy(alpha = 0.7f)
+                            )
                         }
                         IconButton(onClick = { onDeleteTrend(title) }) {
                             Icon(Icons.Default.Delete, "Delete Trend", tint = Color.Red.copy(alpha = 0.7f))

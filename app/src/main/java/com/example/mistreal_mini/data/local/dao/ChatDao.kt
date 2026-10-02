@@ -31,7 +31,22 @@ interface ChatDao {
     @Query("DELETE FROM chats WHERE userId = :userId AND isTrend = 0")
     suspend fun deleteNonTrendMessages(userId: String)
 
-    @Query("DELETE FROM chats WHERE isTrend = 1 AND timestamp < :threshold")
+    // A trend expires as a WHOLE CONVERSATION once it's gone stale (no message in
+    // the last 4 days) — not message-by-message. The old per-row "timestamp < threshold"
+    // query pruned a minichat's early history every day even while it was actively
+    // being used, which is the opposite of what a retention policy should do. Pinned
+    // trends (pinned_trends table) are always excluded regardless of staleness.
+    @Query("""
+        DELETE FROM chats
+        WHERE isTrend = 1
+        AND trendTitle NOT IN (
+            SELECT trendTitle FROM chats
+            WHERE isTrend = 1 AND trendTitle IS NOT NULL
+            GROUP BY trendTitle
+            HAVING MAX(timestamp) >= :threshold
+        )
+        AND trendTitle NOT IN (SELECT trendTitle FROM pinned_trends)
+    """)
     suspend fun deleteExpiredTrends(threshold: Long)
 
     @Query("DELETE FROM chats WHERE id = :messageId")

@@ -94,6 +94,11 @@ object AppModule {
     }
 
     @Provides
+    fun providePinnedTrendDao(db: MistrealDatabase): com.example.mistreal_mini.data.local.dao.PinnedTrendDao {
+        return db.pinnedTrendDao()
+    }
+
+    @Provides
     fun provideScribeDao(db: MistrealDatabase): com.example.mistreal_mini.data.local.dao.ScribeDao {
         return db.scribeDao()
     }

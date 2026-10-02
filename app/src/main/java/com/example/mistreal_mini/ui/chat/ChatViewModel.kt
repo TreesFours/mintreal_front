@@ -182,6 +182,18 @@ class ChatViewModel @Inject constructor(
     private val _uniqueTrends = mutableStateListOf<ChatMessage>()
     val uniqueTrends: List<ChatMessage> = _uniqueTrends
 
+    // Minichats the user has pinned so HistoryWorker's 4-day staleness purge never
+    // touches them, regardless of how long it's been since the last message.
+    private val _pinnedTrendTitles = mutableStateListOf<String>()
+    val pinnedTrendTitles: List<String> = _pinnedTrendTitles
+
+    fun toggleTrendPinned(trendTitle: String) {
+        viewModelScope.launch {
+            val nowPinned = !_pinnedTrendTitles.contains(trendTitle)
+            repository.setTrendPinned(trendTitle, nowPinned)
+        }
+    }
+
     private val _isSceneMode = mutableStateOf(false)
     val isSceneMode: State<Boolean> = _isSceneMode
 
@@ -236,6 +248,12 @@ class ChatViewModel @Inject constructor(
         }
         viewModelScope.launch {
             preferenceManager.voiceNoteAutoplay.collect { _voiceNoteAutoplay.value = it }
+        }
+        viewModelScope.launch {
+            repository.getPinnedTrendTitles().collect {
+                _pinnedTrendTitles.clear()
+                _pinnedTrendTitles.addAll(it)
+            }
         }
         viewModelScope.launch {
             preferenceManager.isSttEnabled.collect { _isSttEnabled.value = it }

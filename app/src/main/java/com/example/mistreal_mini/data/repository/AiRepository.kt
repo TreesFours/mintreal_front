@@ -6,7 +6,9 @@ import com.example.mistreal_mini.data.Resource
 import com.example.mistreal_mini.data.api.AiApiService
 import com.example.mistreal_mini.data.api.AiModelResponse
 import com.example.mistreal_mini.data.local.dao.ChatDao
+import com.example.mistreal_mini.data.local.dao.PinnedTrendDao
 import com.example.mistreal_mini.data.local.entity.ChatEntity
+import com.example.mistreal_mini.data.local.entity.PinnedTrendEntity
 import com.example.mistreal_mini.data.model.ChatMessage
 import com.example.mistreal_mini.data.model.ChatResponse
 import com.google.gson.Gson
@@ -29,6 +31,7 @@ import javax.inject.Singleton
 class AiRepository @Inject constructor(
     private val api: AiApiService,
     private val chatDao: ChatDao,
+    private val pinnedTrendDao: PinnedTrendDao,
     private val authRepository: AuthRepository,
     @ApplicationContext private val context: Context
 ) {
@@ -71,6 +74,14 @@ class AiRepository @Inject constructor(
 
     suspend fun deleteNonTrendMessages(userId: String) {
         chatDao.deleteNonTrendMessages(userId)
+    }
+
+    fun getPinnedTrendTitles(): Flow<List<String>> = pinnedTrendDao.getPinnedTitles()
+
+    suspend fun isTrendPinned(trendTitle: String): Boolean = pinnedTrendDao.isPinned(trendTitle)
+
+    suspend fun setTrendPinned(trendTitle: String, pinned: Boolean) {
+        if (pinned) pinnedTrendDao.pin(PinnedTrendEntity(trendTitle)) else pinnedTrendDao.unpin(trendTitle)
     }
 
     suspend fun deleteMessage(id: Long) {

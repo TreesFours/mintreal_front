@@ -7,6 +7,7 @@ import com.example.mistreal_mini.data.local.dao.LocationHistoryDao
 import com.example.mistreal_mini.data.local.dao.SavedIntelDao
 import com.example.mistreal_mini.data.local.dao.SocialContactDao
 import com.example.mistreal_mini.data.local.dao.SocialPostDao
+import com.example.mistreal_mini.data.local.dao.PinnedTrendDao
 import com.example.mistreal_mini.data.local.dao.ScribeDao
 import com.example.mistreal_mini.data.local.dao.BankDao
 import com.example.mistreal_mini.data.local.dao.business.BusinessDao
@@ -19,12 +20,13 @@ import com.example.mistreal_mini.data.local.entity.*
         SavedIntelEntity::class, 
         SocialContactEntity::class,
         SocialPostEntity::class,
+        PinnedTrendEntity::class,
         ScribeNoteEntity::class,
         BusinessEntity::class,
         BusinessItemEntity::class,
         BankLinkEntity::class
     ],
-    version = 10,
+    version = 11,
     exportSchema = false
 )
 abstract class MistrealDatabase : RoomDatabase() {
@@ -33,6 +35,7 @@ abstract class MistrealDatabase : RoomDatabase() {
     abstract fun savedIntelDao(): SavedIntelDao
     abstract fun socialContactDao(): SocialContactDao
     abstract fun socialPostDao(): SocialPostDao
+    abstract fun pinnedTrendDao(): PinnedTrendDao
     abstract fun scribeDao(): ScribeDao
     abstract fun businessDao(): BusinessDao
     abstract fun bankDao(): BankDao
