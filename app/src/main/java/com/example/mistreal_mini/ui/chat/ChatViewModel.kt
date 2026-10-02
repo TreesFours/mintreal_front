@@ -120,6 +120,27 @@ class ChatViewModel @Inject constructor(
     private val _isTtsEnabled = mutableStateOf(true)
     val isTtsEnabled: State<Boolean> = _isTtsEnabled
 
+    private val _voiceNoteAutoplay = mutableStateOf(true)
+    val voiceNoteAutoplay: State<Boolean> = _voiceNoteAutoplay
+
+    // Set right after an AI voice-note file is created (when autoplay is on) so the
+    // bubble that owns that exact Uri knows to play itself once, then clears it —
+    // avoids replaying old voice notes whenever the list recomposes/scrolls.
+    private val _pendingVoiceNoteAutoplayUri = mutableStateOf<String?>(null)
+    val pendingVoiceNoteAutoplayUri: State<String?> = _pendingVoiceNoteAutoplayUri
+
+    fun consumeVoiceNoteAutoplay(uri: String) {
+        if (_pendingVoiceNoteAutoplayUri.value == uri) {
+            _pendingVoiceNoteAutoplayUri.value = null
+        }
+    }
+
+    fun onVoiceNotePlaybackFinished() {
+        if (_isHandsFreeActive.value) {
+            viewModelScope.launch { startListeningLoop() }
+        }
+    }
+
     private val _isSttEnabled = mutableStateOf(true)
     val isSttEnabled: State<Boolean> = _isSttEnabled
 
@@ -212,6 +233,9 @@ class ChatViewModel @Inject constructor(
         }
         viewModelScope.launch {
             preferenceManager.isTtsEnabled.collect { _isTtsEnabled.value = it }
+        }
+        viewModelScope.launch {
+            preferenceManager.voiceNoteAutoplay.collect { _voiceNoteAutoplay.value = it }
         }
         viewModelScope.launch {
             preferenceManager.isSttEnabled.collect { _isSttEnabled.value = it }
@@ -311,6 +335,11 @@ class ChatViewModel @Inject constructor(
     fun setGuardianEnabled(enabled: Boolean) {
         _guardianEnabled.value = enabled
         viewModelScope.launch { preferenceManager.setGuardianEnabled(enabled) }
+    }
+
+    fun setVoiceNoteAutoplay(enabled: Boolean) {
+        _voiceNoteAutoplay.value = enabled
+        viewModelScope.launch { preferenceManager.setVoiceNoteAutoplay(enabled) }
     }
 
     // Voice Recording Logic
@@ -1072,10 +1101,39 @@ class ChatViewModel @Inject constructor(
                             )
                         }
 
+                        // WhatsApp-style voice notes: a spoken reply (either a single
+                        // voice-note send, or a turn in hands-free Conversation Mode)
+                        // is rendered to a file and shown as a replayable bubble instead
+                        // of only ever being spoken once through the speaker.
                         if (_isTtsEnabled.value && (_isHandsFreeActive.value || isVoiceRequest)) {
                             val speechContent = TextSanitizer.sanitizeForTts(cleanContent)
-                            voiceManager.speak(speechContent) {
-                                if (_isHandsFreeActive.value) {
+                            val outputFile = java.io.File(context.cacheDir, "ai_voice_note_${System.currentTimeMillis()}.wav")
+                            val synthesized = voiceManager.synthesizeToFile(speechContent, outputFile)
+                            if (synthesized) {
+                                val uri = androidx.core.content.FileProvider.getUriForFile(
+                                    context, "${context.packageName}.fileprovider", outputFile
+                                ).toString()
+                                if (_voiceNoteAutoplay.value) {
+                                    _pendingVoiceNoteAutoplayUri.value = uri
+                                }
+                                repository.saveMessage(
+                                    ChatMessage(
+                                        role = "assistant",
+                                        content = "",
+                                        type = "audio",
+                                        attachmentPaths = listOf(uri),
+                                        provider = response.provider,
+                                        isTrend = trendTitle != null,
+                                        trendTitle = trendTitle
+                                    )
+                                )
+                                // Hands-free mode only resumes listening after the note is
+                                // actually heard — handled by onVoiceNotePlaybackFinished(),
+                                // called from the bubble once playback completes. If autoplay
+                                // is off, the loop simply pauses until the user taps play.
+                            } else if (_isHandsFreeActive.value) {
+                                // Fallback: speak it directly rather than leave the loop stuck.
+                                voiceManager.speak(speechContent) {
                                     viewModelScope.launch { startListeningLoop() }
                                 }
                             }

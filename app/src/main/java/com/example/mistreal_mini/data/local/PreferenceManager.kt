@@ -29,6 +29,7 @@ class PreferenceManager @Inject constructor(
     private val IS_PRO_KEY = booleanPreferencesKey("is_pro")
     private val GUARDIAN_ENABLED_KEY = booleanPreferencesKey("guardian_enabled")
     private val AI_AUTO_SEND_KEY = booleanPreferencesKey("ai_auto_send_enabled")
+    private val VOICE_NOTE_AUTOPLAY_KEY = booleanPreferencesKey("voice_note_autoplay")
     private val EMERGENCY_CONTACTS_KEY = androidx.datastore.preferences.core.stringPreferencesKey("emergency_contacts")
     private val LOCATION_ENABLED_KEY = booleanPreferencesKey("location_enabled")
     private val TTS_ENABLED_KEY = booleanPreferencesKey("tts_enabled")
@@ -106,6 +107,14 @@ class PreferenceManager @Inject constructor(
     val aiAutoSendEnabled: Flow<Boolean> = context.dataStore.data
         .map { preferences ->
             preferences[AI_AUTO_SEND_KEY] ?: false
+        }
+
+    // WhatsApp-style voice notes: when true, an AI voice-note reply plays as soon as
+    // it arrives (and, in hands-free Conversation Mode, resumes listening right after);
+    // when false, it just sits in the chat as a bubble until the user taps play.
+    val voiceNoteAutoplay: Flow<Boolean> = context.dataStore.data
+        .map { preferences ->
+            preferences[VOICE_NOTE_AUTOPLAY_KEY] ?: true
         }
 
     val emergencyContacts: Flow<String> = context.dataStore.data
@@ -271,6 +280,12 @@ class PreferenceManager @Inject constructor(
     suspend fun setAiAutoSendEnabled(enabled: Boolean) {
         context.dataStore.edit { preferences ->
             preferences[AI_AUTO_SEND_KEY] = enabled
+        }
+    }
+
+    suspend fun setVoiceNoteAutoplay(enabled: Boolean) {
+        context.dataStore.edit { preferences ->
+            preferences[VOICE_NOTE_AUTOPLAY_KEY] = enabled
         }
     }
 

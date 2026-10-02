@@ -13,6 +13,7 @@ import javax.inject.Singleton
 import com.example.mistreal_mini.data.local.PreferenceManager
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
+import kotlin.coroutines.resume
 
 @Singleton
 class VoiceManager @Inject constructor(
@@ -74,6 +75,33 @@ class VoiceManager @Inject constructor(
             })
         }
     }
+
+    /**
+     * Renders [text] to a playable audio file instead of speaking it through the
+     * speaker directly, so it can be shown as a replayable voice-note chat bubble
+     * (WhatsApp-style) rather than an ephemeral speaker-only utterance.
+     */
+    suspend fun synthesizeToFile(text: String, outputFile: java.io.File): Boolean =
+        kotlinx.coroutines.suspendCancellableCoroutine { continuation ->
+            if (!isInitialized || tts == null) {
+                continuation.resume(false)
+                return@suspendCancellableCoroutine
+            }
+            val utteranceId = "MistrealTTS_File_${System.currentTimeMillis()}"
+            tts?.setOnUtteranceProgressListener(object : android.speech.tts.UtteranceProgressListener() {
+                override fun onStart(utteranceId: String?) {}
+                override fun onDone(utteranceId: String?) {
+                    if (continuation.isActive) continuation.resume(true)
+                }
+                override fun onError(utteranceId: String?) {
+                    if (continuation.isActive) continuation.resume(false)
+                }
+            })
+            val result = tts?.synthesizeToFile(text, null, outputFile, utteranceId)
+            if (result != TextToSpeech.SUCCESS && continuation.isActive) {
+                continuation.resume(false)
+            }
+        }
 
     fun stop() {
         tts?.stop()

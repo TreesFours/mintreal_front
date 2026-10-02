@@ -77,6 +77,20 @@ fun ChatBubble(
                         }
                     }
 
+                    if (message.type == "audio") {
+                        val audioUri = message.attachmentPaths?.firstOrNull() ?: message.attachmentUrl
+                        audioUri?.let { uri ->
+                            VoiceNoteBubble(
+                                uri = uri,
+                                isUser = isUser,
+                                textColor = textColor,
+                                autoplayUri = viewModel.pendingVoiceNoteAutoplayUri.value,
+                                onConsumeAutoplay = { viewModel.consumeVoiceNoteAutoplay(it) },
+                                onPlaybackFinished = { viewModel.onVoiceNotePlaybackFinished() }
+                            )
+                        }
+                    }
+
                     if (message.type == "image") {
                         val attachments = mutableListOf<String>()
                         message.attachmentPaths?.let { attachments.addAll(it) }
@@ -334,6 +348,84 @@ private val MOOD_STYLES = mapOf(
     "sad" to MoodStyle("😢", Color(0xFF5C6BC0)),
     "angry" to MoodStyle("😠", Color(0xFFE53935))
 )
+
+/**
+ * WhatsApp-style voice-note playback: a single persistent [android.media.MediaPlayer]
+ * per bubble so play/pause/resume works correctly (pausing doesn't restart from zero).
+ * AI replies matching [autoplayUri] play themselves once on first composition, then
+ * clear the signal via [onConsumeAutoplay] so scrolling back up doesn't replay them;
+ * [onPlaybackFinished] lets hands-free Conversation Mode resume listening afterward.
+ */
+@Composable
+private fun VoiceNoteBubble(
+    uri: String,
+    isUser: Boolean,
+    textColor: Color,
+    autoplayUri: String?,
+    onConsumeAutoplay: (String) -> Unit,
+    onPlaybackFinished: () -> Unit
+) {
+    val context = LocalContext.current
+    var isPlaying by remember(uri) { mutableStateOf(false) }
+    val mediaPlayer = remember(uri) { mutableStateOf<android.media.MediaPlayer?>(null) }
+
+    fun togglePlay() {
+        val existing = mediaPlayer.value
+        if (existing != null) {
+            if (isPlaying) {
+                existing.pause()
+                isPlaying = false
+            } else {
+                existing.start()
+                isPlaying = true
+            }
+            return
+        }
+        try {
+            mediaPlayer.value = android.media.MediaPlayer().apply {
+                setDataSource(context, android.net.Uri.parse(uri))
+                setOnCompletionListener {
+                    isPlaying = false
+                    onPlaybackFinished()
+                }
+                prepare()
+                start()
+            }
+            isPlaying = true
+        } catch (e: Exception) {
+            isPlaying = false
+        }
+    }
+
+    LaunchedEffect(uri) {
+        if (!isUser && autoplayUri == uri) {
+            onConsumeAutoplay(uri)
+            togglePlay()
+        }
+    }
+
+    DisposableEffect(uri) {
+        onDispose {
+            mediaPlayer.value?.release()
+            mediaPlayer.value = null
+        }
+    }
+
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)
+    ) {
+        IconButton(onClick = { togglePlay() }, modifier = Modifier.size(32.dp)) {
+            Icon(
+                if (isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
+                "Play voice note",
+                tint = textColor
+            )
+        }
+        Spacer(modifier = Modifier.width(4.dp))
+        Icon(Icons.Default.GraphicEq, null, tint = textColor.copy(alpha = 0.5f), modifier = Modifier.weight(1f))
+    }
+}
 
 /** Small colorful per-reply mood indicator, parsed from the AI's [MOOD: ...] tag. */
 @Composable

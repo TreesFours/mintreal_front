@@ -769,6 +769,28 @@ fun SettingsScreen(
                             )
                         }
 
+                        Spacer(modifier = Modifier.height(8.dp))
+
+                        OutlinedCard(modifier = Modifier.fillMaxWidth()) {
+                            Row(
+                                modifier = Modifier.padding(16.dp).fillMaxWidth(),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text("Voice Note Autoplay", style = MaterialTheme.typography.labelSmall)
+                                    Text(
+                                        "AI voice-note replies play automatically. Turn off to only play on tap.",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = Color.Gray
+                                    )
+                                }
+                                Switch(
+                                    checked = viewModel.voiceNoteAutoplay.value,
+                                    onCheckedChange = { viewModel.setVoiceNoteAutoplay(it) }
+                                )
+                            }
+                        }
+
                         Spacer(modifier = Modifier.height(24.dp))
 
                         // External Command Deck

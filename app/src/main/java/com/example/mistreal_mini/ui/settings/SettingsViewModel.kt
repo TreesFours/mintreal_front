@@ -79,6 +79,9 @@ class SettingsViewModel @Inject constructor(
     private val _aiAutoSendEnabled = mutableStateOf(false)
     val aiAutoSendEnabled: State<Boolean> = _aiAutoSendEnabled
 
+    private val _voiceNoteAutoplay = mutableStateOf(true)
+    val voiceNoteAutoplay: State<Boolean> = _voiceNoteAutoplay
+
     private val _byokStatus = MutableStateFlow<com.example.mistreal_mini.data.api.ByokStatusResponse?>(null)
     val byokStatus = _byokStatus.asStateFlow()
 
@@ -138,6 +141,9 @@ class SettingsViewModel @Inject constructor(
         }
         viewModelScope.launch {
             preferenceManager.aiAutoSendEnabled.collect { _aiAutoSendEnabled.value = it }
+        }
+        viewModelScope.launch {
+            preferenceManager.voiceNoteAutoplay.collect { _voiceNoteAutoplay.value = it }
         }
         fetchByokStatus()
         viewModelScope.launch {
@@ -214,6 +220,13 @@ class SettingsViewModel @Inject constructor(
         _aiAutoSendEnabled.value = enabled
         viewModelScope.launch {
             preferenceManager.setAiAutoSendEnabled(enabled)
+        }
+    }
+
+    fun setVoiceNoteAutoplay(enabled: Boolean) {
+        _voiceNoteAutoplay.value = enabled
+        viewModelScope.launch {
+            preferenceManager.setVoiceNoteAutoplay(enabled)
         }
     }
 
