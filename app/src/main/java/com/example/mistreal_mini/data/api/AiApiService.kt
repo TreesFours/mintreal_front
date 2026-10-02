@@ -38,5 +38,17 @@ data class AiModelResponse(
     val isProOnly: Boolean,
     val price: String,
     val quota: String? = null,
-    val health: Int? = null
+    val health: Int? = null,
+    // Nullable: Gson bypasses the constructor on deserialization, so an absent
+    // JSON field lands as null here regardless of a non-null backend type —
+    // callers must fall back to the old id-substring heuristic when this is null
+    // (e.g. an older cached response), not assume it's always present.
+    val capabilities: ModelCapabilities? = null
+)
+
+data class ModelCapabilities(
+    val text: Boolean = true,
+    val imageGen: Boolean = false,
+    val videoGen: Boolean = false,
+    val voice: Boolean = false
 )

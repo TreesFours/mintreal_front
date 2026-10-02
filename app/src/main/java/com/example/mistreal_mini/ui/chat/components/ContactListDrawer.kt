@@ -25,6 +25,7 @@ fun ContactListDrawer(
     onClose: () -> Unit
 ) {
     var selectedCategory by remember { mutableStateOf("ai") }
+    var modelTab by remember { mutableStateOf(0) } // 0 = Free, 1 = Premium
     var searchPlatformQuery by remember { mutableStateOf("") }
     val contacts by viewModel.socialContacts
     val unreadItems by viewModel.unreadMessages
@@ -151,9 +152,28 @@ fun ContactListDrawer(
                             } else if (selectedCategory == "ai") {
                                 val categorizedModels = viewModel.categorizedModels.value
                                 val sortedCategories = listOf("COMMAND CENTER", "GLOBAL OVERLORD", "OPTIC INTEL", "GHOST PROTOCOL", "OPEN INTELLIGENCE")
-                                
+
+                                item {
+                                    TabRow(selectedTabIndex = modelTab, modifier = Modifier.padding(bottom = 4.dp)) {
+                                        Tab(
+                                            selected = modelTab == 0,
+                                            onClick = { modelTab = 0 },
+                                            text = { Text("FREE", fontSize = 11.sp, fontWeight = FontWeight.Bold) }
+                                        )
+                                        Tab(
+                                            selected = modelTab == 1,
+                                            onClick = { modelTab = 1 },
+                                            text = { Text("PREMIUM", fontSize = 11.sp, fontWeight = FontWeight.Bold) }
+                                        )
+                                    }
+                                }
+
                                 sortedCategories.forEach { category ->
-                                    val models = categorizedModels[category] ?: emptyList()
+                                    // Free tab shows only unlocked models; Premium tab stays visible to
+                                    // free users too (with lock icons) so they can see what's available
+                                    // to upgrade into, rather than only ever seeing what they already have.
+                                    val models = (categorizedModels[category] ?: emptyList())
+                                        .filter { if (modelTab == 0) !it.isProOnly else it.isProOnly }
                                     if (models.isNotEmpty()) {
                                         item {
                                             ModelCategoryAccordion(

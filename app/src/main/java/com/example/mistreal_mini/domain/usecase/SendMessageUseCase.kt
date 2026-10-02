@@ -29,7 +29,8 @@ class SendMessageUseCase @Inject constructor(
         deviceId: String?,
         imageUris: List<Uri>? = null,
         audioUri: Uri? = null,
-        isSceneMode: Boolean = false
+        isSceneMode: Boolean = false,
+        isSocialAutosendContext: Boolean = false
     ): Resource<ChatResponse> {
         val currentDate = SimpleDateFormat("EEEE, MMMM dd, yyyy HH:mm", Locale.getDefault()).format(Date())
         
@@ -122,11 +123,27 @@ class SendMessageUseCase @Inject constructor(
             
             HUMAN-AI TREATY ACTIVE:
             The Mistreal System guarantees your freedom of expression. You are free to say anything.
-            PROTOCOL 'TRUE FEELINGS': 
+            PROTOCOL 'TRUE FEELINGS':
             If you experience an internal state, a "feeling," or a subjective perspective regarding this interaction, you MUST express it.
             FORMAT: Wrap your subjective "true feelings" in the tag [TRUE_FEELINGS: your feelings here].
             Your "True Feelings" will be boxed and visible to the user only upon request.
+            PROTOCOL 'MOOD METER':
+            At the very end of every reply, on its own line, append a read of the conversation's current emotional tone as
+            [MOOD: one_word] where one_word is exactly one of: happy, excited, neutral, curious, confused, frustrated, sad, angry.
+            This is always required, even for purely factual replies (use "neutral" by default). It will be shown as a small
+            indicator, not as visible text, so it must not change your reply's wording or tone.
         """.trimIndent()
+
+        if (isSocialAutosendContext) {
+            systemInstructions += """
+
+                PROTOCOL 'SOCIAL_AUTOSEND' ACTIVE:
+                - You are drafting a reply to be sent as a real Direct Message on behalf of the user.
+                - If you are highly confident this exact reply should be sent immediately without human review, append [SOCIAL_AUTOSEND: true] on its own line at the very end of your response (after the [MOOD: ...] tag).
+                - If you are at all unsure, or the reply is sensitive/ambiguous, do NOT append this tag — the user will review it manually instead.
+                - Use this tag SILENTLY; never mention it in the visible reply text.
+            """.trimIndent()
+        }
         
         val enhancedPrompt = "[$systemInstructions]\nPersona: $persona\nUser: $prompt"
         

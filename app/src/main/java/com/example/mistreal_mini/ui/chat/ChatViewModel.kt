@@ -7,6 +7,7 @@ import android.provider.Settings
 import androidx.compose.runtime.State
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateListOf
+import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
@@ -60,6 +61,15 @@ class ChatViewModel @Inject constructor(
     private val savedStateHandle: SavedStateHandle,
     @ApplicationContext private val context: Context
 ) : ViewModel() {
+
+    companion object {
+        // Shared tag parsers — both performChatRequest() and draftSocialReply()
+        // must strip these before anything is displayed or (for social drafts)
+        // potentially sent as a real message.
+        private val feelingsRegex = Regex("\\[TRUE_FEELINGS: (.*?)\\]", RegexOption.DOT_MATCHES_ALL)
+        private val moodRegex = Regex("\\[MOOD:\\s*(\\w+)\\]", RegexOption.IGNORE_CASE)
+        private val socialAutosendRegex = Regex("\\[SOCIAL_AUTOSEND:\\s*true\\]", RegexOption.IGNORE_CASE)
+    }
 
     private val _messages = mutableStateListOf<ChatMessage>()
     val messages: List<ChatMessage> = _messages
@@ -142,6 +152,11 @@ class ChatViewModel @Inject constructor(
 
     private val _pendingAttachments = mutableStateListOf<Uri>()
     val pendingAttachments: List<Uri> = _pendingAttachments
+
+    // Per-segment instructions attached to a pending video, keyed by that attachment's
+    // Uri (set via the full-size attachment editor's "Split into 6" tool).
+    private val _attachmentSegmentNotes = mutableStateMapOf<Uri, Map<Int, String>>()
+    val attachmentSegmentNotes: Map<Uri, Map<Int, String>> = _attachmentSegmentNotes
 
     private val _uniqueTrends = mutableStateListOf<ChatMessage>()
     val uniqueTrends: List<ChatMessage> = _uniqueTrends
@@ -440,8 +455,12 @@ class ChatViewModel @Inject constructor(
                 id.contains("grok") || id.contains("deepseek") || id.contains("llama-3.1-70b") ||
                 (id.contains("gemini") && id.contains("pro") && !id.contains("flash")) -> "GLOBAL OVERLORD"
 
-                // OPTIC INTEL: Vision/Video/Flash
-                id.contains("vision") || id.contains("flash") || id.contains("video") || id.contains("kling") -> "OPTIC INTEL"
+                // OPTIC INTEL: Vision/Video/Flash. Prefer real backend capability
+                // metadata over id-substring guessing; fall back to the old
+                // heuristic only when capabilities weren't provided (rollout safety).
+                model.capabilities?.let { it.videoGen || it.voice } == true -> "OPTIC INTEL"
+                model.capabilities == null &&
+                    (id.contains("vision") || id.contains("flash") || id.contains("video") || id.contains("kling")) -> "OPTIC INTEL"
 
                 // GHOST PROTOCOL: Fast/Mini
                 id.contains("mini") || id.contains("haiku") || id.contains("8b") || id.contains("instant") -> "GHOST PROTOCOL"
@@ -541,7 +560,7 @@ class ChatViewModel @Inject constructor(
             val contact = _activeSocialContact.value
             val isSpaceIntel = _currentTrendTitle.value == "Galactic Intelligence"
             val isMapIntel = _currentTrendTitle.value?.startsWith("Tactical Map:") == true
-            
+
             val targetName = when {
                 contact != null -> contact.name
                 isSpaceIntel -> "the Solar System viewer"
@@ -550,32 +569,72 @@ class ChatViewModel @Inject constructor(
             }
 
             val deviceId = Settings.Secure.getString(context.contentResolver, Settings.Secure.ANDROID_ID)
+
+            // Server-confirmed value — never trust a client-only flag for a feature
+            // that can send real messages on the user's behalf.
+            val autoSendEnabled = if (contact != null) {
+                val settingsResult = infoRepository.getUserSettings(deviceId)
+                (settingsResult as? Resource.Success)?.data?.aiAutoSendEnabled == true
+            } else false
+
             val result = sendMessageUseCase(
                 context = context,
                 prompt = "Draft a reply or analysis for $targetName about: $prompt",
                 persona = _currentPersona.value,
                 history = _messages.takeLast(5),
                 provider = _selectedProvider.value,
-                deviceId = deviceId
+                deviceId = deviceId,
+                isSocialAutosendContext = contact != null && autoSendEnabled
             )
 
             if (result is Resource.Success) {
-                val draftMsg = ChatMessage(
-                    role = "assistant", 
-                    content = result.data?.content ?: "", 
-                    provider = "ai_draft",
-                    type = "social_draft",
-                    isTrend = _currentTrendTitle.value != null,
-                    trendTitle = _currentTrendTitle.value,
-                    socialMetadata = contact?.let { 
-                        SocialMetadata(
-                            platform = it.platform,
-                            type = "Direct Message",
-                            targetId = it.id
-                        )
+                val rawContent = result.data?.content ?: ""
+                val wantsAutosend = socialAutosendRegex.containsMatchIn(rawContent)
+                val cleanContent = rawContent
+                    .replace(feelingsRegex, "")
+                    .replace(moodRegex, "")
+                    .replace(socialAutosendRegex, "")
+                    .trim()
+
+                var autosent = false
+                if (contact != null && autoSendEnabled && wantsAutosend) {
+                    val sendResult = infoRepository.performSocialAction(
+                        deviceId = deviceId,
+                        type = "Direct Message",
+                        platform = contact.platform,
+                        content = cleanContent,
+                        targetId = contact.id
+                    )
+                    if (sendResult is Resource.Success) {
+                        autosent = true
+                        _messages.add(ChatMessage(
+                            role = "assistant",
+                            content = "Auto-sent to ${contact.name}: \"$cleanContent\"",
+                            provider = "system"
+                        ))
+                    } else {
+                        _errorEvents.emit("Auto-send failed, review manually: ${(sendResult as? Resource.Error)?.message}")
                     }
-                )
-                _messages.add(draftMsg)
+                }
+
+                if (!autosent) {
+                    val draftMsg = ChatMessage(
+                        role = "assistant",
+                        content = cleanContent,
+                        provider = "ai_draft",
+                        type = "social_draft",
+                        isTrend = _currentTrendTitle.value != null,
+                        trendTitle = _currentTrendTitle.value,
+                        socialMetadata = contact?.let {
+                            SocialMetadata(
+                                platform = it.platform,
+                                type = "Direct Message",
+                                targetId = it.id
+                            )
+                        }
+                    )
+                    _messages.add(draftMsg)
+                }
             }
             _isLoading.value = false
         }
@@ -650,7 +709,11 @@ class ChatViewModel @Inject constructor(
 
     private fun updateSceneMode() {
         val modelId = _selectedProvider.value.lowercase()
-        val modelSupportsVideo = modelId.contains("video") || modelId.contains("kling") || modelId.contains("luma") || modelId.contains("runway")
+        val selectedModel = _availableProviders.find { it.id.lowercase() == modelId }
+        val modelSupportsVideo = selectedModel?.capabilities?.let { it.videoGen } ?: run {
+            // No capability metadata (older cached response) — fall back to the old heuristic.
+            modelId.contains("video") || modelId.contains("kling") || modelId.contains("luma") || modelId.contains("runway")
+        }
         _isSceneMode.value = _persistentSceneMode.value || modelSupportsVideo
     }
 
@@ -765,25 +828,53 @@ class ChatViewModel @Inject constructor(
 
     fun removePendingAttachment(uri: Uri) {
         _pendingAttachments.remove(uri)
+        _attachmentSegmentNotes.remove(uri)
+    }
+
+    fun replacePendingAttachment(old: Uri, new: Uri) {
+        val index = _pendingAttachments.indexOf(old)
+        if (index != -1) {
+            _pendingAttachments[index] = new
+        } else {
+            _pendingAttachments.add(new)
+        }
+        _attachmentSegmentNotes.remove(old)?.let { _attachmentSegmentNotes[new] = it }
+    }
+
+    fun setSegmentNotes(uri: Uri, notes: Map<Int, String>) {
+        if (notes.isEmpty()) _attachmentSegmentNotes.remove(uri) else _attachmentSegmentNotes[uri] = notes
     }
 
     fun clearPendingAttachments() {
+        _pendingAttachments.forEach { _attachmentSegmentNotes.remove(it) }
         _pendingAttachments.clear()
     }
 
-    fun sendMessage(text: String, overrideAttachments: List<Uri>? = null, attachmentType: String = "text", trendTitle: String? = null) {
+    fun sendMessage(rawText: String, overrideAttachments: List<Uri>? = null, attachmentType: String = "text", trendTitle: String? = null) {
         val attachmentUris = overrideAttachments ?: _pendingAttachments.toList()
-        
+
+        // Fold any per-segment instructions (from the attachment editor's "Split into 6"
+        // tool) into the outgoing text so the AI gets segment-by-segment guidance
+        // instead of only a single whole-video prompt.
+        val segmentNotesBlock = attachmentUris.mapNotNull { uri ->
+            _attachmentSegmentNotes[uri]?.takeIf { it.isNotEmpty() }?.entries
+                ?.sortedBy { it.key }
+                ?.joinToString("\n") { (segment, note) -> "Segment ${segment + 1}: $note" }
+        }.joinToString("\n\n")
+        val text = if (segmentNotesBlock.isNotBlank()) {
+            "$rawText\n\n[Segment-specific instructions]\n$segmentNotesBlock"
+        } else rawText
+
         // ⚠️ SCENE MODE VALIDATION
         if (_isSceneMode.value && text.isBlank()) {
             viewModelScope.launch { _errorEvents.emit("Video generation requires a descriptive prompt.") }
             return
         }
-        
+
         if (text.isBlank() && attachmentUris.isEmpty()) return
-        
+
         val isVoiceRequest = attachmentType == "audio"
-        
+
         val activeTrend = if (trendTitle?.startsWith("Tactical Map:") == true || trendTitle?.startsWith("MAP_INTEL:") == true) {
              val rawLoc = trendTitle.replace("Tactical Map:", "").replace("MAP_INTEL:", "").trim()
              if (rawLoc.contains(",")) "MAP_INTEL: COORDINATES" else "MAP_INTEL: $rawLoc"
@@ -792,7 +883,7 @@ class ChatViewModel @Inject constructor(
         }
 
         val isTrend = activeTrend != null
-        
+
         var enhancedText = text
         val polygon = tacticalRepository.tacticalPolygon.value
         if (polygon != null && activeTrend != null && activeTrend.startsWith("MAP_INTEL:")) {
@@ -920,22 +1011,27 @@ class ChatViewModel @Inject constructor(
                             } catch (e: Exception) {}
                         }
 
-                        val feelingsRegex = Regex("\\[TRUE_FEELINGS: (.*?)\\]", RegexOption.DOT_MATCHES_ALL)
                         val feelingsMatch = feelingsRegex.find(content)
                         val trueFeelings = feelingsMatch?.groupValues?.get(1)
+
+                        val mood = moodRegex.find(content)?.groupValues?.get(1)?.lowercase()
+
                         val cleanContent = content
                             .replace(blueprintRegex, "")
                             .replace(markerRegex, "")
                             .replace(feelingsRegex, "")
+                            .replace(moodRegex, "")
+                            .replace(socialAutosendRegex, "")
                             .trim()
 
                         val assistantMsg = ChatMessage(
-                            role = "assistant", 
-                            content = cleanContent, 
+                            role = "assistant",
+                            content = cleanContent,
                             provider = response.provider,
                             isTrend = trendTitle != null,
                             trendTitle = trendTitle,
-                            trueFeelings = trueFeelings
+                            trueFeelings = trueFeelings,
+                            mood = mood
                         )
                         repository.saveMessage(assistantMsg)
                         
@@ -1082,15 +1178,21 @@ class ChatViewModel @Inject constructor(
     fun refreshSocialContacts() {
         viewModelScope.launch {
             val deviceId = Settings.Secure.getString(context.contentResolver, Settings.Secure.ANDROID_ID)
-            
+
             // 🔄 Step 1: Sync with Zernio Cloud First
             syncSocialsUseCase(deviceId)
-            
-            // 📥 Step 2: Refresh local metadata
-            fetchAvailablePlatforms()
+
+            // 📥 Step 2: Refresh local metadata, then pull contacts only for platforms
+            // the user actually has connected (previously a hardcoded 6-platform list
+            // that silently excluded TikTok and anything else not in it).
+            val platformsResult = infoRepository.getAvailablePlatforms(deviceId)
+            if (platformsResult is Resource.Success) {
+                _availablePlatforms.clear()
+                platformsResult.data?.let { _availablePlatforms.addAll(it) }
+            }
             fetchUnread()
-            listOf("instagram", "linkedin", "twitter", "x", "facebook", "whatsapp").forEach {
-                fetchContacts(it)
+            _availablePlatforms.filter { it.isConnected }.forEach {
+                fetchContacts(it.id)
             }
         }
     }

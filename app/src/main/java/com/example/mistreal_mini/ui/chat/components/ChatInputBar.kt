@@ -49,6 +49,9 @@ fun ChatInputBar(
     onDraftClick: (() -> Unit)? = null,
     pendingAttachments: List<Uri> = emptyList(),
     onRemoveAttachment: (Uri) -> Unit = {},
+    onReplaceAttachment: (Uri, Uri) -> Unit = { _, _ -> },
+    segmentNotes: Map<Uri, Map<Int, String>> = emptyMap(),
+    onSegmentNotesChanged: (Uri, Map<Int, String>) -> Unit = { _, _ -> },
     isSceneMode: Boolean = false,
     onToggleSceneMode: (Boolean) -> Unit = {},
     isAutoReplyEnabled: Boolean = false,
@@ -305,32 +308,18 @@ fun ChatInputBar(
     }
 
     if (previewUri != null) {
-        AlertDialog(
-            onDismissRequest = { previewUri = null },
-            title = { Text("Attachment Preview") },
-            text = {
-                Box(modifier = Modifier.fillMaxWidth().height(300.dp)) {
-                    AsyncImage(
-                        model = previewUri,
-                        contentDescription = "Preview",
-                        modifier = Modifier.fillMaxSize(),
-                        contentScale = ContentScale.Fit
-                    )
-                }
+        val uri = previewUri!!
+        val isVideo = context.contentResolver.getType(uri)?.startsWith("video") == true
+        AttachmentEditorDialog(
+            uri = uri,
+            isVideo = isVideo,
+            segmentNotes = segmentNotes[uri] ?: emptyMap(),
+            onDismiss = { previewUri = null },
+            onReplaceAttachment = { newUri ->
+                onReplaceAttachment(uri, newUri)
             },
-            confirmButton = {
-                Button(onClick = { previewUri = null }) {
-                    Text("OK")
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = { 
-                    onRemoveAttachment(previewUri!!)
-                    previewUri = null 
-                }) {
-                    Text("CANCEL / DISCARD", color = Color.Red)
-                }
-            }
+            onDiscardAttachment = { onRemoveAttachment(uri) },
+            onSegmentNotesChanged = { notes -> onSegmentNotesChanged(uri, notes) }
         )
     }
 }

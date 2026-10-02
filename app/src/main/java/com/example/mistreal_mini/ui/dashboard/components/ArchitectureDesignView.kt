@@ -93,7 +93,7 @@ fun ArchitectureDesignView(
             Button(
                 onClick = {
                     chatViewModel.sendMessage(
-                        text = "Perform a complete Design Audit on this plan.",
+                        rawText = "Perform a complete Design Audit on this plan.",
                         overrideAttachments = listOf(selectedImageUri!!),
                         attachmentType = "image",
                         trendTitle = "ARCHITECT_AUDIT"

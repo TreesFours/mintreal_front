@@ -28,6 +28,7 @@ class PreferenceManager @Inject constructor(
     private val AUTO_REPLY_DELAY_KEY = androidx.datastore.preferences.core.intPreferencesKey("auto_reply_delay")
     private val IS_PRO_KEY = booleanPreferencesKey("is_pro")
     private val GUARDIAN_ENABLED_KEY = booleanPreferencesKey("guardian_enabled")
+    private val AI_AUTO_SEND_KEY = booleanPreferencesKey("ai_auto_send_enabled")
     private val EMERGENCY_CONTACTS_KEY = androidx.datastore.preferences.core.stringPreferencesKey("emergency_contacts")
     private val LOCATION_ENABLED_KEY = booleanPreferencesKey("location_enabled")
     private val TTS_ENABLED_KEY = booleanPreferencesKey("tts_enabled")
@@ -97,6 +98,14 @@ class PreferenceManager @Inject constructor(
     val guardianEnabled: Flow<Boolean> = context.dataStore.data
         .map { preferences ->
             preferences[GUARDIAN_ENABLED_KEY] ?: false
+        }
+
+    // Local cache only — the real gate for auto-sending AI drafts is the
+    // server-confirmed value (fetched via InfoRepository/GET /api/user/settings),
+    // since a client-only flag could be bypassed by a stale local cache.
+    val aiAutoSendEnabled: Flow<Boolean> = context.dataStore.data
+        .map { preferences ->
+            preferences[AI_AUTO_SEND_KEY] ?: false
         }
 
     val emergencyContacts: Flow<String> = context.dataStore.data
@@ -256,6 +265,12 @@ class PreferenceManager @Inject constructor(
     suspend fun setGuardianEnabled(enabled: Boolean) {
         context.dataStore.edit { preferences ->
             preferences[GUARDIAN_ENABLED_KEY] = enabled
+        }
+    }
+
+    suspend fun setAiAutoSendEnabled(enabled: Boolean) {
+        context.dataStore.edit { preferences ->
+            preferences[AI_AUTO_SEND_KEY] = enabled
         }
     }
 

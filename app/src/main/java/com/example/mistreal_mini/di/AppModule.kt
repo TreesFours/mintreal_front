@@ -89,6 +89,11 @@ object AppModule {
     }
 
     @Provides
+    fun provideSocialPostDao(db: MistrealDatabase): com.example.mistreal_mini.data.local.dao.SocialPostDao {
+        return db.socialPostDao()
+    }
+
+    @Provides
     fun provideScribeDao(db: MistrealDatabase): com.example.mistreal_mini.data.local.dao.ScribeDao {
         return db.scribeDao()
     }

@@ -51,6 +51,9 @@ interface InfoApiService {
     @POST("api/user/settings")
     suspend fun updateUserSettings(@Body request: UserSettingsRequest): SocialActionResponse
 
+    @GET("api/user/settings")
+    suspend fun getUserSettings(@Query("deviceId") deviceId: String?): UserSettingsResponse
+
     @POST("api/subscribe")
     suspend fun createStripeSession(@Body request: SubscriptionRequest): SubscriptionResponse
 
@@ -187,7 +190,17 @@ data class UserSettingsRequest(
     val aiAudience: String?,
     val autoReplyDelay: Int?,
     val guardianEnabled: Boolean? = null,
-    val emergencyContacts: List<EmergencyContact>? = null
+    val emergencyContacts: List<EmergencyContact>? = null,
+    val aiAutoSendEnabled: Boolean? = null
+)
+
+data class UserSettingsResponse(
+    val success: Boolean,
+    val userName: String? = null,
+    val aiPersona: String? = null,
+    val autoReplyDelay: Int? = null,
+    val guardianEnabled: Boolean? = null,
+    val aiAutoSendEnabled: Boolean? = null
 )
 
 data class SubscriptionRequest(val tier: String)
@@ -279,7 +292,12 @@ data class SocialPlatformResponse(
     val name: String,
     val icon: String,
     val isProOnly: Boolean,
-    val isConnected: Boolean = false
+    val isConnected: Boolean = false,
+    // Nullable: Gson bypasses the constructor on deserialization, so a missing JSON
+    // field lands as null here even though it's typed non-null elsewhere in Kotlin
+    // code (same reasoning as SocialPost.comments below) — callers must use
+    // `capabilities ?: PlatformCapabilities()`.
+    val capabilities: com.example.mistreal_mini.data.model.PlatformCapabilities? = null
 )
 
 data class SocialHistoryResponse(

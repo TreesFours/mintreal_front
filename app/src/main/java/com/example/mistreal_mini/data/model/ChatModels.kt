@@ -21,6 +21,7 @@ data class ChatMessage(
     val isTrend: Boolean = false,
     val trendTitle: String? = null,
     val trueFeelings: String? = null, // 🧠 "True Feelings" Protocol
+    val mood: String? = null, // one of: happy, excited, neutral, curious, confused, frustrated, sad, angry
     val socialMetadata: SocialMetadata? = null
 )
 

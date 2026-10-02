@@ -3,6 +3,10 @@ package com.example.mistreal_mini.data.repository
 import android.content.Context
 import android.provider.Settings
 import com.example.mistreal_mini.data.Resource
+import com.example.mistreal_mini.data.api.AiProviderApiService
+import com.example.mistreal_mini.data.api.ByokStatusResponse
+import com.example.mistreal_mini.data.api.ClearByokKeyRequest
+import com.example.mistreal_mini.data.api.SaveByokKeyRequest
 import com.example.mistreal_mini.data.api.InfoApiService
 import com.example.mistreal_mini.data.api.WeatherResponse
 import com.example.mistreal_mini.data.api.NewsResponse
@@ -17,6 +21,7 @@ import javax.inject.Singleton
 @Singleton
 class InfoRepository @Inject constructor(
     private val api: InfoApiService,
+    private val aiProviderApi: AiProviderApiService,
     private val authRepository: AuthRepository,
     @ApplicationContext private val context: Context
 ) {
@@ -121,18 +126,65 @@ class InfoRepository @Inject constructor(
         aiAudience: String?,
         autoReplyDelay: Int?,
         guardianEnabled: Boolean? = null,
-        emergencyContacts: List<com.example.mistreal_mini.data.api.EmergencyContact>? = null
+        emergencyContacts: List<com.example.mistreal_mini.data.api.EmergencyContact>? = null,
+        aiAutoSendEnabled: Boolean? = null
     ): Resource<Boolean> {
         return try {
             val response = api.updateUserSettings(
                 com.example.mistreal_mini.data.api.UserSettingsRequest(
-                    deviceId, authRepository.currentUser?.uid, userName, aiPersona, aiAudience, autoReplyDelay, guardianEnabled, emergencyContacts
+                    deviceId, authRepository.currentUser?.uid, userName, aiPersona, aiAudience, autoReplyDelay, guardianEnabled, emergencyContacts, aiAutoSendEnabled
                 )
             )
             if (response.success) Resource.Success(true)
             else Resource.Error(response.error ?: "Failed to update settings")
         } catch (e: Exception) {
             Resource.Error(e.message ?: "Update settings error")
+        }
+    }
+
+    suspend fun getUserSettings(deviceId: String): Resource<com.example.mistreal_mini.data.api.UserSettingsResponse> {
+        return try {
+            val response = api.getUserSettings(deviceId)
+            if (response.success) Resource.Success(response)
+            else Resource.Error("Failed to fetch settings")
+        } catch (e: Exception) {
+            Resource.Error(e.message ?: "Fetch settings error")
+        }
+    }
+
+    // --- BYOK (bring-your-own AI provider key) ---
+    // Deliberately separate from updateUserSettings: the key must never round-trip
+    // through a generic settings object other code paths might log or cache.
+
+    suspend fun saveByokKey(providerType: String, apiKey: String, baseUrl: String?, modelName: String?): Resource<ByokStatusResponse> {
+        return try {
+            val response = aiProviderApi.saveByokKey(
+                SaveByokKeyRequest(deviceId, authRepository.currentUser?.uid, providerType, apiKey, baseUrl, modelName)
+            )
+            if (response.success) Resource.Success(response)
+            else Resource.Error(response.error ?: "Failed to save key")
+        } catch (e: Exception) {
+            Resource.Error(e.message ?: "Save key error")
+        }
+    }
+
+    suspend fun clearByokKey(): Resource<Boolean> {
+        return try {
+            val response = aiProviderApi.clearByokKey(ClearByokKeyRequest(deviceId, authRepository.currentUser?.uid))
+            if (response.success) Resource.Success(true)
+            else Resource.Error(response.error ?: "Failed to clear key")
+        } catch (e: Exception) {
+            Resource.Error(e.message ?: "Clear key error")
+        }
+    }
+
+    suspend fun getByokStatus(): Resource<ByokStatusResponse> {
+        return try {
+            val response = aiProviderApi.getByokStatus(deviceId)
+            if (response.success) Resource.Success(response)
+            else Resource.Error(response.error ?: "Failed to fetch status")
+        } catch (e: Exception) {
+            Resource.Error(e.message ?: "Fetch status error")
         }
     }
 

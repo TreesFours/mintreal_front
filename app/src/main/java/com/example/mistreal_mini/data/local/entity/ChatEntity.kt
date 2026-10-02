@@ -15,6 +15,7 @@ data class ChatEntity(
     val isTrend: Boolean = false, // Flag for saved mini-chat sessions
     val trendTitle: String? = null,
     val trueFeelings: String? = null,
+    val mood: String? = null,
     val timestamp: Long = System.currentTimeMillis()
 ) {
     fun toChatMessage() = ChatMessage(
@@ -25,7 +26,8 @@ data class ChatEntity(
         provider = provider,
         isTrend = isTrend,
         trendTitle = trendTitle,
-        trueFeelings = trueFeelings
+        trueFeelings = trueFeelings,
+        mood = mood
     )
 
     companion object {
@@ -38,7 +40,8 @@ data class ChatEntity(
             provider = msg.provider,
             isTrend = msg.isTrend,
             trendTitle = msg.trendTitle,
-            trueFeelings = msg.trueFeelings
+            trueFeelings = msg.trueFeelings,
+            mood = msg.mood
         )
     }
 }

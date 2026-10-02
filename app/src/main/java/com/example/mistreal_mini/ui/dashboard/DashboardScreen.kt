@@ -215,6 +215,8 @@ fun DashboardScreen(
                             showInsightPopup = true
                         },
                         chatViewModel = chatViewModel,
+                        feedViewModel = feedViewModel,
+                        deviceId = deviceId,
                         isLoading = feedViewModel.isLoading.value
                     )
                     (isArchitectMode && selectedTab == 4) || (!isArchitectMode && selectedTab == 3) -> DispatchCenterView(

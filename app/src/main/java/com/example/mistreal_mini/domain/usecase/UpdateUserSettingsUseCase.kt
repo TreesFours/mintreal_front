@@ -17,7 +17,8 @@ class UpdateUserSettingsUseCase @Inject constructor(
         audience: String,
         delayMinutes: Int,
         guardianEnabled: Boolean? = null,
-        contacts: List<EmergencyContact>? = null
+        contacts: List<EmergencyContact>? = null,
+        aiAutoSendEnabled: Boolean? = null
     ): Resource<Boolean> {
         val result = infoRepository.updateUserSettings(
             deviceId = deviceId,
@@ -26,7 +27,8 @@ class UpdateUserSettingsUseCase @Inject constructor(
             aiAudience = audience,
             autoReplyDelay = delayMinutes,
             guardianEnabled = guardianEnabled,
-            emergencyContacts = contacts
+            emergencyContacts = contacts,
+            aiAutoSendEnabled = aiAutoSendEnabled
         )
 
         if (result is Resource.Success) {
@@ -35,6 +37,7 @@ class UpdateUserSettingsUseCase @Inject constructor(
             preferenceManager.setAiAudience(audience)
             preferenceManager.setAutoReplyDelay(delayMinutes)
             guardianEnabled?.let { preferenceManager.setGuardianEnabled(it) }
+            aiAutoSendEnabled?.let { preferenceManager.setAiAutoSendEnabled(it) }
         }
         return result
     }

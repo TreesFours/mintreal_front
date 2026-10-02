@@ -788,17 +788,21 @@ fun SettingsScreen(
                         }
                     }
 
+                    Spacer(modifier = Modifier.height(24.dp))
+                    ByokSettingsSection(viewModel)
+
                     // Secure Changes Footer
                     Button(
-                        onClick = { 
+                        onClick = {
                             viewModel.saveSettings(
-                                userName, 
+                                userName,
                                 selectedPersona,
                                 selectedAudience,
-                                calculateDelayMinutes(selectedDelay, customDelayValue, customDelayUnit), 
+                                calculateDelayMinutes(selectedDelay, customDelayValue, customDelayUnit),
                                 viewModel.guardianEnabled.value,
                                 viewModel.emergencyContacts.toList(),
-                                aiCustomName = aiCustomName
+                                aiCustomName = aiCustomName,
+                                aiAutoSendEnabled = viewModel.aiAutoSendEnabled.value
                             )
                         },
                         enabled = !isSaving && userName.length >= 3,

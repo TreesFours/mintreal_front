@@ -9,12 +9,14 @@ import com.example.mistreal_mini.data.Resource
 import com.example.mistreal_mini.data.api.Article
 import com.example.mistreal_mini.data.model.PlatformUpdate
 import com.example.mistreal_mini.data.model.SocialPost
+import com.example.mistreal_mini.data.repository.SocialFeedCacheRepository
 import com.example.mistreal_mini.domain.usecase.GetIntelligenceFeedUseCase
 import com.example.mistreal_mini.domain.usecase.SyncSocialsUseCase
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.async
+import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.supervisorScope
 import kotlinx.coroutines.supervisorScope
 import timber.log.Timber
 import javax.inject.Inject
@@ -23,7 +25,8 @@ import javax.inject.Inject
 class FeedViewModel @Inject constructor(
     private val getIntelligenceFeedUseCase: GetIntelligenceFeedUseCase,
     private val syncSocialsUseCase: SyncSocialsUseCase,
-    private val infoRepository: com.example.mistreal_mini.data.repository.InfoRepository
+    private val infoRepository: com.example.mistreal_mini.data.repository.InfoRepository,
+    private val feedCacheRepository: SocialFeedCacheRepository
 ) : ViewModel() {
 
     private val _interleavedFeed = mutableStateListOf<Article>()
@@ -40,6 +43,21 @@ class FeedViewModel @Inject constructor(
 
     private val _isLoading = mutableStateOf(false)
     val isLoading: State<Boolean> = _isLoading
+
+    private val _errorEvents = MutableSharedFlow<String>()
+    val errorEvents = _errorEvents.asSharedFlow()
+
+    init {
+        // Paint immediately from cache (works offline / survives process death),
+        // then loadFeed() below overwrites with a fresh sync when it resolves.
+        viewModelScope.launch {
+            feedCacheRepository.getCachedPosts().collect { cached ->
+                if (_socialPosts.isEmpty() && cached.isNotEmpty()) {
+                    _socialPosts.addAll(cached)
+                }
+            }
+        }
+    }
 
     fun loadFeed(deviceId: String) {
         viewModelScope.launch {
@@ -83,12 +101,72 @@ class FeedViewModel @Inject constructor(
                     _socialUpdates.addAll(response.platformUpdates)
                     _socialPosts.clear()
                     _socialPosts.addAll(response.posts)
+                    feedCacheRepository.cachePosts(response.posts)
                 }
             }
             is Resource.Error -> {
                 Timber.e("Social sync error: ${result.message}")
+                // Keep whatever cache-sourced posts are already showing rather than
+                // clearing the feed on a transient network failure.
             }
             else -> {}
+        }
+    }
+
+    fun toggleLike(deviceId: String, post: SocialPost) {
+        val index = _socialPosts.indexOfFirst { it.id == post.id }
+        if (index == -1) return
+        val wasLiked = post.isLikedByUser
+        val newLikes = (post.likes ?: 0) + if (wasLiked) -1 else 1
+        // Optimistic update first.
+        _socialPosts[index] = post.copy(isLikedByUser = !wasLiked, likes = newLikes.coerceAtLeast(0))
+
+        viewModelScope.launch {
+            feedCacheRepository.setLiked(post.id, !wasLiked, newLikes.coerceAtLeast(0))
+            val result = infoRepository.performSocialAction(
+                deviceId = deviceId,
+                type = "like",
+                platform = post.platform,
+                content = "",
+                targetId = post.id
+            )
+            if (result is Resource.Error) {
+                // Roll back on failure.
+                val rollbackIndex = _socialPosts.indexOfFirst { it.id == post.id }
+                if (rollbackIndex != -1) {
+                    _socialPosts[rollbackIndex] = post
+                }
+                feedCacheRepository.setLiked(post.id, wasLiked, post.likes ?: 0)
+                _errorEvents.emit("Couldn't like this post: ${result.message}")
+            }
+        }
+    }
+
+    fun toggleBookmark(post: SocialPost) {
+        val index = _socialPosts.indexOfFirst { it.id == post.id }
+        if (index == -1) return
+        val newBookmarked = !post.isBookmarked
+        _socialPosts[index] = post.copy(isBookmarked = newBookmarked)
+        viewModelScope.launch {
+            feedCacheRepository.setBookmarked(post.id, newBookmarked)
+        }
+    }
+
+    fun toggleFollow(deviceId: String, platform: String, authorName: String, currentlyFollowing: Boolean, onResult: (Boolean) -> Unit) {
+        viewModelScope.launch {
+            val result = infoRepository.performSocialAction(
+                deviceId = deviceId,
+                type = if (currentlyFollowing) "Unfollow" else "Follow",
+                platform = platform,
+                content = "",
+                targetId = authorName
+            )
+            if (result is Resource.Success) {
+                onResult(!currentlyFollowing)
+            } else {
+                onResult(currentlyFollowing)
+                _errorEvents.emit("Couldn't ${if (currentlyFollowing) "unfollow" else "follow"} $authorName")
+            }
         }
     }
 

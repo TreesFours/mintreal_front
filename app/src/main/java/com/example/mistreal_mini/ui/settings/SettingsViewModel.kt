@@ -76,6 +76,15 @@ class SettingsViewModel @Inject constructor(
     private val _guardianEnabled = mutableStateOf(false)
     val guardianEnabled: State<Boolean> = _guardianEnabled
 
+    private val _aiAutoSendEnabled = mutableStateOf(false)
+    val aiAutoSendEnabled: State<Boolean> = _aiAutoSendEnabled
+
+    private val _byokStatus = MutableStateFlow<com.example.mistreal_mini.data.api.ByokStatusResponse?>(null)
+    val byokStatus = _byokStatus.asStateFlow()
+
+    private val _isSavingByok = MutableStateFlow(false)
+    val isSavingByok = _isSavingByok.asStateFlow()
+
     private val _emergencyContacts = mutableStateListOf<EmergencyContact>()
     val emergencyContacts: List<EmergencyContact> = _emergencyContacts
 
@@ -127,6 +136,10 @@ class SettingsViewModel @Inject constructor(
         viewModelScope.launch {
             preferenceManager.guardianEnabled.collect { _guardianEnabled.value = it }
         }
+        viewModelScope.launch {
+            preferenceManager.aiAutoSendEnabled.collect { _aiAutoSendEnabled.value = it }
+        }
+        fetchByokStatus()
         viewModelScope.launch {
             preferenceManager.isSupportiveTruthTellerEnabled.collect { _isSupportiveTruthTellerEnabled.value = it }
         }
@@ -197,27 +210,75 @@ class SettingsViewModel @Inject constructor(
         }
     }
 
+    fun setAiAutoSendEnabled(enabled: Boolean) {
+        _aiAutoSendEnabled.value = enabled
+        viewModelScope.launch {
+            preferenceManager.setAiAutoSendEnabled(enabled)
+        }
+    }
+
+    fun fetchByokStatus() {
+        viewModelScope.launch {
+            when (val result = infoRepository.getByokStatus()) {
+                is Resource.Success -> _byokStatus.value = result.data
+                else -> {}
+            }
+        }
+    }
+
+    fun saveByokKey(providerType: String, apiKey: String, baseUrl: String?, modelName: String?) {
+        viewModelScope.launch {
+            _isSavingByok.value = true
+            when (val result = infoRepository.saveByokKey(providerType, apiKey, baseUrl, modelName)) {
+                is Resource.Success -> {
+                    _byokStatus.value = result.data
+                    _saveSuccess.emit(Unit)
+                }
+                is Resource.Error -> _errorEvent.emit(result.message ?: "Failed to save AI provider key")
+                else -> {}
+            }
+            _isSavingByok.value = false
+        }
+    }
+
+    fun clearByokKey() {
+        viewModelScope.launch {
+            _isSavingByok.value = true
+            when (val result = infoRepository.clearByokKey()) {
+                is Resource.Success -> {
+                    _byokStatus.value = com.example.mistreal_mini.data.api.ByokStatusResponse(success = true, configured = false)
+                    _saveSuccess.emit(Unit)
+                }
+                is Resource.Error -> _errorEvent.emit(result.message ?: "Failed to remove AI provider key")
+                else -> {}
+            }
+            _isSavingByok.value = false
+        }
+    }
+
     fun saveSettings(
-        name: String, 
-        persona: String, 
-        audience: String, 
-        delayMinutes: Int, 
-        guardianEnabled: Boolean? = null, 
+        name: String,
+        persona: String,
+        audience: String,
+        delayMinutes: Int,
+        guardianEnabled: Boolean? = null,
         contacts: List<EmergencyContact>? = null,
-        aiCustomName: String? = null
+        aiCustomName: String? = null,
+        aiAutoSendEnabled: Boolean? = null
     ) {
         viewModelScope.launch {
             _isSaving.value = true
             val deviceId = android.provider.Settings.Secure.getString(context.contentResolver, android.provider.Settings.Secure.ANDROID_ID)
-            
+
             val result = updateUserSettingsUseCase(
-                deviceId = deviceId, 
-                name = name, 
+                deviceId = deviceId,
+                name = name,
                 persona = persona,
                 audience = audience,
                 delayMinutes = delayMinutes,
                 guardianEnabled = guardianEnabled,
-                contacts = contacts
+                contacts = contacts,
+                aiAutoSendEnabled = aiAutoSendEnabled
             )
             
             if (result is Resource.Success) {

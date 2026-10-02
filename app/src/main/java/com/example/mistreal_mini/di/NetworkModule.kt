@@ -1,6 +1,7 @@
 package com.example.mistreal_mini.di
 
 import com.example.mistreal_mini.data.api.AiApiService
+import com.example.mistreal_mini.data.api.AiProviderApiService
 import com.example.mistreal_mini.data.api.InfoApiService
 import com.example.mistreal_mini.data.repository.AuthRepository
 import dagger.Module
@@ -102,5 +103,11 @@ object NetworkModule {
     @Singleton
     fun provideInfoApiService(retrofit: Retrofit): InfoApiService {
         return retrofit.create(InfoApiService::class.java)
+    }
+
+    @Provides
+    @Singleton
+    fun provideAiProviderApiService(retrofit: Retrofit): AiProviderApiService {
+        return retrofit.create(AiProviderApiService::class.java)
     }
 }

@@ -2,12 +2,13 @@ package com.example.mistreal_mini.data.model
 
 data class SocialPost(
     val id: String,
-    val platform: String, 
+    val platform: String,
     val author: String,
     val content: String,
-    val timestamp: String, 
-    val type: String = "post", // "post", "message", "comment"
+    val timestamp: String,
+    val type: String = "post", // "post", "message", "comment", "story", "reel"
     val imageUrl: String? = null,
+    val videoUrl: String? = null,
     val likes: Int? = null,
     val commentsCount: Int? = null,
     val retweets: Int? = null,
@@ -15,7 +16,9 @@ data class SocialPost(
     val platformIcon: String, 
     val platformColor: String, 
     val platformDisplayName: String? = null,
-    val comments: List<SocialComment>? = emptyList()
+    val comments: List<SocialComment>? = emptyList(),
+    val isLikedByUser: Boolean = false,
+    val isBookmarked: Boolean = false
 ) {
     fun fetchDisplayName(): String = platformDisplayName ?: platform.replaceFirstChar { 
         if (it.isLowerCase()) it.titlecase(java.util.Locale.getDefault()) else it.toString()
@@ -73,4 +76,14 @@ data class SocialAuth(
 data class SocialDisconnectRequest(
     val deviceId: String,
     val platform: String
+)
+
+data class PlatformCapabilities(
+    val supportsFeed: Boolean = true,
+    val supportsStories: Boolean = false,
+    val supportsReels: Boolean = false,
+    val supportsDM: Boolean = true,
+    val supportsFollow: Boolean = false,
+    val supportsLike: Boolean = true,
+    val supportsComments: Boolean = true
 )

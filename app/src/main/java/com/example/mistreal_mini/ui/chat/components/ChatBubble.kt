@@ -1,5 +1,6 @@
 package com.example.mistreal_mini.ui.chat.components
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.selection.SelectionContainer
@@ -213,8 +214,13 @@ fun ChatBubble(
                         horizontalArrangement = Arrangement.End,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
+                        if (!isUser && message.mood != null) {
+                            MoodBadge(mood = message.mood)
+                            Spacer(modifier = Modifier.weight(1f))
+                        }
+
                         var showMenu by remember { mutableStateOf(false) }
-                        
+
                         IconButton(onClick = { showMenu = true }, modifier = Modifier.size(24.dp)) {
                             Icon(Icons.Default.MoreVert, "More", modifier = Modifier.size(14.dp), tint = textColor.copy(alpha = 0.5f))
                         }
@@ -313,5 +319,40 @@ fun ChatBubble(
                 Icon(Icons.Default.Link, null, modifier = Modifier.size(8.dp), tint = Color.Gray)
             }
         }
+    }
+}
+
+private data class MoodStyle(val emoji: String, val color: Color)
+
+private val MOOD_STYLES = mapOf(
+    "happy" to MoodStyle("😊", Color(0xFFFFC107)),
+    "excited" to MoodStyle("🤩", Color(0xFFFF6D00)),
+    "neutral" to MoodStyle("😐", Color(0xFF9E9E9E)),
+    "curious" to MoodStyle("🤔", Color(0xFF29B6F6)),
+    "confused" to MoodStyle("😕", Color(0xFFAB47BC)),
+    "frustrated" to MoodStyle("😤", Color(0xFFFF7043)),
+    "sad" to MoodStyle("😢", Color(0xFF5C6BC0)),
+    "angry" to MoodStyle("😠", Color(0xFFE53935))
+)
+
+/** Small colorful per-reply mood indicator, parsed from the AI's [MOOD: ...] tag. */
+@Composable
+private fun MoodBadge(mood: String) {
+    val style = MOOD_STYLES[mood.lowercase()] ?: MoodStyle("💬", Color.Gray)
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = Modifier
+            .clip(RoundedCornerShape(10.dp))
+            .background(style.color.copy(alpha = 0.15f))
+            .padding(horizontal = 6.dp, vertical = 2.dp)
+    ) {
+        Text(style.emoji, fontSize = 10.sp)
+        Spacer(modifier = Modifier.width(3.dp))
+        Text(
+            mood.replaceFirstChar { it.uppercase() },
+            fontSize = 9.sp,
+            fontWeight = FontWeight.Bold,
+            color = style.color
+        )
     }
 }
