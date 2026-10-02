@@ -248,6 +248,18 @@ class InfoRepository @Inject constructor(
         }
     }
 
+    suspend fun setContactAutoReply(deviceId: String, platform: String, contactId: String, enabled: Boolean): Resource<Boolean> {
+        return try {
+            val response = api.setContactAutoReply(
+                com.example.mistreal_mini.data.api.ContactAutoReplyRequest(deviceId, platform, contactId, enabled)
+            )
+            if (response.success) Resource.Success(true)
+            else Resource.Error(response.error ?: "Failed to update auto-reply")
+        } catch (e: Exception) {
+            Resource.Error(e.message ?: "Network error")
+        }
+    }
+
     suspend fun getUnreadMessages(deviceId: String): Resource<List<com.example.mistreal_mini.data.api.UnreadItem>> {
         return try {
             val response = api.getUnreadMessages(deviceId)

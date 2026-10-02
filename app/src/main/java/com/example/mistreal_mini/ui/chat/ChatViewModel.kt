@@ -355,6 +355,26 @@ class ChatViewModel @Inject constructor(
         viewModelScope.launch { preferenceManager.setGuardianEnabled(enabled) }
     }
 
+    /**
+     * Per-minichat Ghost Responder override for a social DM thread — distinct from
+     * the global [guardianEnabled] master switch. Auto-reply for a given contact
+     * only actually fires when BOTH are on, so flipping the master switch never
+     * silently starts auto-replying to every contact at once.
+     */
+    fun toggleActiveContactAutoReply() {
+        val contact = _activeSocialContact.value ?: return
+        val newValue = !contact.autoReplyEnabled
+        _activeSocialContact.value = contact.copy(autoReplyEnabled = newValue)
+        viewModelScope.launch {
+            val deviceId = Settings.Secure.getString(context.contentResolver, Settings.Secure.ANDROID_ID)
+            val result = infoRepository.setContactAutoReply(deviceId, contact.platform, contact.id, newValue)
+            if (result is Resource.Error) {
+                _activeSocialContact.value = contact // roll back
+                _errorEvents.emit("Couldn't update auto-reply for ${contact.name}: ${result.message}")
+            }
+        }
+    }
+
     fun setVoiceNoteAutoplay(enabled: Boolean) {
         _voiceNoteAutoplay.value = enabled
         viewModelScope.launch { preferenceManager.setVoiceNoteAutoplay(enabled) }

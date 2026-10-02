@@ -347,8 +347,15 @@ fun ChatScreen(
                     onSegmentNotesChanged = { uri, notes -> viewModel.setSegmentNotes(uri, notes) },
                     isSceneMode = viewModel.isSceneMode.value,
                     onToggleSceneMode = { viewModel.toggleSceneMode(it) },
-                    isAutoReplyEnabled = viewModel.guardianEnabled.value,
-                    onToggleAutoReply = { viewModel.setGuardianEnabled(it) }
+                    // In a social DM minichat, GHOST controls that specific contact's
+                    // auto-reply override; everywhere else it's the global master switch.
+                    isAutoReplyEnabled = if (viewModel.isSocialChat.value) {
+                        viewModel.activeSocialContact.value?.autoReplyEnabled ?: false
+                    } else viewModel.guardianEnabled.value,
+                    onToggleAutoReply = {
+                        if (viewModel.isSocialChat.value) viewModel.toggleActiveContactAutoReply()
+                        else viewModel.setGuardianEnabled(it)
+                    }
                 )
             }
         }

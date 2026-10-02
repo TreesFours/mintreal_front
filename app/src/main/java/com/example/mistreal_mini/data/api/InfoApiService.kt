@@ -76,6 +76,9 @@ interface InfoApiService {
         @Query("search") search: String? = null
     ): ContactsResponse
 
+    @POST("api/social/contacts/auto-reply")
+    suspend fun setContactAutoReply(@Body request: ContactAutoReplyRequest): SocialActionResponse
+
     @GET("api/social/unread")
     suspend fun getUnreadMessages(@Query("deviceId") deviceId: String): UnreadResponse
 
@@ -151,7 +154,15 @@ data class SocialContact(
     val isOnline: Boolean = false,
     val lastSeen: String? = null, // "5 minutes ago", "2 hours ago", etc.
     val statusMessage: String? = null,
-    val avatar: String? = null
+    val avatar: String? = null,
+    val autoReplyEnabled: Boolean = false
+)
+
+data class ContactAutoReplyRequest(
+    val deviceId: String,
+    val platform: String,
+    val contactId: String,
+    val enabled: Boolean
 )
 
 data class UnreadResponse(val success: Boolean, val unreadItems: List<UnreadItem>)
