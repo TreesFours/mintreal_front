@@ -191,10 +191,32 @@ fun ContactListDrawer(
                                     }
                                 }
                             } else {
-                                items(contacts) { contact ->
-                                    ContactListItem(contact) {
-                                        viewModel.switchChat(contact.name, contact.platform)
-                                        onClose()
+                                if (contacts.isEmpty()) {
+                                    item {
+                                        // Most platforms (LinkedIn/Instagram/Facebook especially)
+                                        // don't let third-party apps browse a full connections
+                                        // list by policy — this isn't necessarily broken, search
+                                        // is the actual way to find someone new to message.
+                                        Column(modifier = Modifier.padding(top = 24.dp)) {
+                                            Text(
+                                                "No conversations yet on ${selectedCategory.replaceFirstChar { it.uppercase() }}.",
+                                                style = MaterialTheme.typography.bodyMedium,
+                                                color = Color.Gray
+                                            )
+                                            Spacer(modifier = Modifier.height(4.dp))
+                                            Text(
+                                                "Search above by name to find someone to message — most platforms don't let apps browse your full connections list.",
+                                                style = MaterialTheme.typography.bodySmall,
+                                                color = Color.Gray.copy(alpha = 0.8f)
+                                            )
+                                        }
+                                    }
+                                } else {
+                                    items(contacts) { contact ->
+                                        ContactListItem(contact) {
+                                            viewModel.switchChat(contact.name, contact.platform)
+                                            onClose()
+                                        }
                                     }
                                 }
                             }
