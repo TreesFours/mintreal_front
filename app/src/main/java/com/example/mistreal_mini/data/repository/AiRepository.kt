@@ -135,13 +135,14 @@ class AiRepository @Inject constructor(
         deviceId: String?,
         images: List<MultipartBody.Part>?,
         audio: MultipartBody.Part?,
+        video: MultipartBody.Part? = null,
         retryCount: Int = 0
     ): Resource<ChatResponse> {
         return try {
             val gson = Gson()
             val historyJson = gson.toJson(history)
             val firebaseUid = authRepository.currentUser?.uid
-            
+
             val response = api.sendMessage(
                 prompt = prompt.toRequestBody("text/plain".toMediaTypeOrNull()),
                 provider = provider.toRequestBody("text/plain".toMediaTypeOrNull()),
@@ -149,7 +150,8 @@ class AiRepository @Inject constructor(
                 deviceId = this@AiRepository.deviceId.toRequestBody("text/plain".toMediaTypeOrNull()),
                 firebaseUid = firebaseUid?.toRequestBody("text/plain".toMediaTypeOrNull()),
                 images = images,
-                audio = audio
+                audio = audio,
+                video = video
             )
 
             if (response.success) {
@@ -157,16 +159,16 @@ class AiRepository @Inject constructor(
             } else {
                 // 🛠️ Handle 429 Too Many Requests with exponential backoff
                 val isRateLimit = response.error?.contains("429") == true || response.error?.contains("RATE_LIMIT") == true
-                
+
                 if (isRateLimit && retryCount < 3) {
                     val waitTime = 2000L * (retryCount + 1)
                     kotlinx.coroutines.delay(waitTime)
-                    return sendMessage(prompt, provider, history, deviceId, images, audio, retryCount + 1)
+                    return sendMessage(prompt, provider, history, deviceId, images, audio, video, retryCount + 1)
                 }
-                
+
                 if (retryCount < 2 && (response.error?.contains("Timeout") == true || response.error?.contains("503") == true)) {
                     kotlinx.coroutines.delay(2000L * (retryCount + 1))
-                    return sendMessage(prompt, provider, history, deviceId, images, audio, retryCount + 1)
+                    return sendMessage(prompt, provider, history, deviceId, images, audio, video, retryCount + 1)
                 }
                 
                 // Final error message for the user if all retries fail

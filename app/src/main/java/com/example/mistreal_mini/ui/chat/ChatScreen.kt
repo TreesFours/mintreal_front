@@ -378,6 +378,8 @@ fun ChatScreen(
                     onReplaceAttachment = { old, new -> viewModel.replacePendingAttachment(old, new) },
                     segmentNotes = viewModel.attachmentSegmentNotes,
                     onSegmentNotesChanged = { uri, notes -> viewModel.setSegmentNotes(uri, notes) },
+                    isAiEditingVideo = viewModel.isEditingVideo.value,
+                    onAiEditVideo = { uri, instruction, cb -> viewModel.editVideoWithAi(uri, instruction, cb) },
                     isSceneMode = viewModel.isSceneMode.value,
                     onToggleSceneMode = { viewModel.toggleSceneMode(it) },
                     // In a social DM minichat, GHOST controls that specific contact's

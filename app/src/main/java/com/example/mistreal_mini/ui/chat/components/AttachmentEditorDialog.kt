@@ -63,11 +63,14 @@ fun AttachmentEditorDialog(
     onDismiss: () -> Unit,
     onReplaceAttachment: (Uri) -> Unit,
     onDiscardAttachment: () -> Unit,
-    onSegmentNotesChanged: (Map<Int, String>) -> Unit
+    onSegmentNotesChanged: (Map<Int, String>) -> Unit,
+    isAiEditingVideo: Boolean = false,
+    onAiEditVideo: (Uri, String, (Boolean) -> Unit) -> Unit = { _, _, cb -> cb(false) }
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     var mode by remember { mutableStateOf(EditorMode.VIEW) }
+    var showAiEditPrompt by remember { mutableStateOf(false) }
     var isBusy by remember { mutableStateOf(false) }
 
     Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false)) {
@@ -162,12 +165,57 @@ fun AttachmentEditorDialog(
                         } else {
                             EditorToolButton(Icons.Default.ContentCut, "Trim") { mode = EditorMode.TRIM }
                             EditorToolButton(Icons.Default.ViewColumn, "Split into 6") { mode = EditorMode.SEGMENT }
+                            EditorToolButton(Icons.Default.AutoFixHigh, "AI Edit") { showAiEditPrompt = true }
                         }
                         EditorToolButton(Icons.Default.Check, "Done", tint = Color.Green) { onDismiss() }
                     }
                 }
             }
         }
+    }
+
+    if (showAiEditPrompt) {
+        var instruction by remember { mutableStateOf("") }
+        AlertDialog(
+            onDismissRequest = { if (!isAiEditingVideo) showAiEditPrompt = false },
+            title = { Text("AI Edit") },
+            text = {
+                Column {
+                    Text(
+                        "Needs your own video editing provider configured in Settings (Runway or custom) — Gemini/Veo don't support editing an existing video.",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = Color.Gray
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+                    OutlinedTextField(
+                        value = instruction,
+                        onValueChange = { instruction = it },
+                        placeholder = { Text("e.g. change the background to a beach") },
+                        modifier = Modifier.fillMaxWidth(),
+                        enabled = !isAiEditingVideo
+                    )
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        onAiEditVideo(uri, instruction) { success ->
+                            if (success) {
+                                showAiEditPrompt = false
+                                onDismiss()
+                            }
+                        }
+                    },
+                    enabled = !isAiEditingVideo && instruction.isNotBlank()
+                ) {
+                    if (isAiEditingVideo) CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp, color = Color.White)
+                    else Text("Edit")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showAiEditPrompt = false }, enabled = !isAiEditingVideo) { Text("Cancel") }
+            }
+        )
     }
 }
 

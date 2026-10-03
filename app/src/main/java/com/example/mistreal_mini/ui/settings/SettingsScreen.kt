@@ -813,6 +813,9 @@ fun SettingsScreen(
                     Spacer(modifier = Modifier.height(24.dp))
                     ByokSettingsSection(viewModel)
 
+                    Spacer(modifier = Modifier.height(24.dp))
+                    ByokVideoSettingsSection(viewModel)
+
                     // Secure Changes Footer
                     Button(
                         onClick = {

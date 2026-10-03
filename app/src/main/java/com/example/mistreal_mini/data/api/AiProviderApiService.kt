@@ -14,6 +14,16 @@ interface AiProviderApiService {
 
     @GET("api/ai-provider/status")
     suspend fun getByokStatus(@Query("deviceId") deviceId: String): ByokStatusResponse
+
+    // Separate BYOK slot for video editing — see userModel.ts byokVideo* fields.
+    @POST("api/ai-provider/video-key")
+    suspend fun saveByokVideoKey(@Body request: SaveByokKeyRequest): ByokStatusResponse
+
+    @POST("api/ai-provider/video-clear")
+    suspend fun clearByokVideoKey(@Body request: ClearByokKeyRequest): ByokStatusResponse
+
+    @GET("api/ai-provider/video-status")
+    suspend fun getByokVideoStatus(@Query("deviceId") deviceId: String): ByokStatusResponse
 }
 
 data class SaveByokKeyRequest(

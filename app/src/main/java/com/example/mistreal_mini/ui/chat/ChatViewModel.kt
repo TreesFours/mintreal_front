@@ -1355,6 +1355,64 @@ class ChatViewModel @Inject constructor(
         }
     }
 
+    private val _isEditingVideo = mutableStateOf(false)
+    val isEditingVideo: State<Boolean> = _isEditingVideo
+
+    /**
+     * AI video editing (background/subject change on an EXISTING recorded video,
+     * not generation) — only works if the user has configured their own video
+     * provider (Runway/custom) in Settings, since Gemini/Veo don't offer this.
+     * Bypasses the generic sendMessage()/performChatRequest() attachment-type
+     * routing deliberately — this is a narrow, isolated media operation, not a
+     * normal chat turn with mood/feelings/autosend tag parsing.
+     */
+    fun editVideoWithAi(videoUri: Uri, instruction: String, onResult: (Boolean) -> Unit) {
+        if (instruction.isBlank()) {
+            viewModelScope.launch { _errorEvents.emit("Describe what to change first.") }
+            onResult(false)
+            return
+        }
+        _isEditingVideo.value = true
+        viewModelScope.launch {
+            val deviceId = android.provider.Settings.Secure.getString(context.contentResolver, android.provider.Settings.Secure.ANDROID_ID)
+            val result = sendMessageUseCase(
+                context = context,
+                prompt = instruction,
+                persona = "",
+                history = emptyList(),
+                provider = "byok-video-edit",
+                deviceId = deviceId,
+                videoUri = videoUri
+            )
+            _isEditingVideo.value = false
+            when (result) {
+                is Resource.Success -> {
+                    val videoUrl = result.data?.generatedVideoUrl
+                    if (videoUrl != null) {
+                        repository.saveMessage(
+                            ChatMessage(
+                                role = "assistant",
+                                content = "",
+                                type = "video",
+                                attachmentPaths = listOf(videoUrl),
+                                provider = "byok-video-edit"
+                            )
+                        )
+                        onResult(true)
+                    } else {
+                        _errorEvents.emit("Video editing provider returned no video.")
+                        onResult(false)
+                    }
+                }
+                is Resource.Error -> {
+                    _errorEvents.emit("Video edit failed: ${result.message}")
+                    onResult(false)
+                }
+                else -> onResult(false)
+            }
+        }
+    }
+
     fun saveSettings(name: String, persona: String, delayMinutes: Int, guardianEnabled: Boolean? = null, contacts: List<EmergencyContact>? = null) {
         viewModelScope.launch {
             _isLoading.value = true

@@ -187,6 +187,42 @@ class InfoRepository @Inject constructor(
         }
     }
 
+    // Separate BYOK slot for video editing — same reasoning as above, different
+    // backend fields (byokVideo*) so a text provider and a video provider can be
+    // configured independently.
+
+    suspend fun saveByokVideoKey(providerType: String, apiKey: String, baseUrl: String?, modelName: String?): Resource<ByokStatusResponse> {
+        return try {
+            val response = aiProviderApi.saveByokVideoKey(
+                SaveByokKeyRequest(deviceId, authRepository.currentUser?.uid, providerType, apiKey, baseUrl, modelName)
+            )
+            if (response.success) Resource.Success(response)
+            else Resource.Error(response.error ?: "Failed to save video key")
+        } catch (e: Exception) {
+            Resource.Error(e.message ?: "Save video key error")
+        }
+    }
+
+    suspend fun clearByokVideoKey(): Resource<Boolean> {
+        return try {
+            val response = aiProviderApi.clearByokVideoKey(ClearByokKeyRequest(deviceId, authRepository.currentUser?.uid))
+            if (response.success) Resource.Success(true)
+            else Resource.Error(response.error ?: "Failed to clear video key")
+        } catch (e: Exception) {
+            Resource.Error(e.message ?: "Clear video key error")
+        }
+    }
+
+    suspend fun getByokVideoStatus(): Resource<ByokStatusResponse> {
+        return try {
+            val response = aiProviderApi.getByokVideoStatus(deviceId)
+            if (response.success) Resource.Success(response)
+            else Resource.Error(response.error ?: "Failed to fetch video status")
+        } catch (e: Exception) {
+            Resource.Error(e.message ?: "Fetch video status error")
+        }
+    }
+
     suspend fun performSocialAction(
         deviceId: String,
         type: String,

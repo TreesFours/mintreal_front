@@ -146,6 +146,7 @@ class SettingsViewModel @Inject constructor(
             preferenceManager.voiceNoteAutoplay.collect { _voiceNoteAutoplay.value = it }
         }
         fetchByokStatus()
+        fetchByokVideoStatus()
         viewModelScope.launch {
             preferenceManager.isSupportiveTruthTellerEnabled.collect { _isSupportiveTruthTellerEnabled.value = it }
         }
@@ -266,6 +267,53 @@ class SettingsViewModel @Inject constructor(
                 else -> {}
             }
             _isSavingByok.value = false
+        }
+    }
+
+    // --- Separate BYOK slot for video editing (see InfoRepository for why) ---
+
+    private val _byokVideoStatus = MutableStateFlow<com.example.mistreal_mini.data.api.ByokStatusResponse?>(null)
+    val byokVideoStatus = _byokVideoStatus.asStateFlow()
+
+    private val _isSavingByokVideo = MutableStateFlow(false)
+    val isSavingByokVideo = _isSavingByokVideo.asStateFlow()
+
+    fun fetchByokVideoStatus() {
+        viewModelScope.launch {
+            when (val result = infoRepository.getByokVideoStatus()) {
+                is Resource.Success -> _byokVideoStatus.value = result.data
+                else -> {}
+            }
+        }
+    }
+
+    fun saveByokVideoKey(providerType: String, apiKey: String, baseUrl: String?, modelName: String?) {
+        viewModelScope.launch {
+            _isSavingByokVideo.value = true
+            when (val result = infoRepository.saveByokVideoKey(providerType, apiKey, baseUrl, modelName)) {
+                is Resource.Success -> {
+                    _byokVideoStatus.value = result.data
+                    _saveSuccess.emit(Unit)
+                }
+                is Resource.Error -> _errorEvent.emit(result.message ?: "Failed to save video provider key")
+                else -> {}
+            }
+            _isSavingByokVideo.value = false
+        }
+    }
+
+    fun clearByokVideoKey() {
+        viewModelScope.launch {
+            _isSavingByokVideo.value = true
+            when (val result = infoRepository.clearByokVideoKey()) {
+                is Resource.Success -> {
+                    _byokVideoStatus.value = com.example.mistreal_mini.data.api.ByokStatusResponse(success = true, configured = false)
+                    _saveSuccess.emit(Unit)
+                }
+                is Resource.Error -> _errorEvent.emit(result.message ?: "Failed to remove video provider key")
+                else -> {}
+            }
+            _isSavingByokVideo.value = false
         }
     }
 

@@ -29,6 +29,7 @@ class SendMessageUseCase @Inject constructor(
         deviceId: String?,
         imageUris: List<Uri>? = null,
         audioUri: Uri? = null,
+        videoUri: Uri? = null,
         isSceneMode: Boolean = false,
         isSocialAutosendContext: Boolean = false
     ): Resource<ChatResponse> {
@@ -166,13 +167,18 @@ class SendMessageUseCase @Inject constructor(
             FileUtil.uriToMultipart(context, uri, "audio")
         }
 
+        val videoPart = videoUri?.let { uri ->
+            FileUtil.uriToMultipart(context, uri, "video")
+        }
+
         return repository.sendMessage(
             prompt = enhancedPrompt,
             provider = provider,
             history = history,
             deviceId = deviceId,
             images = imageParts,
-            audio = audioPart
+            audio = audioPart,
+            video = videoPart
         )
     }
 }
