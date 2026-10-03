@@ -1207,11 +1207,11 @@ class ChatViewModel @Inject constructor(
     fun onDistressDetected() {
         if (_guardianEnabled.value) {
             viewModelScope.launch {
-                voiceManager.speak("Detecting possible distress. Sending your location to emergency contacts.")
+                voiceManager.speak("Detecting possible distress. Sending your location to emergency contacts and posting an alert to your connected social accounts.")
                 val deviceId = android.provider.Settings.Secure.getString(context.contentResolver, android.provider.Settings.Secure.ANDROID_ID)
-                // broadcastToSocials stays false here — only the manual SOS button
-                // (after explicit user confirmation) is allowed to post publicly.
-                handleDistressUseCase(deviceId)
+                // Also broadcasts publicly now, by explicit choice — accepted tradeoff
+                // is a false-positive audio trigger can post a public SOS.
+                handleDistressUseCase(deviceId, broadcastToSocials = true)
             }
         }
     }
