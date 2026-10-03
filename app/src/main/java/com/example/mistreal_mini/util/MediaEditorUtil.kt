@@ -80,6 +80,35 @@ object MediaEditorUtil {
             }
         }
 
+    /**
+     * Spatial counterpart to [extractSegmentThumbnail] for images — a 2-column x
+     * 3-row grid (6 regions) instead of a time axis, so the same "tap a segment,
+     * give it a specific instruction" workflow works for pictures too, not just
+     * video. [index] is 0..5, read left-to-right then top-to-bottom.
+     */
+    suspend fun extractImageRegionThumbnail(context: Context, uri: Uri, index: Int): Bitmap? =
+        withContext(Dispatchers.IO) {
+            try {
+                val source = context.contentResolver.openInputStream(uri)?.use { stream ->
+                    BitmapFactory.decodeStream(stream)
+                } ?: return@withContext null
+
+                val col = index % 2
+                val row = index / 2
+                val regionWidth = source.width / 2
+                val regionHeight = source.height / 3
+                val left = (col * regionWidth).coerceIn(0, source.width - 1)
+                val top = (row * regionHeight).coerceIn(0, source.height - 1)
+                val width = regionWidth.coerceAtMost(source.width - left).coerceAtLeast(1)
+                val height = regionHeight.coerceAtMost(source.height - top).coerceAtLeast(1)
+
+                Bitmap.createBitmap(source, left, top, width, height)
+            } catch (e: Exception) {
+                Timber.e(e, "Failed to extract image region")
+                null
+            }
+        }
+
     fun getVideoDurationMs(context: Context, uri: Uri): Long {
         val retriever = MediaMetadataRetriever()
         return try {

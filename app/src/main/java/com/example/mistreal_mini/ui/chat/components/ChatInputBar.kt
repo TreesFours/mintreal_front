@@ -54,6 +54,8 @@ fun ChatInputBar(
     onSegmentNotesChanged: (Uri, Map<Int, String>) -> Unit = { _, _ -> },
     isAiEditingVideo: Boolean = false,
     onAiEditVideo: (Uri, String, (Boolean) -> Unit) -> Unit = { _, _, cb -> cb(false) },
+    isAiEditingImage: Boolean = false,
+    onAiEditImage: (Uri, String, (Boolean) -> Unit) -> Unit = { _, _, cb -> cb(false) },
     isSceneMode: Boolean = false,
     onToggleSceneMode: (Boolean) -> Unit = {},
     isAutoReplyEnabled: Boolean = false,
@@ -323,7 +325,9 @@ fun ChatInputBar(
             onDiscardAttachment = { onRemoveAttachment(uri) },
             onSegmentNotesChanged = { notes -> onSegmentNotesChanged(uri, notes) },
             isAiEditingVideo = isAiEditingVideo,
-            onAiEditVideo = onAiEditVideo
+            onAiEditVideo = onAiEditVideo,
+            isAiEditingImage = isAiEditingImage,
+            onAiEditImage = onAiEditImage
         )
     }
 }

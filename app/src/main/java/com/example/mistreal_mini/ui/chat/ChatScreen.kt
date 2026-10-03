@@ -380,6 +380,8 @@ fun ChatScreen(
                     onSegmentNotesChanged = { uri, notes -> viewModel.setSegmentNotes(uri, notes) },
                     isAiEditingVideo = viewModel.isEditingVideo.value,
                     onAiEditVideo = { uri, instruction, cb -> viewModel.editVideoWithAi(uri, instruction, cb) },
+                    isAiEditingImage = viewModel.isEditingImage.value,
+                    onAiEditImage = { uri, instruction, cb -> viewModel.editImageWithAi(uri, instruction, cb) },
                     isSceneMode = viewModel.isSceneMode.value,
                     onToggleSceneMode = { viewModel.toggleSceneMode(it) },
                     // In a social DM minichat, GHOST controls that specific contact's

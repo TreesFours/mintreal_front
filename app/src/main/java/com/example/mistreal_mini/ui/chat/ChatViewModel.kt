@@ -917,8 +917,42 @@ class ChatViewModel @Inject constructor(
         _pendingAttachments.clear()
     }
 
+    /**
+     * Routes a generation/edit request to the right backend regardless of which
+     * "model" is currently selected in the drawer — the user shouldn't have to
+     * manually switch to Imagen/Veo/the image-edit model just because their
+     * message happens to ask for one. Heuristic, not ML: keyword-based, same
+     * spirit as the rest of this app's capability detection (model-id substring
+     * matching etc.) — it can misfire on ambiguous phrasing, but errs toward
+     * respecting an explicit model choice over guessing. Returns null when no
+     * override applies (use whatever's already selected).
+     */
+    private val EDIT_VERBS = listOf("edit", "change the background", "change background", "replace the background", "replace background", "remove the", "turn it into", "turn this into", "turn the", "make it look like", "make the background")
+    private val IMAGE_GEN_PHRASES = listOf("generate an image", "generate a picture", "generate a photo", "create an image", "create a picture", "draw me", "draw a picture", "make me an image", "make an image of")
+    private val VIDEO_GEN_PHRASES = listOf("generate a video", "create a video", "make a video of", "make me a video")
+
+    private fun detectAutoRoutedProvider(text: String, attachmentUris: List<Uri>, attachmentType: String): String? {
+        val explicitlySelected = setOf("imagen-3.0-generate-002", "veo-2.0-generate-001", "gemini-2.5-flash-image", "byok-video-edit")
+        if (_selectedProvider.value in explicitlySelected) return null // respect an explicit manual choice
+
+        val lower = text.lowercase()
+        val hasImageAttachment = attachmentUris.isNotEmpty() && (attachmentType == "image" ||
+            attachmentUris.any { context.contentResolver.getType(it)?.startsWith("image") == true })
+        val hasVideoAttachment = attachmentUris.isNotEmpty() && (attachmentType == "video" ||
+            attachmentUris.any { context.contentResolver.getType(it)?.startsWith("video") == true })
+
+        return when {
+            hasImageAttachment && EDIT_VERBS.any { lower.contains(it) } -> "gemini-2.5-flash-image"
+            hasVideoAttachment && EDIT_VERBS.any { lower.contains(it) } -> "byok-video-edit"
+            attachmentUris.isEmpty() && IMAGE_GEN_PHRASES.any { lower.contains(it) } -> "imagen-3.0-generate-002"
+            attachmentUris.isEmpty() && VIDEO_GEN_PHRASES.any { lower.contains(it) } -> "veo-2.0-generate-001"
+            else -> null
+        }
+    }
+
     fun sendMessage(rawText: String, overrideAttachments: List<Uri>? = null, attachmentType: String = "text", trendTitle: String? = null) {
         val attachmentUris = overrideAttachments ?: _pendingAttachments.toList()
+        val autoRoutedProvider = detectAutoRoutedProvider(rawText, attachmentUris, attachmentType)
 
         // Fold any per-segment instructions (from the attachment editor's "Split into 6"
         // tool) into the outgoing text so the AI gets segment-by-segment guidance
@@ -1000,8 +1034,19 @@ class ChatViewModel @Inject constructor(
         val deviceId = Settings.Secure.getString(context.contentResolver, Settings.Secure.ANDROID_ID)
         val imageUris = if (attachmentType == "image" || attachmentUris.isNotEmpty()) attachmentUris else null
         val audioUri = if (attachmentType == "audio" && attachmentUris.isNotEmpty()) attachmentUris[0] else null
-        
-        performChatRequest(text, imageUris, audioUri, deviceId, isVoiceRequest, activeTrend)
+
+        if (autoRoutedProvider != null) {
+            val label = when (autoRoutedProvider) {
+                "gemini-2.5-flash-image" -> "image editing"
+                "byok-video-edit" -> "video editing"
+                "imagen-3.0-generate-002" -> "image generation"
+                "veo-2.0-generate-001" -> "video generation"
+                else -> autoRoutedProvider
+            }
+            viewModelScope.launch { _errorEvents.emit("Routed to $label for this request.") }
+        }
+
+        performChatRequest(text, imageUris, audioUri, deviceId, isVoiceRequest, activeTrend, autoRoutedProvider)
         clearPendingAttachments()
     }
 
@@ -1035,7 +1080,7 @@ class ChatViewModel @Inject constructor(
         }
     }
 
-    fun performChatRequest(prompt: String, imageUris: List<Uri>?, audioUri: Uri?, deviceId: String?, isVoiceRequest: Boolean = false, trendTitle: String? = null) {
+    fun performChatRequest(prompt: String, imageUris: List<Uri>?, audioUri: Uri?, deviceId: String?, isVoiceRequest: Boolean = false, trendTitle: String? = null, providerOverride: String? = null) {
         _isLoading.value = true
         viewModelScope.launch {
             val history = _messages.takeLast(10).toList()
@@ -1050,7 +1095,7 @@ class ChatViewModel @Inject constructor(
                 prompt = if (systemPromptOverlay.isNotBlank()) "$systemPromptOverlay\n\n$prompt" else prompt,
                 persona = activePersona,
                 history = history,
-                provider = _selectedProvider.value,
+                provider = providerOverride ?: _selectedProvider.value,
                 deviceId = deviceId,
                 imageUris = imageUris,
                 audioUri = audioUri,
@@ -1406,6 +1451,70 @@ class ChatViewModel @Inject constructor(
                 }
                 is Resource.Error -> {
                     _errorEvents.emit("Video edit failed: ${result.message}")
+                    onResult(false)
+                }
+                else -> onResult(false)
+            }
+        }
+    }
+
+    private val _isEditingImage = mutableStateOf(false)
+    val isEditingImage: State<Boolean> = _isEditingImage
+
+    /**
+     * AI image editing (background/subject change on an EXISTING picture) via
+     * our own Gemini backend — unlike video editing, this doesn't need a BYOK
+     * provider, it's always available. Provider id must match the backend's
+     * IMAGE_EDIT_MODEL_ID (aiService.ts).
+     */
+    fun editImageWithAi(imageUri: Uri, instruction: String, onResult: (Boolean) -> Unit) {
+        if (instruction.isBlank()) {
+            viewModelScope.launch { _errorEvents.emit("Describe what to change first.") }
+            onResult(false)
+            return
+        }
+        _isEditingImage.value = true
+        viewModelScope.launch {
+            val deviceId = android.provider.Settings.Secure.getString(context.contentResolver, android.provider.Settings.Secure.ANDROID_ID)
+            val result = sendMessageUseCase(
+                context = context,
+                prompt = instruction,
+                persona = "",
+                history = emptyList(),
+                provider = "gemini-2.5-flash-image",
+                deviceId = deviceId,
+                imageUris = listOf(imageUri)
+            )
+            _isEditingImage.value = false
+            when (result) {
+                is Resource.Success -> {
+                    val base64 = result.data?.generatedImageBase64
+                    if (base64 != null) {
+                        val uri = com.example.mistreal_mini.util.MediaEditorUtil.saveBase64Image(
+                            context, base64, result.data?.generatedImageMimeType
+                        )
+                        if (uri != null) {
+                            repository.saveMessage(
+                                ChatMessage(
+                                    role = "assistant",
+                                    content = "",
+                                    type = "image",
+                                    attachmentPaths = listOf(uri.toString()),
+                                    provider = "gemini-2.5-flash-image"
+                                )
+                            )
+                            onResult(true)
+                        } else {
+                            _errorEvents.emit("Edited image couldn't be saved.")
+                            onResult(false)
+                        }
+                    } else {
+                        _errorEvents.emit("Image editing returned no image.")
+                        onResult(false)
+                    }
+                }
+                is Resource.Error -> {
+                    _errorEvents.emit("Image edit failed: ${result.message}")
                     onResult(false)
                 }
                 else -> onResult(false)

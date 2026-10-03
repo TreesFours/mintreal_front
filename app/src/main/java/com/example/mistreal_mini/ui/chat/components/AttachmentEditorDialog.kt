@@ -65,7 +65,9 @@ fun AttachmentEditorDialog(
     onDiscardAttachment: () -> Unit,
     onSegmentNotesChanged: (Map<Int, String>) -> Unit,
     isAiEditingVideo: Boolean = false,
-    onAiEditVideo: (Uri, String, (Boolean) -> Unit) -> Unit = { _, _, cb -> cb(false) }
+    onAiEditVideo: (Uri, String, (Boolean) -> Unit) -> Unit = { _, _, cb -> cb(false) },
+    isAiEditingImage: Boolean = false,
+    onAiEditImage: (Uri, String, (Boolean) -> Unit) -> Unit = { _, _, cb -> cb(false) }
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -128,8 +130,9 @@ fun AttachmentEditorDialog(
                                 }
                             }
                         )
-                        mode == EditorMode.SEGMENT && isVideo -> SegmentEditor(
+                        mode == EditorMode.SEGMENT -> SegmentEditor(
                             uri = uri,
+                            isVideo = isVideo,
                             segmentNotes = segmentNotes,
                             onNotesChanged = onSegmentNotesChanged,
                             onDone = { mode = EditorMode.VIEW }
@@ -164,9 +167,9 @@ fun AttachmentEditorDialog(
                             EditorToolButton(Icons.Default.Crop, "Crop") { mode = EditorMode.CROP }
                         } else {
                             EditorToolButton(Icons.Default.ContentCut, "Trim") { mode = EditorMode.TRIM }
-                            EditorToolButton(Icons.Default.ViewColumn, "Split into 6") { mode = EditorMode.SEGMENT }
-                            EditorToolButton(Icons.Default.AutoFixHigh, "AI Edit") { showAiEditPrompt = true }
                         }
+                        EditorToolButton(Icons.Default.ViewColumn, "Split into 6") { mode = EditorMode.SEGMENT }
+                        EditorToolButton(Icons.Default.AutoFixHigh, "AI Edit") { showAiEditPrompt = true }
                         EditorToolButton(Icons.Default.Check, "Done", tint = Color.Green) { onDismiss() }
                     }
                 }
@@ -176,44 +179,66 @@ fun AttachmentEditorDialog(
 
     if (showAiEditPrompt) {
         var instruction by remember { mutableStateOf("") }
+        val isBusyEditing = if (isVideo) isAiEditingVideo else isAiEditingImage
+        // Fuse the per-segment/region notes (if any were given) together with the
+        // overall instruction into one consolidated request, rather than editing
+        // each piece separately and trying to stitch independent results back
+        // together — the capable provider handles cross-segment consistency
+        // internally when given the full picture in one call.
+        val segmentFusionBlock = segmentNotes.entries.sortedBy { it.key }
+            .joinToString("\n") { (i, note) -> "${if (isVideo) "Segment" else "Region"} ${i + 1}: $note" }
         AlertDialog(
-            onDismissRequest = { if (!isAiEditingVideo) showAiEditPrompt = false },
+            onDismissRequest = { if (!isBusyEditing) showAiEditPrompt = false },
             title = { Text("AI Edit") },
             text = {
                 Column {
-                    Text(
-                        "Needs your own video editing provider configured in Settings (Runway or custom) — Gemini/Veo don't support editing an existing video.",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = Color.Gray
-                    )
-                    Spacer(modifier = Modifier.height(8.dp))
+                    if (isVideo) {
+                        Text(
+                            "Needs your own video editing provider configured in Settings (Runway or custom) — Gemini/Veo don't support editing an existing video.",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = Color.Gray
+                        )
+                        Spacer(modifier = Modifier.height(8.dp))
+                    }
+                    if (segmentFusionBlock.isNotBlank()) {
+                        Text(
+                            "Will include your ${if (isVideo) "segment" else "region"} notes below, fused with this overall instruction.",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.primary
+                        )
+                        Spacer(modifier = Modifier.height(8.dp))
+                    }
                     OutlinedTextField(
                         value = instruction,
                         onValueChange = { instruction = it },
                         placeholder = { Text("e.g. change the background to a beach") },
                         modifier = Modifier.fillMaxWidth(),
-                        enabled = !isAiEditingVideo
+                        enabled = !isBusyEditing
                     )
                 }
             },
             confirmButton = {
                 Button(
                     onClick = {
-                        onAiEditVideo(uri, instruction) { success ->
+                        val fused = if (segmentFusionBlock.isNotBlank()) {
+                            "$instruction\n\n[${if (isVideo) "Segment" else "Region"}-specific instructions]\n$segmentFusionBlock"
+                        } else instruction
+                        val onComplete: (Boolean) -> Unit = { success ->
                             if (success) {
                                 showAiEditPrompt = false
                                 onDismiss()
                             }
                         }
+                        if (isVideo) onAiEditVideo(uri, fused, onComplete) else onAiEditImage(uri, fused, onComplete)
                     },
-                    enabled = !isAiEditingVideo && instruction.isNotBlank()
+                    enabled = !isBusyEditing && instruction.isNotBlank()
                 ) {
-                    if (isAiEditingVideo) CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp, color = Color.White)
+                    if (isBusyEditing) CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp, color = Color.White)
                     else Text("Edit")
                 }
             },
             dismissButton = {
-                TextButton(onClick = { showAiEditPrompt = false }, enabled = !isAiEditingVideo) { Text("Cancel") }
+                TextButton(onClick = { showAiEditPrompt = false }, enabled = !isBusyEditing) { Text("Cancel") }
             }
         )
     }
@@ -447,6 +472,7 @@ private fun formatMs(ms: Long): String {
 @Composable
 private fun SegmentEditor(
     uri: Uri,
+    isVideo: Boolean,
     segmentNotes: Map<Int, String>,
     onNotesChanged: (Map<Int, String>) -> Unit,
     onDone: () -> Unit
@@ -457,18 +483,29 @@ private fun SegmentEditor(
     var activeSegment by remember { mutableStateOf<Int?>(null) }
 
     LaunchedEffect(uri) {
-        durationMs = withContext(Dispatchers.IO) { MediaEditorUtil.getVideoDurationMs(context, uri) }
-        for (i in 0 until SEGMENT_COUNT) {
-            thumbnails[i] = MediaEditorUtil.extractSegmentThumbnail(context, uri, i, SEGMENT_COUNT, durationMs)
+        if (isVideo) {
+            durationMs = withContext(Dispatchers.IO) { MediaEditorUtil.getVideoDurationMs(context, uri) }
+            for (i in 0 until SEGMENT_COUNT) {
+                thumbnails[i] = MediaEditorUtil.extractSegmentThumbnail(context, uri, i, SEGMENT_COUNT, durationMs)
+            }
+        } else {
+            for (i in 0 until SEGMENT_COUNT) {
+                thumbnails[i] = MediaEditorUtil.extractImageRegionThumbnail(context, uri, i)
+            }
         }
     }
 
     Column(modifier = Modifier.fillMaxSize()) {
         Box(modifier = Modifier.weight(1f)) {
-            VideoPlayer(videoUrl = uri.toString(), modifier = Modifier.fillMaxSize())
+            if (isVideo) {
+                VideoPlayer(videoUrl = uri.toString(), modifier = Modifier.fillMaxSize())
+            } else {
+                AsyncImage(model = uri, contentDescription = "Preview", modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Fit)
+            }
         }
         Text(
-            "Tap a segment to give the AI a specific instruction for just that part of the video.",
+            if (isVideo) "Tap a segment to give the AI a specific instruction for just that part of the video."
+            else "Tap a region to give the AI a specific instruction for just that part of the picture.",
             color = Color.White,
             fontSize = 12.sp,
             modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
@@ -518,7 +555,7 @@ private fun SegmentEditor(
         var noteText by remember(segmentIndex) { mutableStateOf(segmentNotes[segmentIndex] ?: "") }
         AlertDialog(
             onDismissRequest = { activeSegment = null },
-            title = { Text("Segment ${segmentIndex + 1} instructions") },
+            title = { Text("${if (isVideo) "Segment" else "Region"} ${segmentIndex + 1} instructions") },
             text = {
                 OutlinedTextField(
                     value = noteText,
