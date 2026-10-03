@@ -8,6 +8,8 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -101,11 +103,20 @@ fun ContactListDrawer(
                         
                         Spacer(modifier = Modifier.weight(1f))
                         CategoryIcon(
-                            icon = Icons.Default.AllInbox, 
-                            label = "Inbox", 
+                            icon = Icons.Default.Email,
+                            label = "Email",
+                            isSelected = selectedCategory == "email"
+                        ) {
+                            selectedCategory = "email"
+                            viewModel.clearActiveEmailThread()
+                            viewModel.fetchEmailContacts()
+                        }
+                        CategoryIcon(
+                            icon = Icons.Default.AllInbox,
+                            label = "Inbox",
                             isSelected = selectedCategory == "unread",
                             badgeCount = unreadItems.size
-                        ) { 
+                        ) {
                             selectedCategory = "unread"
                             viewModel.fetchUnread()
                         }
@@ -119,7 +130,7 @@ fun ContactListDrawer(
                             color = MaterialTheme.colorScheme.primary
                         )
                         
-                        if (selectedCategory != "ai" && selectedCategory != "unread" && selectedCategory != "emergency") {
+                        if (selectedCategory != "ai" && selectedCategory != "unread" && selectedCategory != "emergency" && selectedCategory != "email") {
                             OutlinedTextField(
                                 value = searchPlatformQuery,
                                 onValueChange = { 
@@ -142,6 +153,10 @@ fun ContactListDrawer(
                                         viewModel.switchChat(item.sender, item.platform)
                                         onClose()
                                     }
+                                }
+                            } else if (selectedCategory == "email") {
+                                item {
+                                    EmailPanel(viewModel)
                                 }
                             } else if (selectedCategory == "emergency") {
                                 item {
@@ -378,6 +393,177 @@ fun ModelCategoryAccordion(
                             selected = isSelected,
                             onClick = { if (!isLocked) onModelSelect(model) },
                             modifier = Modifier.padding(vertical = 2.dp)
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+/**
+ * Compose-and-send email panel (drawer "EMAIL" category) — send-only, no
+ * inbox sync. Shows saved addresses (people this device has emailed before)
+ * when nothing's open; opening one shows the sent-message thread with a
+ * reply box; "+ New Email" composes to a fresh address.
+ */
+@Composable
+private fun EmailPanel(viewModel: ChatViewModel) {
+    val contacts = viewModel.emailContacts
+    val thread = viewModel.activeEmailThread
+    val isSending = viewModel.isSendingEmail.value
+
+    var activeAddress by remember { mutableStateOf<String?>(null) }
+    var isComposingNew by remember { mutableStateOf(false) }
+    var toEmailInput by remember { mutableStateOf("") }
+    var toNameInput by remember { mutableStateOf("") }
+    var subjectInput by remember { mutableStateOf("") }
+    var bodyInput by remember { mutableStateOf("") }
+
+    fun resetCompose() {
+        isComposingNew = false
+        toEmailInput = ""
+        toNameInput = ""
+        subjectInput = ""
+        bodyInput = ""
+    }
+
+    when {
+        activeAddress != null -> {
+            val address = activeAddress!!
+            Column(modifier = Modifier.fillMaxWidth()) {
+                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
+                    IconButton(onClick = { activeAddress = null; viewModel.clearActiveEmailThread() }) {
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back")
+                    }
+                    Column {
+                        Text(address, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
+                        Text("Sent mail — not a synced inbox", style = MaterialTheme.typography.labelSmall, color = Color.Gray)
+                    }
+                }
+                Spacer(modifier = Modifier.height(8.dp))
+                thread.forEach { msg ->
+                    Card(
+                        modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f))
+                    ) {
+                        Column(modifier = Modifier.padding(12.dp)) {
+                            Text(msg.subject, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.bodyMedium)
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Text(msg.body, style = MaterialTheme.typography.bodySmall)
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Text(msg.timestamp, style = MaterialTheme.typography.labelSmall, color = Color.Gray)
+                        }
+                    }
+                }
+                Spacer(modifier = Modifier.height(8.dp))
+                OutlinedTextField(
+                    value = subjectInput,
+                    onValueChange = { subjectInput = it },
+                    placeholder = { Text("Subject", fontSize = 12.sp) },
+                    modifier = Modifier.fillMaxWidth(),
+                    singleLine = true,
+                    shape = RoundedCornerShape(8.dp)
+                )
+                Spacer(modifier = Modifier.height(4.dp))
+                OutlinedTextField(
+                    value = bodyInput,
+                    onValueChange = { bodyInput = it },
+                    placeholder = { Text("Write a reply...", fontSize = 12.sp) },
+                    modifier = Modifier.fillMaxWidth().heightIn(min = 80.dp),
+                    shape = RoundedCornerShape(8.dp)
+                )
+                Spacer(modifier = Modifier.height(4.dp))
+                Button(
+                    onClick = {
+                        viewModel.sendEmail(address, null, subjectInput.ifBlank { "(no subject)" }, bodyInput) { success ->
+                            if (success) { subjectInput = ""; bodyInput = "" }
+                        }
+                    },
+                    enabled = !isSending && bodyInput.isNotBlank(),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    if (isSending) CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp, color = Color.White)
+                    else { Icon(Icons.AutoMirrored.Filled.Send, null, modifier = Modifier.size(16.dp)); Spacer(Modifier.width(6.dp)); Text("Send") }
+                }
+            }
+        }
+        isComposingNew -> {
+            Column(modifier = Modifier.fillMaxWidth()) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    IconButton(onClick = { resetCompose() }) { Icon(Icons.Default.Close, "Cancel") }
+                    Text("New Email", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
+                }
+                Spacer(modifier = Modifier.height(8.dp))
+                OutlinedTextField(
+                    value = toEmailInput, onValueChange = { toEmailInput = it },
+                    placeholder = { Text("To (email address)", fontSize = 12.sp) },
+                    modifier = Modifier.fillMaxWidth(), singleLine = true, shape = RoundedCornerShape(8.dp)
+                )
+                Spacer(modifier = Modifier.height(4.dp))
+                OutlinedTextField(
+                    value = toNameInput, onValueChange = { toNameInput = it },
+                    placeholder = { Text("Name (optional)", fontSize = 12.sp) },
+                    modifier = Modifier.fillMaxWidth(), singleLine = true, shape = RoundedCornerShape(8.dp)
+                )
+                Spacer(modifier = Modifier.height(4.dp))
+                OutlinedTextField(
+                    value = subjectInput, onValueChange = { subjectInput = it },
+                    placeholder = { Text("Subject", fontSize = 12.sp) },
+                    modifier = Modifier.fillMaxWidth(), singleLine = true, shape = RoundedCornerShape(8.dp)
+                )
+                Spacer(modifier = Modifier.height(4.dp))
+                OutlinedTextField(
+                    value = bodyInput, onValueChange = { bodyInput = it },
+                    placeholder = { Text("Message", fontSize = 12.sp) },
+                    modifier = Modifier.fillMaxWidth().heightIn(min = 100.dp), shape = RoundedCornerShape(8.dp)
+                )
+                Spacer(modifier = Modifier.height(4.dp))
+                Button(
+                    onClick = {
+                        val addr = toEmailInput.trim()
+                        viewModel.sendEmail(addr, toNameInput.ifBlank { null }, subjectInput, bodyInput) { success ->
+                            if (success) {
+                                activeAddress = addr
+                                resetCompose()
+                            }
+                        }
+                    },
+                    enabled = !isSending && toEmailInput.contains("@") && subjectInput.isNotBlank() && bodyInput.isNotBlank(),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    if (isSending) CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp, color = Color.White)
+                    else { Icon(Icons.AutoMirrored.Filled.Send, null, modifier = Modifier.size(16.dp)); Spacer(Modifier.width(6.dp)); Text("Send") }
+                }
+            }
+        }
+        else -> {
+            Column(modifier = Modifier.fillMaxWidth()) {
+                Button(
+                    onClick = { isComposingNew = true },
+                    modifier = Modifier.fillMaxWidth().padding(bottom = 12.dp),
+                    shape = RoundedCornerShape(10.dp)
+                ) {
+                    Icon(Icons.Default.Add, null, modifier = Modifier.size(16.dp))
+                    Spacer(Modifier.width(6.dp))
+                    Text("New Email")
+                }
+                if (contacts.isEmpty()) {
+                    Text(
+                        "No sent emails yet. Compose one above to get started.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = Color.Gray
+                    )
+                } else {
+                    contacts.forEach { c ->
+                        ListItem(
+                            headlineContent = { Text(c.toName ?: c.toEmail, fontWeight = FontWeight.Bold) },
+                            supportingContent = { Text(c.lastSubject ?: "", maxLines = 1) },
+                            leadingContent = { Icon(Icons.Default.Email, null, tint = MaterialTheme.colorScheme.primary) },
+                            modifier = Modifier.clickable {
+                                activeAddress = c.toEmail
+                                viewModel.openEmailThread(c.toEmail)
+                            }
                         )
                     }
                 }

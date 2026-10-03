@@ -69,6 +69,18 @@ interface InfoApiService {
     @POST("api/emergency/alert")
     suspend fun sendEmergencyAlert(@Body request: EmergencyAlertRequest): EmergencyAlertResponse
 
+    @POST("api/email/send")
+    suspend fun sendEmail(@Body request: SendEmailRequest): SendEmailResponse
+
+    @GET("api/email/history")
+    suspend fun getEmailHistory(
+        @Query("deviceId") deviceId: String,
+        @Query("toEmail") toEmail: String
+    ): EmailHistoryResponse
+
+    @GET("api/email/contacts")
+    suspend fun getEmailContacts(@Query("deviceId") deviceId: String): EmailContactsResponse
+
     @GET("api/social/contacts")
     suspend fun getContacts(
         @Query("deviceId") deviceId: String,
@@ -153,6 +165,46 @@ data class EmergencyAlertResponse(
     // must use `broadcastPlatforms ?: emptyList()`.
     val broadcastPlatforms: List<String>? = null,
     val broadcastFailures: List<String>? = null
+)
+
+data class SendEmailRequest(
+    val deviceId: String,
+    val firebaseUid: String? = null,
+    val toEmail: String,
+    val toName: String? = null,
+    val subject: String,
+    val body: String
+)
+
+data class SendEmailResponse(
+    val success: Boolean,
+    val error: String? = null
+)
+
+data class EmailHistoryResponse(
+    val success: Boolean,
+    val messages: List<EmailMessage>? = null
+)
+
+data class EmailMessage(
+    val id: Long,
+    val toEmail: String,
+    val toName: String? = null,
+    val subject: String,
+    val body: String,
+    val timestamp: String
+)
+
+data class EmailContactsResponse(
+    val success: Boolean,
+    val contacts: List<EmailContactSummary>? = null
+)
+
+data class EmailContactSummary(
+    val toEmail: String,
+    val toName: String? = null,
+    val lastSubject: String? = null,
+    val lastTimestamp: String? = null
 )
 
 data class ContactsResponse(val success: Boolean, val contacts: List<SocialContact>)

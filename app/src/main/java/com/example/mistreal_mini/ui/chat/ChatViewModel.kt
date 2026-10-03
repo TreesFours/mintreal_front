@@ -1245,6 +1245,70 @@ class ChatViewModel @Inject constructor(
         }
     }
 
+    // --- Compose & send email (drawer "EMAIL" category) — send-only, no inbox sync ---
+
+    private val _emailContacts = mutableStateListOf<com.example.mistreal_mini.data.api.EmailContactSummary>()
+    val emailContacts: List<com.example.mistreal_mini.data.api.EmailContactSummary> = _emailContacts
+
+    private val _activeEmailThread = mutableStateListOf<com.example.mistreal_mini.data.api.EmailMessage>()
+    val activeEmailThread: List<com.example.mistreal_mini.data.api.EmailMessage> = _activeEmailThread
+
+    private val _isSendingEmail = mutableStateOf(false)
+    val isSendingEmail: State<Boolean> = _isSendingEmail
+
+    fun fetchEmailContacts() {
+        viewModelScope.launch {
+            val deviceId = android.provider.Settings.Secure.getString(context.contentResolver, android.provider.Settings.Secure.ANDROID_ID)
+            val result = infoRepository.getEmailContacts(deviceId)
+            if (result is Resource.Success) {
+                _emailContacts.clear()
+                _emailContacts.addAll(result.data ?: emptyList())
+            }
+        }
+    }
+
+    fun openEmailThread(toEmail: String) {
+        viewModelScope.launch {
+            val deviceId = android.provider.Settings.Secure.getString(context.contentResolver, android.provider.Settings.Secure.ANDROID_ID)
+            val result = infoRepository.getEmailHistory(deviceId, toEmail)
+            _activeEmailThread.clear()
+            if (result is Resource.Success) {
+                _activeEmailThread.addAll(result.data ?: emptyList())
+            }
+        }
+    }
+
+    fun clearActiveEmailThread() {
+        _activeEmailThread.clear()
+    }
+
+    fun sendEmail(toEmail: String, toName: String?, subject: String, body: String, onResult: (Boolean) -> Unit) {
+        if (toEmail.isBlank() || subject.isBlank() || body.isBlank()) {
+            viewModelScope.launch { _errorEvents.emit("Address, subject and message are all required.") }
+            onResult(false)
+            return
+        }
+        _isSendingEmail.value = true
+        viewModelScope.launch {
+            val deviceId = android.provider.Settings.Secure.getString(context.contentResolver, android.provider.Settings.Secure.ANDROID_ID)
+            val result = infoRepository.sendEmail(deviceId, toEmail, toName, subject, body)
+            _isSendingEmail.value = false
+            when (result) {
+                is Resource.Success -> {
+                    _errorEvents.emit("Email sent to $toEmail")
+                    fetchEmailContacts()
+                    openEmailThread(toEmail)
+                    onResult(true)
+                }
+                is Resource.Error -> {
+                    _errorEvents.emit("Email failed: ${result.message}")
+                    onResult(false)
+                }
+                else -> onResult(false)
+            }
+        }
+    }
+
     fun saveSettings(name: String, persona: String, delayMinutes: Int, guardianEnabled: Boolean? = null, contacts: List<EmergencyContact>? = null) {
         viewModelScope.launch {
             _isLoading.value = true

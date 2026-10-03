@@ -299,6 +299,40 @@ class InfoRepository @Inject constructor(
         }
     }
 
+    suspend fun sendEmail(deviceId: String, toEmail: String, toName: String?, subject: String, body: String): Resource<Boolean> {
+        return try {
+            val response = api.sendEmail(
+                com.example.mistreal_mini.data.api.SendEmailRequest(
+                    deviceId, authRepository.currentUser?.uid, toEmail, toName, subject, body
+                )
+            )
+            if (response.success) Resource.Success(true)
+            else Resource.Error(response.error ?: "Email send failed")
+        } catch (e: Exception) {
+            Resource.Error(e.message ?: "Email send error")
+        }
+    }
+
+    suspend fun getEmailHistory(deviceId: String, toEmail: String): Resource<List<com.example.mistreal_mini.data.api.EmailMessage>> {
+        return try {
+            val response = api.getEmailHistory(deviceId, toEmail)
+            if (response.success) Resource.Success(response.messages ?: emptyList())
+            else Resource.Error("Failed to fetch email history")
+        } catch (e: Exception) {
+            Resource.Error(e.message ?: "Network error")
+        }
+    }
+
+    suspend fun getEmailContacts(deviceId: String): Resource<List<com.example.mistreal_mini.data.api.EmailContactSummary>> {
+        return try {
+            val response = api.getEmailContacts(deviceId)
+            if (response.success) Resource.Success(response.contacts ?: emptyList())
+            else Resource.Error("Failed to fetch email contacts")
+        } catch (e: Exception) {
+            Resource.Error(e.message ?: "Network error")
+        }
+    }
+
     suspend fun getCelestialVectors(bodyId: String, lat: Double?, lon: Double?): Resource<CelestialVectorResponse> {
         return try {
             Resource.Success(api.getCelestialVectors(bodyId, lat, lon))
