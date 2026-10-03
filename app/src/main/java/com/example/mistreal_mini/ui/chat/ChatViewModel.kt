@@ -1309,6 +1309,52 @@ class ChatViewModel @Inject constructor(
         }
     }
 
+    private val _isSendingToContact = mutableStateOf(false)
+    val isSendingToContact: State<Boolean> = _isSendingToContact
+
+    /**
+     * Delivers an image message (e.g. an AI-edited picture) as a real DM on a
+     * connected platform — e.g. WhatsApp/Facebook — via Zernio. The image only
+     * exists locally as a Uri, so it's base64-encoded and handed to the backend,
+     * which briefly hosts it at a public URL for Zernio to fetch (see
+     * mediaStore.ts) since DM APIs take a media URL, not inline bytes.
+     */
+    fun sendImageToContact(imageUri: Uri, platform: String, targetId: String, caption: String, onResult: (Boolean) -> Unit) {
+        _isSendingToContact.value = true
+        viewModelScope.launch {
+            val base64 = FileUtil.uriToBase64(context, imageUri)
+            if (base64 == null) {
+                _isSendingToContact.value = false
+                _errorEvents.emit("Couldn't read that image.")
+                onResult(false)
+                return@launch
+            }
+            val mimeType = FileUtil.getMimeType(context, imageUri) ?: "image/jpeg"
+            val deviceId = android.provider.Settings.Secure.getString(context.contentResolver, android.provider.Settings.Secure.ANDROID_ID)
+            val result = infoRepository.performSocialAction(
+                deviceId = deviceId,
+                type = "Direct Message",
+                platform = platform,
+                content = caption,
+                targetId = targetId,
+                mediaBase64 = base64,
+                mediaMimeType = mimeType
+            )
+            _isSendingToContact.value = false
+            when (result) {
+                is Resource.Success -> {
+                    _errorEvents.emit("Sent to $targetId on $platform")
+                    onResult(true)
+                }
+                is Resource.Error -> {
+                    _errorEvents.emit("Send failed: ${result.message}")
+                    onResult(false)
+                }
+                else -> onResult(false)
+            }
+        }
+    }
+
     fun saveSettings(name: String, persona: String, delayMinutes: Int, guardianEnabled: Boolean? = null, contacts: List<EmergencyContact>? = null) {
         viewModelScope.launch {
             _isLoading.value = true

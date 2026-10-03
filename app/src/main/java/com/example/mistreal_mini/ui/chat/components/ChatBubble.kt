@@ -5,6 +5,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -239,7 +240,22 @@ fun ChatBubble(
                             Icon(Icons.Default.MoreVert, "More", modifier = Modifier.size(14.dp), tint = textColor.copy(alpha = 0.5f))
                         }
                         
+                        var showSendToContactDialog by remember { mutableStateOf(false) }
+
                         DropdownMenu(expanded = showMenu, onDismissRequest = { showMenu = false }) {
+                            if (message.type == "image") {
+                                val imageUri = message.attachmentPaths?.firstOrNull() ?: message.attachmentUrl
+                                if (imageUri != null) {
+                                    DropdownMenuItem(
+                                        text = { Text("Send to Contact") },
+                                        onClick = {
+                                            showSendToContactDialog = true
+                                            showMenu = false
+                                        },
+                                        leadingIcon = { Icon(Icons.AutoMirrored.Filled.Send, null) }
+                                    )
+                                }
+                            }
                             if (!isUser) {
                                 val context = LocalContext.current
                                 DropdownMenuItem(
@@ -277,6 +293,25 @@ fun ChatBubble(
                                 },
                                 leadingIcon = { Icon(Icons.Default.Delete, null, tint = Color.Red) }
                             )
+                        }
+
+                        if (showSendToContactDialog) {
+                            val imageUri = message.attachmentPaths?.firstOrNull() ?: message.attachmentUrl
+                            if (imageUri != null) {
+                                SendToContactDialog(
+                                    availablePlatforms = viewModel.availablePlatforms,
+                                    isSending = viewModel.isSendingToContact.value,
+                                    onDismiss = { showSendToContactDialog = false },
+                                    onSend = { platform, targetId, caption ->
+                                        viewModel.sendImageToContact(
+                                            imageUri = android.net.Uri.parse(imageUri),
+                                            platform = platform,
+                                            targetId = targetId,
+                                            caption = caption
+                                        ) { success -> if (success) showSendToContactDialog = false }
+                                    }
+                                )
+                            }
                         }
 
                         Spacer(modifier = Modifier.width(4.dp))
@@ -447,4 +482,68 @@ private fun MoodBadge(mood: String) {
             color = style.color
         )
     }
+}
+
+@Composable
+private fun SendToContactDialog(
+    availablePlatforms: List<com.example.mistreal_mini.data.api.SocialPlatformResponse>,
+    isSending: Boolean,
+    onDismiss: () -> Unit,
+    onSend: (platform: String, targetId: String, caption: String) -> Unit
+) {
+    val connected = availablePlatforms.filter { it.isConnected }
+    var selectedPlatform by remember { mutableStateOf(connected.firstOrNull()?.id ?: "") }
+    var targetId by remember { mutableStateOf("") }
+    var caption by remember { mutableStateOf("") }
+    var showPlatformMenu by remember { mutableStateOf(false) }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Send image to contact") },
+        text = {
+            Column {
+                if (connected.isEmpty()) {
+                    Text("Connect a platform in Settings first.", color = Color.Gray)
+                } else {
+                    Box {
+                        OutlinedButton(onClick = { showPlatformMenu = true }, modifier = Modifier.fillMaxWidth()) {
+                            Text(connected.find { it.id == selectedPlatform }?.name ?: "Select platform")
+                        }
+                        DropdownMenu(expanded = showPlatformMenu, onDismissRequest = { showPlatformMenu = false }) {
+                            connected.forEach { p ->
+                                DropdownMenuItem(text = { Text(p.name) }, onClick = { selectedPlatform = p.id; showPlatformMenu = false })
+                            }
+                        }
+                    }
+                    Spacer(modifier = Modifier.height(8.dp))
+                    OutlinedTextField(
+                        value = targetId,
+                        onValueChange = { targetId = it },
+                        label = { Text("Contact username/ID") },
+                        modifier = Modifier.fillMaxWidth(),
+                        singleLine = true
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+                    OutlinedTextField(
+                        value = caption,
+                        onValueChange = { caption = it },
+                        label = { Text("Caption (optional)") },
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                }
+            }
+        },
+        confirmButton = {
+            Button(
+                onClick = { onSend(selectedPlatform, targetId.trim(), caption) },
+                enabled = !isSending && selectedPlatform.isNotBlank() && targetId.isNotBlank()
+            ) {
+                if (isSending) CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp, color = Color.White)
+                else Text("Send")
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text("Cancel") }
+        }
+    )
 }

@@ -358,7 +358,9 @@ data class SocialAction(
     val type: String,
     val platform: String,
     val content: String,
-    val targetId: String
+    val targetId: String,
+    val mediaBase64: String? = null,
+    val mediaMimeType: String? = null
 )
 
 data class SocialActionResponse(

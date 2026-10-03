@@ -193,13 +193,15 @@ class InfoRepository @Inject constructor(
         platform: String,
         content: String,
         targetId: String,
-        delayMinutes: Int? = 0
+        delayMinutes: Int? = 0,
+        mediaBase64: String? = null,
+        mediaMimeType: String? = null
     ): Resource<Boolean> {
         return try {
             val response = api.performSocialAction(
                 com.example.mistreal_mini.data.api.SocialActionRequest(
                     deviceId,
-                    com.example.mistreal_mini.data.api.SocialAction(type, platform, content, targetId),
+                    com.example.mistreal_mini.data.api.SocialAction(type, platform, content, targetId, mediaBase64, mediaMimeType),
                     delayMinutes
                 )
             )

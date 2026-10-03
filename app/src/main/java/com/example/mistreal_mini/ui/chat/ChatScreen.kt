@@ -279,6 +279,26 @@ fun ChatScreen(
                             .horizontalScroll(rememberScrollState()),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
+                        // First increment of real Facebook calling: Messenger has no
+                        // public "start a call with this user" deep link, so this opens
+                        // the native Messenger thread with the contact — the user still
+                        // taps Messenger's own call button from there. Deliberately one
+                        // button, not separate video/voice ones, since both would do the
+                        // exact same thing today; to be improved incrementally.
+                        if (viewModel.currentChatPartnerPlatform.value.lowercase() == "facebook" && viewModel.activeSocialContact.value != null) {
+                            val contact = viewModel.activeSocialContact.value!!
+                            val callContext = LocalContext.current
+                            IconButton(onClick = {
+                                val nativeIntent = Intent(Intent.ACTION_VIEW, Uri.parse("fb-messenger://user-thread/${contact.id}"))
+                                try {
+                                    callContext.startActivity(nativeIntent)
+                                } catch (e: Exception) {
+                                    callContext.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://m.me/${contact.id}")))
+                                }
+                            }) {
+                                Icon(Icons.Default.VideoCall, "Open in Messenger to call", tint = Color(0xFF0084FF))
+                            }
+                        }
                         if (viewModel.currentTrendTitle.value != null) {
                             IconButton(onClick = { viewModel.exitTrend() }) {
                                 Icon(Icons.Default.Close, "Exit Trend", tint = Color.Red)
