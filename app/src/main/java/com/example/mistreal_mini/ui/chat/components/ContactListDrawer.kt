@@ -17,6 +17,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.example.mistreal_mini.data.model.PlatformBrandColors
 import com.example.mistreal_mini.ui.chat.ChatViewModel
 
 @Composable
@@ -78,13 +79,16 @@ fun ContactListDrawer(
                                 "twitter", "x" -> Icons.Default.Public
                                 "linkedin" -> Icons.Default.Business
                                 "facebook" -> Icons.Default.Facebook
+                                "tiktok" -> Icons.Default.MusicNote
+                                "youtube" -> Icons.Default.PlayCircle
                                 else -> Icons.Default.Link
                             }
                             CategoryIcon(
                                 icon = icon,
                                 label = platform.take(4),
                                 isSelected = selectedCategory == platform,
-                                badgeCount = platformUnread
+                                badgeCount = platformUnread,
+                                tintColor = PlatformBrandColors.forPlatform(platform)
                             ) {
                                 selectedCategory = platform
                                 viewModel.fetchContacts(platform)
