@@ -147,6 +147,8 @@ class SettingsViewModel @Inject constructor(
         }
         fetchByokStatus()
         fetchByokVideoStatus()
+        fetchMediaProviderConfigs("image_gen")
+        fetchMediaProviderConfigs("video_gen")
         viewModelScope.launch {
             preferenceManager.isSupportiveTruthTellerEnabled.collect { _isSupportiveTruthTellerEnabled.value = it }
         }
@@ -314,6 +316,66 @@ class SettingsViewModel @Inject constructor(
                 else -> {}
             }
             _isSavingByokVideo.value = false
+        }
+    }
+
+    // --- Saved image/video GENERATION provider configs (multi, switchable) ---
+    // Separate from the single-slot BYOK sections above: a user can save
+    // several providers per capability and pick which is active, or "Our
+    // Recommended" (null configId) to use Imagen/Veo.
+
+    private val _imageGenConfigs = MutableStateFlow<com.example.mistreal_mini.data.api.MediaProviderConfigListResponse?>(null)
+    val imageGenConfigs = _imageGenConfigs.asStateFlow()
+
+    private val _videoGenConfigs = MutableStateFlow<com.example.mistreal_mini.data.api.MediaProviderConfigListResponse?>(null)
+    val videoGenConfigs = _videoGenConfigs.asStateFlow()
+
+    private val _isSavingMediaProvider = MutableStateFlow(false)
+    val isSavingMediaProvider = _isSavingMediaProvider.asStateFlow()
+
+    fun fetchMediaProviderConfigs(capability: String) {
+        viewModelScope.launch {
+            when (val result = infoRepository.getMediaProviderConfigs(capability)) {
+                is Resource.Success -> {
+                    if (capability == "image_gen") _imageGenConfigs.value = result.data else _videoGenConfigs.value = result.data
+                }
+                else -> {}
+            }
+        }
+    }
+
+    fun addMediaProviderConfig(capability: String, label: String, providerType: String, apiKey: String, baseUrl: String, modelName: String?) {
+        viewModelScope.launch {
+            _isSavingMediaProvider.value = true
+            when (val result = infoRepository.addMediaProviderConfig(capability, label, providerType, apiKey, baseUrl, modelName)) {
+                is Resource.Success -> {
+                    fetchMediaProviderConfigs(capability)
+                    _saveSuccess.emit(Unit)
+                }
+                is Resource.Error -> _errorEvent.emit(result.message ?: "Failed to save provider")
+                else -> {}
+            }
+            _isSavingMediaProvider.value = false
+        }
+    }
+
+    fun activateMediaProviderConfig(capability: String, configId: Int?) {
+        viewModelScope.launch {
+            when (val result = infoRepository.activateMediaProviderConfig(capability, configId)) {
+                is Resource.Success -> fetchMediaProviderConfigs(capability)
+                is Resource.Error -> _errorEvent.emit(result.message ?: "Failed to switch provider")
+                else -> {}
+            }
+        }
+    }
+
+    fun deleteMediaProviderConfig(capability: String, id: Int) {
+        viewModelScope.launch {
+            when (val result = infoRepository.deleteMediaProviderConfig(id)) {
+                is Resource.Success -> fetchMediaProviderConfigs(capability)
+                is Resource.Error -> _errorEvent.emit(result.message ?: "Failed to remove provider")
+                else -> {}
+            }
         }
     }
 

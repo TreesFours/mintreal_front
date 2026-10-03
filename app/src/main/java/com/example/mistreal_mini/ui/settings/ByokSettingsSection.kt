@@ -3,7 +3,9 @@ package com.example.mistreal_mini.ui.settings
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Key
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -251,6 +253,113 @@ fun ByokVideoSettingsSection(viewModel: SettingsViewModel) {
         ) {
             if (isSaving) CircularProgressIndicator(modifier = Modifier.size(18.dp), color = Color.White)
             else Text("SAVE VIDEO PROVIDER")
+        }
+    }
+}
+
+/**
+ * Image/video GENERATION provider picker — unlike the single-slot BYOK
+ * sections above, a user can save SEVERAL providers per capability and pick
+ * which is active ("Our Recommended" = Imagen/Veo, or any saved one), rather
+ * than one overwritable slot. This closes the gap where generation had no
+ * BYOK story at all before.
+ */
+@Composable
+fun MediaGenProviderSection(viewModel: SettingsViewModel, capability: String, title: String, recommendedLabel: String) {
+    val response by (if (capability == "image_gen") viewModel.imageGenConfigs else viewModel.videoGenConfigs).collectAsState()
+    val isSaving by viewModel.isSavingMediaProvider.collectAsState()
+
+    var isAdding by remember { mutableStateOf(false) }
+    var label by remember { mutableStateOf("") }
+    var providerType by remember { mutableStateOf("") }
+    var apiKey by remember { mutableStateOf("") }
+    var baseUrl by remember { mutableStateOf("") }
+    var modelName by remember { mutableStateOf("") }
+    var selectMenuExpanded by remember { mutableStateOf(false) }
+
+    val configs = response?.configs ?: emptyList()
+    val activeId = response?.activeConfigId
+    val activeLabel = if (activeId == null) recommendedLabel else configs.find { it.id == activeId }?.label ?: recommendedLabel
+
+    SettingsSection(title = title, icon = Icons.Default.Key) {
+        Box {
+            OutlinedButton(onClick = { selectMenuExpanded = true }, modifier = Modifier.fillMaxWidth()) {
+                Text(activeLabel)
+            }
+            DropdownMenu(expanded = selectMenuExpanded, onDismissRequest = { selectMenuExpanded = false }) {
+                DropdownMenuItem(
+                    text = { Text(recommendedLabel) },
+                    onClick = { viewModel.activateMediaProviderConfig(capability, null); selectMenuExpanded = false }
+                )
+                configs.forEach { config ->
+                    DropdownMenuItem(
+                        text = { Text(config.label) },
+                        onClick = { viewModel.activateMediaProviderConfig(capability, config.id); selectMenuExpanded = false },
+                        trailingIcon = {
+                            IconButton(onClick = { viewModel.deleteMediaProviderConfig(capability, config.id) }, modifier = Modifier.size(20.dp)) {
+                                Icon(Icons.Default.Delete, "Remove", tint = Color.Red, modifier = Modifier.size(16.dp))
+                            }
+                        }
+                    )
+                }
+            }
+        }
+
+        Spacer(modifier = Modifier.height(8.dp))
+
+        if (!isAdding) {
+            TextButton(onClick = { isAdding = true }) {
+                Icon(Icons.Default.Add, null, modifier = Modifier.size(16.dp))
+                Spacer(modifier = Modifier.width(4.dp))
+                Text("ADD PROVIDER")
+            }
+        } else {
+            OutlinedTextField(
+                value = label, onValueChange = { label = it },
+                label = { Text("Name (e.g. \"My OpenAI Key\")") },
+                modifier = Modifier.fillMaxWidth(), singleLine = true
+            )
+            Spacer(modifier = Modifier.height(8.dp))
+            OutlinedTextField(
+                value = providerType, onValueChange = { providerType = it },
+                label = { Text("Provider type (e.g. openai, stability, runway)") },
+                modifier = Modifier.fillMaxWidth(), singleLine = true
+            )
+            Spacer(modifier = Modifier.height(8.dp))
+            OutlinedTextField(
+                value = apiKey, onValueChange = { apiKey = it },
+                label = { Text("API Key") },
+                visualTransformation = PasswordVisualTransformation(),
+                modifier = Modifier.fillMaxWidth(), singleLine = true
+            )
+            Spacer(modifier = Modifier.height(8.dp))
+            OutlinedTextField(
+                value = baseUrl, onValueChange = { baseUrl = it },
+                label = { Text("Endpoint URL") },
+                modifier = Modifier.fillMaxWidth(), singleLine = true
+            )
+            Spacer(modifier = Modifier.height(8.dp))
+            OutlinedTextField(
+                value = modelName, onValueChange = { modelName = it },
+                label = { Text("Model name (optional)") },
+                modifier = Modifier.fillMaxWidth(), singleLine = true
+            )
+            Spacer(modifier = Modifier.height(8.dp))
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Button(
+                    onClick = {
+                        viewModel.addMediaProviderConfig(capability, label, providerType, apiKey, baseUrl, modelName.ifBlank { null })
+                        label = ""; providerType = ""; apiKey = ""; baseUrl = ""; modelName = ""
+                        isAdding = false
+                    },
+                    enabled = !isSaving && label.isNotBlank() && providerType.isNotBlank() && apiKey.length >= 10 && baseUrl.isNotBlank(),
+                    shape = RoundedCornerShape(8.dp)
+                ) {
+                    if (isSaving) CircularProgressIndicator(modifier = Modifier.size(16.dp), color = Color.White)
+                    else Text("SAVE")
+                }
+                TextButton(onClick = { isAdding = false }) { Text("Cancel") }
+            }
         }
     }
 }

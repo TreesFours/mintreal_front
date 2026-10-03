@@ -816,6 +816,12 @@ fun SettingsScreen(
                     Spacer(modifier = Modifier.height(24.dp))
                     ByokVideoSettingsSection(viewModel)
 
+                    Spacer(modifier = Modifier.height(24.dp))
+                    MediaGenProviderSection(viewModel, "image_gen", "IMAGE GENERATION PROVIDER", "Our Recommended (Imagen)")
+
+                    Spacer(modifier = Modifier.height(24.dp))
+                    MediaGenProviderSection(viewModel, "video_gen", "VIDEO GENERATION PROVIDER", "Our Recommended (Veo)")
+
                     // Secure Changes Footer
                     Button(
                         onClick = {

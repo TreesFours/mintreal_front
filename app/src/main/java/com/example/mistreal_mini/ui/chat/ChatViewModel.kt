@@ -1170,6 +1170,21 @@ class ChatViewModel @Inject constructor(
                                 _errorEvents.emit("AI generated an image but it couldn't be saved.")
                             }
                         }
+                        // A custom image-gen provider may return a URL instead of base64
+                        // (see aiService.ts) — render it the same way video already does.
+                        response.generatedImageUrl?.let { imageUrl ->
+                            repository.saveMessage(
+                                ChatMessage(
+                                    role = "assistant",
+                                    content = "",
+                                    type = "image",
+                                    attachmentPaths = listOf(imageUrl),
+                                    provider = response.provider,
+                                    isTrend = trendTitle != null,
+                                    trendTitle = trendTitle
+                                )
+                            )
+                        }
                         response.generatedVideoUrl?.let { videoUrl ->
                             repository.saveMessage(
                                 ChatMessage(

@@ -223,6 +223,56 @@ class InfoRepository @Inject constructor(
         }
     }
 
+    // --- Saved image/video GENERATION provider configs (multi, switchable) ---
+
+    suspend fun addMediaProviderConfig(
+        capability: String, label: String, providerType: String, apiKey: String, baseUrl: String, modelName: String?
+    ): Resource<com.example.mistreal_mini.data.api.MediaProviderConfigSummary> {
+        return try {
+            val response = aiProviderApi.addMediaProviderConfig(
+                com.example.mistreal_mini.data.api.MediaProviderConfigRequest(
+                    deviceId, authRepository.currentUser?.uid, capability, label, providerType, apiKey, baseUrl, modelName
+                )
+            )
+            if (response.success && response.config != null) Resource.Success(response.config)
+            else Resource.Error(response.error ?: "Failed to save provider")
+        } catch (e: Exception) {
+            Resource.Error(e.message ?: "Save provider error")
+        }
+    }
+
+    suspend fun getMediaProviderConfigs(capability: String): Resource<com.example.mistreal_mini.data.api.MediaProviderConfigListResponse> {
+        return try {
+            val response = aiProviderApi.getMediaProviderConfigs(deviceId, capability)
+            if (response.success) Resource.Success(response)
+            else Resource.Error(response.error ?: "Failed to fetch providers")
+        } catch (e: Exception) {
+            Resource.Error(e.message ?: "Fetch providers error")
+        }
+    }
+
+    suspend fun activateMediaProviderConfig(capability: String, configId: Int?): Resource<Int?> {
+        return try {
+            val response = aiProviderApi.activateMediaProviderConfig(
+                com.example.mistreal_mini.data.api.MediaProviderActivateRequest(deviceId, authRepository.currentUser?.uid, capability, configId)
+            )
+            if (response.success) Resource.Success(response.activeConfigId)
+            else Resource.Error(response.error ?: "Failed to switch provider")
+        } catch (e: Exception) {
+            Resource.Error(e.message ?: "Switch provider error")
+        }
+    }
+
+    suspend fun deleteMediaProviderConfig(id: Int): Resource<Boolean> {
+        return try {
+            val response = aiProviderApi.deleteMediaProviderConfig(id, deviceId)
+            if (response.success) Resource.Success(true)
+            else Resource.Error(response.error ?: "Failed to remove provider")
+        } catch (e: Exception) {
+            Resource.Error(e.message ?: "Remove provider error")
+        }
+    }
+
     suspend fun performSocialAction(
         deviceId: String,
         type: String,
