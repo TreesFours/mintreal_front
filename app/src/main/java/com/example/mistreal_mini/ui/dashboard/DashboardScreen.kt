@@ -201,9 +201,6 @@ fun DashboardScreen(
                         mapViewModel = mapViewModel,
                         celestialViewModel = celestialViewModel,
                         snackbarHostState = snackbarHostState,
-                        onScreenshotClick = { /* ... */ },
-                        onCameraClick = { /* ... */ },
-                        onFileClick = { /* ... */ },
                         startInSpaceMode = false
                     )
                     isArchitectMode && selectedTab == 2 -> {

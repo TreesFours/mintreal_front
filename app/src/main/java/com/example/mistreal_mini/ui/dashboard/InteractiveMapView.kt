@@ -10,10 +10,13 @@
  */
 package com.example.mistreal_mini.ui.dashboard
 
-import android.graphics.Rect
+import android.app.Activity
+import android.net.Uri
 import android.view.ViewGroup
 import android.webkit.WebView
 import android.webkit.WebViewClient
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.*
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.ExperimentalFoundationApi
@@ -48,6 +51,7 @@ import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
+import androidx.core.content.FileProvider
 import com.example.mistreal_mini.data.local.entity.SavedIntelEntity
 import com.example.mistreal_mini.ui.chat.ChatViewModel
 import com.example.mistreal_mini.ui.chat.components.ChatBubble
@@ -55,7 +59,9 @@ import com.example.mistreal_mini.ui.chat.components.ChatInputBar
 import com.example.mistreal_mini.ui.chat.components.InteractionMode
 import com.example.mistreal_mini.ui.chat.components.TypingIndicator
 import com.example.mistreal_mini.ui.dashboard.components.*
+import com.example.mistreal_mini.util.ScreenshotHelper
 import kotlinx.coroutines.launch
+import java.io.File
 
 data class PendingSave(
     val type: String,
@@ -75,9 +81,6 @@ fun InteractiveMapView(
     mapViewModel: TacticalMapViewModel,
     celestialViewModel: CelestialViewModel,
     snackbarHostState: SnackbarHostState,
-    onScreenshotClick: (Rect?) -> Unit = {},
-    onCameraClick: () -> Unit = {},
-    onFileClick: () -> Unit = {},
     startInSpaceMode: Boolean = false
 ) {
     var chatText by remember { mutableStateOf("") }
@@ -118,6 +121,9 @@ fun InteractiveMapView(
     var isChatVisible by remember { mutableStateOf(false) }
     var selectedNavTab by remember { mutableIntStateOf(0) }
     var isHudExpanded by remember { mutableStateOf(false) }
+    var isSatelliteOn by remember { mutableStateOf(false) }
+    var isComputingRoute by remember { mutableStateOf(false) }
+    var routeInfo by remember { mutableStateOf<String?>(null) }
     
     val history by mapViewModel.locationHistory.collectAsState()
     val intelLog = mapViewModel.intelLog
@@ -139,6 +145,25 @@ fun InteractiveMapView(
     val targetPoints = mapViewModel.targetPoints
     
     var webViewInstance by remember { mutableStateOf<WebView?>(null) }
+
+    // Map chat's camera/screenshot/file attachment handling — previously wired to
+    // onScreenshotClick/onCameraClick/onFileClick parameters that DashboardScreen
+    // passed in as literal no-ops, so none of these buttons did anything. Handled
+    // directly here instead, same real logic as the main ChatScreen.
+    val mapChatContext = LocalContext.current
+    var mapCameraUri by remember { mutableStateOf<Uri?>(null) }
+    val mapCameraLauncher = rememberLauncherForActivityResult(ActivityResultContracts.TakePicture()) { success ->
+        if (success && mapCameraUri != null) viewModel.addPendingAttachment(mapCameraUri!!)
+    }
+    val mapFilePickerLauncher = rememberLauncherForActivityResult(ActivityResultContracts.GetMultipleContents()) { uris ->
+        uris.forEach { viewModel.addPendingAttachment(it) }
+    }
+    fun captureMapCameraImage() {
+        val file = File(mapChatContext.cacheDir, "camera_capture_${System.currentTimeMillis()}.jpg")
+        val uri = FileProvider.getUriForFile(mapChatContext, "${mapChatContext.packageName}.fileprovider", file)
+        mapCameraUri = uri
+        mapCameraLauncher.launch(uri)
+    }
 
     LaunchedEffect(messages.size) {
         if (messages.isNotEmpty()) {
@@ -244,6 +269,23 @@ fun InteractiveMapView(
                                         mapViewModel.confirmAmbiguousLocation(lat, lon, label)
                                     }
                                 }
+                                @android.webkit.JavascriptInterface
+                                fun onRouteComputed(durationSeconds: Double, distanceMeters: Double) {
+                                    coroutineScope.launch {
+                                        isComputingRoute = false
+                                        val mins = (durationSeconds / 60).toInt()
+                                        val km = distanceMeters / 1000.0
+                                        routeInfo = "%.1f km · %d min".format(km, mins)
+                                    }
+                                }
+                                @android.webkit.JavascriptInterface
+                                fun onRouteError(message: String) {
+                                    coroutineScope.launch {
+                                        isComputingRoute = false
+                                        routeInfo = null
+                                        snackbarHostState.showSnackbar("Route error: $message")
+                                    }
+                                }
                             }, "AndroidMap")
 
                             loadDataWithBaseURL(null, getMapHtml(), "text/html", "UTF-8", null)
@@ -310,10 +352,30 @@ fun InteractiveMapView(
                                 Text(location.uppercase(), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Black)
                                 Text("TACTICAL SATELLITE OVERLAY", style = MaterialTheme.typography.labelSmall, color = Color.Gray)
                             }
-                            IconButton(onClick = { 
-                                mapViewModel.toggleLocation(!isLocationEnabled) 
+                            IconButton(onClick = {
+                                mapViewModel.toggleLocation(!isLocationEnabled)
                             }) {
-                                Icon(Icons.Default.MyLocation, null, tint = if(isLocationEnabled) Color(0xFF4CAF50) else Color.Gray) 
+                                Icon(Icons.Default.MyLocation, null, tint = if(isLocationEnabled) Color(0xFF4CAF50) else Color.Gray)
+                            }
+                            IconButton(onClick = {
+                                isSatelliteOn = !isSatelliteOn
+                                webViewInstance?.evaluateJavascript("toggleSatellite($isSatelliteOn)", null)
+                            }) {
+                                Icon(Icons.Default.Satellite, "Toggle satellite view", tint = if (isSatelliteOn) Color(0xFF4CAF50) else Color.Gray)
+                            }
+                            IconButton(onClick = {
+                                (mapChatContext as? Activity)?.let { activity ->
+                                    coroutineScope.launch {
+                                        val uri = ScreenshotHelper.captureAndSave(activity)
+                                        if (uri != null && ScreenshotHelper.saveToGallery(activity, uri) != null) {
+                                            snackbarHostState.showSnackbar("Saved to Photos > Mistreal")
+                                        } else {
+                                            snackbarHostState.showSnackbar("Failed to save to gallery")
+                                        }
+                                    }
+                                }
+                            }) {
+                                Icon(Icons.Default.Download, "Save map to gallery", tint = Color.Gray)
                             }
                             if (isHudExpanded) {
                                 IconButton(onClick = { isHudExpanded = false }) {
@@ -366,6 +428,53 @@ fun InteractiveMapView(
                         containerColor = if(isDrawMode) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.tertiary,
                         modifier = Modifier.align(Alignment.TopStart).size(48.dp)
                     ) { Icon(if(isDrawMode) Icons.Default.Close else Icons.Default.Edit, null) }
+
+                    if (searchMarker != null) {
+                        FloatingActionButton(
+                            onClick = {
+                                coroutineScope.launch {
+                                    val origin = mapViewModel.locationHelper.getCurrentLocation()
+                                    if (origin == null) {
+                                        snackbarHostState.showSnackbar("Enable location to get directions")
+                                        return@launch
+                                    }
+                                    isComputingRoute = true
+                                    routeInfo = null
+                                    webViewInstance?.evaluateJavascript(
+                                        "showRoute(${origin.latitude}, ${origin.longitude}, ${searchMarker.latitude}, ${searchMarker.longitude})",
+                                        null
+                                    )
+                                }
+                            },
+                            containerColor = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.align(Alignment.TopStart).padding(top = 56.dp).size(48.dp)
+                        ) {
+                            if (isComputingRoute) CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp, color = Color.White)
+                            else Icon(Icons.Default.DirectionsWalk, "Get directions")
+                        }
+                    }
+
+                    routeInfo?.let { info ->
+                        Row(
+                            modifier = Modifier
+                                .align(Alignment.TopCenter)
+                                .background(Color.Black.copy(alpha = 0.75f), RoundedCornerShape(20.dp))
+                                .padding(horizontal = 14.dp, vertical = 8.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(Icons.Default.DirectionsWalk, null, tint = Color.White, modifier = Modifier.size(16.dp))
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text(info, color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Icon(
+                                Icons.Default.Close, "Clear route", tint = Color.White,
+                                modifier = Modifier.size(16.dp).clickable {
+                                    routeInfo = null
+                                    webViewInstance?.evaluateJavascript("clearRoute()", null)
+                                }
+                            )
+                        }
+                    }
                 }
 
                 Spacer(modifier = Modifier.weight(1f))
@@ -493,11 +602,17 @@ fun InteractiveMapView(
                                 viewModel.sendMessage(prompt, trendTitle = mapIntelTitle); chatText = ""
                                 focusManager.clearFocus()
                             }, 
-                            onScreenshotClick = { onScreenshotClick(null) }, 
+                            onScreenshotClick = {
+                                (mapChatContext as? Activity)?.let { activity ->
+                                    coroutineScope.launch {
+                                        ScreenshotHelper.captureAndSave(activity)?.let { viewModel.addPendingAttachment(it) }
+                                    }
+                                }
+                            },
                             onScreenRecordClick = {},
-                            onCameraClick = onCameraClick, 
+                            onCameraClick = { captureMapCameraImage() },
                             onVideoClick = {},
-                            onFileClick = onFileClick, 
+                            onFileClick = { mapFilePickerLauncher.launch("*/*") },
                             onVoiceClick = {}, 
                             onConversationClick = {},
                             onScribeClick = {}, 
@@ -624,7 +739,37 @@ private fun getMapHtml(): String = """
             var pins = L.layerGroup().addTo(map);
             var ghostMarkers = L.layerGroup().addTo(map);
             var discoveryLayer = L.layerGroup().addTo(map);
-            var tacticalCircle, focusPlaceMarker, searchMarker, gpsMarker;
+            var tacticalCircle, focusPlaceMarker, searchMarker, gpsMarker, routeLine;
+            var manualSatelliteOn = false;
+
+            // Explicit, user-controlled satellite toggle — independent of setTargetBox's
+            // own satLayer handling (which exists purely for the target-box visual
+            // effect and shouldn't be the only way to see satellite imagery).
+            function toggleSatellite(enabled) {
+                manualSatelliteOn = enabled;
+                if (enabled) { if (!map.hasLayer(satLayer)) satLayer.addTo(map); }
+                else { if (map.hasLayer(satLayer)) map.removeLayer(satLayer); }
+            }
+
+            // Routing via OSRM's free public demo server — no API key needed, but it's
+            // a shared rate-limited evaluation instance, not a production SLA. A
+            // dedicated OSRM instance or a paid provider (Mapbox/Google Directions) is
+            // the right call if real traffic needs this reliably.
+            function showRoute(lat1, lon1, lat2, lon2) {
+                var url = 'https://router.project-osrm.org/route/v1/driving/' + lon1 + ',' + lat1 + ';' + lon2 + ',' + lat2 + '?overview=full&geometries=geojson';
+                fetch(url).then(function(r) { return r.json(); }).then(function(data) {
+                    if (!data.routes || data.routes.length === 0) { AndroidMap.onRouteError('No route found'); return; }
+                    if (routeLine) map.removeLayer(routeLine);
+                    var coords = data.routes[0].geometry.coordinates.map(function(c) { return [c[1], c[0]]; });
+                    routeLine = L.polyline(coords, { color: '#00E5FF', weight: 5, opacity: 0.85 }).addTo(map);
+                    map.fitBounds(routeLine.getBounds(), { padding: [40, 40] });
+                    AndroidMap.onRouteComputed(data.routes[0].duration, data.routes[0].distance);
+                }).catch(function(e) { AndroidMap.onRouteError(String(e)); });
+            }
+
+            function clearRoute() {
+                if (routeLine) { map.removeLayer(routeLine); routeLine = null; }
+            }
 
             function teleportTo(lat, lon, zoom) {
                 map.setView([lat, lon], zoom, { animate: true, duration: 1.5 });
@@ -644,7 +789,7 @@ private fun getMapHtml(): String = """
                 var mask = document.getElementById('mask');
                 if (points.length < 3) {
                     mask.style.opacity = "0";
-                    if(map.hasLayer(satLayer)) map.removeLayer(satLayer);
+                    if (!manualSatelliteOn && map.hasLayer(satLayer)) map.removeLayer(satLayer);
                     return;
                 }
                 

@@ -15,6 +15,35 @@ import java.io.FileOutputStream
 import kotlin.coroutines.resume
 
 object ScreenshotHelper {
+    /**
+     * Copies a cache-dir image (e.g. the result of [captureAndSave]) into the
+     * public gallery via MediaStore — the existing screenshot flow only ever
+     * wrote to cacheDir for AI-chat attachment, with no way to actually keep the
+     * image in the user's Photos app.
+     */
+    fun saveToGallery(activity: Activity, sourceUri: Uri, displayName: String = "mistreal_map_${System.currentTimeMillis()}.png"): Uri? {
+        return try {
+            val resolver = activity.contentResolver
+            val contentValues = android.content.ContentValues().apply {
+                put(android.provider.MediaStore.Images.Media.DISPLAY_NAME, displayName)
+                put(android.provider.MediaStore.Images.Media.MIME_TYPE, "image/png")
+                put(android.provider.MediaStore.Images.Media.RELATIVE_PATH, "Pictures/Mistreal")
+            }
+            val destUri = resolver.insert(android.provider.MediaStore.Images.Media.EXTERNAL_CONTENT_URI, contentValues)
+                ?: return null
+
+            resolver.openInputStream(sourceUri)?.use { input ->
+                resolver.openOutputStream(destUri)?.use { output ->
+                    input.copyTo(output)
+                }
+            }
+            destUri
+        } catch (e: Exception) {
+            Timber.e(e, "Failed to save image to gallery")
+            null
+        }
+    }
+
     // 🖼️ Uses PixelCopy instead of View.draw(Canvas) — the latter reads from the
     // software drawing cache and comes back blank/black for hardware-accelerated
     // content like the map's WebView. PixelCopy reads the real compositor buffer.

@@ -4,6 +4,9 @@
     package="com.example.mistreal_mini">
 
     <uses-permission android:name="android.permission.INTERNET" />
+    <!-- Only needed for gallery-save (ScreenshotHelper.saveToGallery) on API 28
+         and below — MediaStore's scoped storage on API 29+ needs no permission. -->
+    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" android:maxSdkVersion="28" />
     <uses-permission android:name="android.permission.CAMERA" />
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
