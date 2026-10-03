@@ -283,15 +283,16 @@ class InfoRepository @Inject constructor(
         deviceId: String,
         latitude: Double,
         longitude: Double,
-        distressSignature: String
-    ): Resource<Boolean> {
+        distressSignature: String,
+        broadcastToSocials: Boolean = false
+    ): Resource<com.example.mistreal_mini.data.api.EmergencyAlertResponse> {
         return try {
             val response = api.sendEmergencyAlert(
                 com.example.mistreal_mini.data.api.EmergencyAlertRequest(
-                    deviceId, authRepository.currentUser?.uid, latitude, longitude, distressSignature
+                    deviceId, authRepository.currentUser?.uid, latitude, longitude, distressSignature, broadcastToSocials
                 )
             )
-            if (response.success) Resource.Success(true)
+            if (response.success) Resource.Success(response)
             else Resource.Error(response.error ?: "Emergency alert failed")
         } catch (e: Exception) {
             Resource.Error(e.message ?: "Emergency alert error")

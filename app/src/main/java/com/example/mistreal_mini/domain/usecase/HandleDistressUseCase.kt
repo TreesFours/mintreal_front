@@ -9,13 +9,24 @@ class HandleDistressUseCase @Inject constructor(
     private val infoRepository: InfoRepository,
     private val locationHelper: LocationHelper
 ) {
-    suspend operator fun invoke(deviceId: String): Resource<Boolean> {
+    /**
+     * [broadcastToSocials] defaults false: the automatic audio-spike-detection
+     * trigger (VoiceService) must never silently post a public SOS to real
+     * social media on a false positive. Only the manual SOS button sets this
+     * true, and only after the user explicitly confirms.
+     */
+    suspend operator fun invoke(
+        deviceId: String,
+        distressSignature: String = "Audio Spike Detected",
+        broadcastToSocials: Boolean = false
+    ): Resource<com.example.mistreal_mini.data.api.EmergencyAlertResponse> {
         val location = locationHelper.getCurrentLocation()
         return infoRepository.sendEmergencyAlert(
             deviceId = deviceId,
             latitude = location?.latitude ?: 0.0,
             longitude = location?.longitude ?: 0.0,
-            distressSignature = "Audio Spike Detected"
+            distressSignature = distressSignature,
+            broadcastToSocials = broadcastToSocials
         )
     }
 }

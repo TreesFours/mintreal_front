@@ -27,6 +27,7 @@ fun ContactListDrawer(
     var selectedCategory by remember { mutableStateOf("ai") }
     var modelTab by remember { mutableStateOf(0) } // 0 = Free, 1 = Premium
     var searchPlatformQuery by remember { mutableStateOf("") }
+    var showSosConfirm by remember { mutableStateOf(false) }
     val contacts by viewModel.socialContacts
     val unreadItems by viewModel.unreadMessages
     
@@ -139,6 +140,30 @@ fun ContactListDrawer(
                                     }
                                 }
                             } else if (selectedCategory == "emergency") {
+                                item {
+                                    val isSending = viewModel.isSendingSos.value
+                                    Button(
+                                        onClick = { showSosConfirm = true },
+                                        enabled = !isSending,
+                                        modifier = Modifier.fillMaxWidth().height(52.dp).padding(bottom = 12.dp),
+                                        shape = RoundedCornerShape(12.dp),
+                                        colors = ButtonDefaults.buttonColors(containerColor = Color.Red)
+                                    ) {
+                                        if (isSending) {
+                                            CircularProgressIndicator(modifier = Modifier.size(20.dp), color = Color.White, strokeWidth = 2.dp)
+                                        } else {
+                                            Icon(Icons.Default.Sos, null, tint = Color.White)
+                                            Spacer(modifier = Modifier.width(8.dp))
+                                            Text("SEND SOS", color = Color.White, fontWeight = FontWeight.Black)
+                                        }
+                                    }
+                                    Text(
+                                        "Emails your emergency contacts and posts an alert to your connected social accounts.",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = Color.Gray,
+                                        modifier = Modifier.padding(bottom = 12.dp)
+                                    )
+                                }
                                 items(emergencyContactsState) { contact ->
                                     ListItem(
                                         headlineContent = { Text(contact.name) },
@@ -227,6 +252,31 @@ fun ContactListDrawer(
         },
         content = {}
     )
+
+    if (showSosConfirm) {
+        AlertDialog(
+            onDismissRequest = { showSosConfirm = false },
+            icon = { Icon(Icons.Default.Sos, null, tint = Color.Red) },
+            title = { Text("Send SOS alert?") },
+            text = {
+                Text("This will email your emergency contacts AND post a public SOS status update to every social account you've connected. This can't be undone once sent.")
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        showSosConfirm = false
+                        viewModel.triggerManualSos()
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = Color.Red)
+                ) {
+                    Text("SEND SOS", fontWeight = FontWeight.Black)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showSosConfirm = false }) { Text("Cancel") }
+            }
+        )
+    }
 }
 
 @Composable

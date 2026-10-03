@@ -67,7 +67,7 @@ interface InfoApiService {
     suspend fun updateLocation(@Body request: LocationRequest): SocialActionResponse
 
     @POST("api/emergency/alert")
-    suspend fun sendEmergencyAlert(@Body request: EmergencyAlertRequest): SocialActionResponse
+    suspend fun sendEmergencyAlert(@Body request: EmergencyAlertRequest): EmergencyAlertResponse
 
     @GET("api/social/contacts")
     suspend fun getContacts(
@@ -136,7 +136,23 @@ data class EmergencyAlertRequest(
     val firebaseUid: String? = null,
     val latitude: Double,
     val longitude: Double,
-    val distressSignature: String
+    val distressSignature: String,
+    // Opt-in, defaults false: the automatic audio-spike-detection trigger must
+    // never silently post a public SOS to real social media on a false
+    // positive. Only the manual SOS button (after user confirmation) sets this.
+    val broadcastToSocials: Boolean = false
+)
+
+data class EmergencyAlertResponse(
+    val success: Boolean,
+    val error: String? = null,
+    val emailsSent: Int = 0,
+    val emailContactsTotal: Int = 0,
+    // Nullable: Gson bypasses the constructor on deserialization, so a missing
+    // JSON field lands as null here regardless of the Kotlin default — callers
+    // must use `broadcastPlatforms ?: emptyList()`.
+    val broadcastPlatforms: List<String>? = null,
+    val broadcastFailures: List<String>? = null
 )
 
 data class ContactsResponse(val success: Boolean, val contacts: List<SocialContact>)

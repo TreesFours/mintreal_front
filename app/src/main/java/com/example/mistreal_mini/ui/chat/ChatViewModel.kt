@@ -1209,7 +1209,38 @@ class ChatViewModel @Inject constructor(
             viewModelScope.launch {
                 voiceManager.speak("Detecting possible distress. Sending your location to emergency contacts.")
                 val deviceId = android.provider.Settings.Secure.getString(context.contentResolver, android.provider.Settings.Secure.ANDROID_ID)
+                // broadcastToSocials stays false here — only the manual SOS button
+                // (after explicit user confirmation) is allowed to post publicly.
                 handleDistressUseCase(deviceId)
+            }
+        }
+    }
+
+    private val _isSendingSos = mutableStateOf(false)
+    val isSendingSos: State<Boolean> = _isSendingSos
+
+    /** Manual SOS button in the drawer — always broadcasts (user already confirmed via dialog). */
+    fun triggerManualSos() {
+        if (_isSendingSos.value) return
+        _isSendingSos.value = true
+        viewModelScope.launch {
+            val deviceId = android.provider.Settings.Secure.getString(context.contentResolver, android.provider.Settings.Secure.ANDROID_ID)
+            val result = handleDistressUseCase(deviceId, distressSignature = "Manual SOS triggered", broadcastToSocials = true)
+            _isSendingSos.value = false
+            when (result) {
+                is Resource.Success -> {
+                    val data = result.data
+                    val platforms = data?.broadcastPlatforms ?: emptyList()
+                    val summary = buildString {
+                        append("SOS sent — ${data?.emailsSent ?: 0}/${data?.emailContactsTotal ?: 0} contacts emailed")
+                        if (platforms.isNotEmpty()) append(", posted to ${platforms.joinToString(", ")}")
+                        val failures = data?.broadcastFailures ?: emptyList()
+                        if (failures.isNotEmpty()) append(" (failed: ${failures.joinToString(", ")})")
+                    }
+                    _errorEvents.emit(summary)
+                }
+                is Resource.Error -> _errorEvents.emit("SOS failed: ${result.message}")
+                else -> {}
             }
         }
     }
