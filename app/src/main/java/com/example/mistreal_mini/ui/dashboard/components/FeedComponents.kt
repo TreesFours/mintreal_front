@@ -58,11 +58,23 @@ fun IntelMiniCard(article: Article, onClick: () -> Unit) {
                 "novel" -> Icons.AutoMirrored.Filled.MenuBook
                 "wiki" -> Icons.Default.Info
                 "journal" -> Icons.Default.Science
+                "sports" -> Icons.Default.SportsSoccer
                 else -> Icons.AutoMirrored.Filled.Article
             }
             Icon(icon, null, modifier = Modifier.size(16.dp), tint = MaterialTheme.colorScheme.primary)
             Spacer(modifier = Modifier.height(8.dp))
             Text(article.title, maxLines = 2, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold)
+            if (article.type == "sports" && !article.description.isNullOrBlank()) {
+                Spacer(modifier = Modifier.height(4.dp))
+                Text(
+                    article.description,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    style = MaterialTheme.typography.labelSmall,
+                    fontWeight = FontWeight.Black,
+                    color = MaterialTheme.colorScheme.primary
+                )
+            }
         }
     }
 }
@@ -134,6 +146,25 @@ fun IntelligenceFeedView(
             }
         }
 
+        // --- LIVE SCORES (free tier — fixtures/results refreshed every ~10 min,
+        // not true sub-minute in-play updates; see intelligenceService.ts) ---
+        if (selectedCategory == "ALL") {
+            item {
+                val sportsArticles = articles.filter { it.type == "sports" }
+                if (sportsArticles.isNotEmpty()) {
+                    Column {
+                        Text("LIVE SCORES", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Black, color = Color.Gray)
+                        Spacer(modifier = Modifier.height(8.dp))
+                        LazyRow(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                            items(sportsArticles) { art ->
+                                IntelMiniCard(art, onClick = { showIntelPopup = art })
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
         if (selectedCategory == "ALL" || selectedCategory == "ORBITAL") {
             item {
                 Card(
@@ -154,7 +185,7 @@ fun IntelligenceFeedView(
                 "NEWS" -> article.type == "news" || article.type == null
                 "ORBITAL" -> article.type == "astro"
                 "RESEARCH" -> article.type in listOf("novel", "wiki", "journal")
-                else -> article.type !in listOf("novel", "wiki", "journal")
+                else -> article.type !in listOf("novel", "wiki", "journal", "sports")
             }
         }
 
