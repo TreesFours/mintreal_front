@@ -10,7 +10,9 @@ import androidx.compose.animation.*
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
@@ -267,20 +269,31 @@ fun ChatScreen(
                     }
                 },
                 actions = {
-                    if (viewModel.currentTrendTitle.value != null) {
-                        IconButton(onClick = { viewModel.exitTrend() }) { 
-                            Icon(Icons.Default.Close, "Exit Trend", tint = Color.Red) 
+                    // Scrollable instead of force-fit inline: 6 icons squeezed into a
+                    // fixed-width Row left almost no room for the title (name/logo),
+                    // which is why it was wrapping/clipping. Capping the width and
+                    // letting it scroll also leaves room to add more tools later.
+                    Row(
+                        modifier = Modifier
+                            .widthIn(max = 130.dp)
+                            .horizontalScroll(rememberScrollState()),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        if (viewModel.currentTrendTitle.value != null) {
+                            IconButton(onClick = { viewModel.exitTrend() }) {
+                                Icon(Icons.Default.Close, "Exit Trend", tint = Color.Red)
+                            }
                         }
+                        IconButton(onClick = onArchiveClick) {
+                            Icon(Icons.Default.History, "History", tint = MaterialTheme.colorScheme.primary)
+                        }
+                        IconButton(onClick = onDashboardClick) {
+                            Icon(Icons.Default.Psychology, "Intelligence Hub", tint = MaterialTheme.colorScheme.primary)
+                        }
+                        IconButton(onClick = { viewModel.refreshSocialContacts() }) { Icon(Icons.Default.Sync, "Sync") }
+                        IconButton(onClick = onSettingsClick) { Icon(Icons.Default.Settings, "Settings") }
+                        IconButton(onClick = { showNukeConfirm = true }) { NukeIcon() }
                     }
-                    IconButton(onClick = onArchiveClick) { 
-                        Icon(Icons.Default.History, "History", tint = MaterialTheme.colorScheme.primary) 
-                    }
-                    IconButton(onClick = onDashboardClick) { 
-                        Icon(Icons.Default.Psychology, "Intelligence Hub", tint = MaterialTheme.colorScheme.primary) 
-                    }
-                    IconButton(onClick = { viewModel.refreshSocialContacts() }) { Icon(Icons.Default.Sync, "Sync") }
-                    IconButton(onClick = onSettingsClick) { Icon(Icons.Default.Settings, "Settings") }
-                    IconButton(onClick = { showNukeConfirm = true }) { NukeIcon() }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.95f))
             )

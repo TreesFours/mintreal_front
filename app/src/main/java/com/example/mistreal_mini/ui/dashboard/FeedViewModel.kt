@@ -102,10 +102,19 @@ class FeedViewModel @Inject constructor(
                     _socialPosts.clear()
                     _socialPosts.addAll(response.posts)
                     feedCacheRepository.cachePosts(response.posts)
+
+                    // Surface *why* the feed is empty/partial (bad Zernio link, platform
+                    // returned nothing, sync failed) instead of a silent blank state —
+                    // these are real backend-reported diagnostics, not guesses.
+                    response.syncWarnings?.forEach { warning ->
+                        Timber.w("Social sync warning: $warning")
+                        _errorEvents.emit(warning)
+                    }
                 }
             }
             is Resource.Error -> {
                 Timber.e("Social sync error: ${result.message}")
+                _errorEvents.emit("Social sync failed: ${result.message}")
                 // Keep whatever cache-sourced posts are already showing rather than
                 // clearing the feed on a transient network failure.
             }

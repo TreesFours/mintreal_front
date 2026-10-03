@@ -75,9 +75,8 @@ class InfoRepository @Inject constructor(
     suspend fun disconnectPlatform(deviceId: String, platform: String): Resource<Boolean> {
         return try {
             val response = api.disconnectPlatform(platform, mapOf("deviceId" to deviceId))
-            // The API returns success: true as a Boolean in the map
-            if (response["success"] == true) Resource.Success(true)
-            else Resource.Error("Platform disconnect failed")
+            if (response.success) Resource.Success(true)
+            else Resource.Error(response.error ?: "Platform disconnect failed")
         } catch (e: Exception) {
             Resource.Error(e.message ?: "Network error")
         }

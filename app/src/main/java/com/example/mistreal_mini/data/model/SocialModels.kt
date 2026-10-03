@@ -56,7 +56,11 @@ data class SocialSyncResponse(
     val posts: List<SocialPost>,
     val platformUpdates: List<PlatformUpdate>,
     val platformStatus: Map<String, String>? = null,
-    val rawContent: String? = null
+    val rawContent: String? = null,
+    // Diagnostic reasons the feed came back empty/partial (bad Zernio profile,
+    // platform returned nothing, sync call failed) — surfaced in the UI instead
+    // of silently showing "No social intelligence found" with no explanation.
+    val syncWarnings: List<String>? = null
 )
 
 data class PlatformUpdate(

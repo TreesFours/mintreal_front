@@ -94,6 +94,12 @@ fun DashboardScreen(
         celestialViewModel.fetchCelestialData()
     }
 
+    LaunchedEffect(Unit) {
+        feedViewModel.errorEvents.collect { message ->
+            snackbarHostState.showSnackbar(message, withDismissAction = true)
+        }
+    }
+
     val currentPersona by viewModel.currentPersona.collectAsStateWithLifecycle(initialValue = "Shadow")
     val isArchitectMode = currentPersona.contains("Architect", ignoreCase = true)
 

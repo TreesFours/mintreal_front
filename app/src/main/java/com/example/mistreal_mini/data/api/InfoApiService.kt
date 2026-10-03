@@ -40,7 +40,7 @@ interface InfoApiService {
     suspend fun disconnectPlatform(
         @Path("platform") platform: String,
         @Body request: Map<String, String>
-    ): Map<String, Boolean>
+    ): SocialDisconnectResult
 
     @POST("api/social/action")
     suspend fun performSocialAction(@Body request: SocialActionRequest): SocialActionResponse
@@ -295,6 +295,13 @@ data class SocialAction(
 
 data class SocialActionResponse(
     val success: Boolean,
+    val error: String? = null
+)
+
+data class SocialDisconnectResult(
+    val success: Boolean,
+    val platform: String? = null,
+    val message: String? = null,
     val error: String? = null
 )
 
