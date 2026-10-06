@@ -21,6 +21,7 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.window.Dialog
 import coil.compose.AsyncImage
 import com.example.mistreal_mini.data.model.PlatformCapabilityRegistry
 import com.example.mistreal_mini.data.model.SocialPost
@@ -56,7 +57,7 @@ fun FeedPostCard(
         MaterialTheme.colorScheme.primary
     }
 
-    val isMediaPost = post.type.lowercase() in setOf("story", "reel") || !post.videoUrl.isNullOrEmpty()
+    val isMediaPost = post.type.lowercase() in setOf("story", "reel") || !post.videoUrl.isNullOrEmpty() || post.platform == "youtube"
 
     Box(
         modifier = modifier
@@ -108,7 +109,30 @@ private fun BoxScope.MediaPostBody(
     isFollowing: Boolean,
     onFollowClick: () -> Unit
 ) {
-    if (!post.videoUrl.isNullOrEmpty()) {
+    if (post.platform == "youtube") {
+        var showPlayer by remember(post.id) { mutableStateOf(false) }
+        val videoId = post.sourceUrl?.removePrefix("youtube://")
+        Box(modifier = Modifier.fillMaxSize()) {
+            AsyncImage(
+                model = post.imageUrl,
+                contentDescription = post.content,
+                modifier = Modifier.fillMaxSize().clickable { if (!videoId.isNullOrBlank()) showPlayer = true },
+                contentScale = ContentScale.Crop
+            )
+            Icon(
+                Icons.Default.PlayCircle, "Play",
+                tint = Color.White,
+                modifier = Modifier.align(Alignment.Center).size(64.dp)
+            )
+        }
+        if (showPlayer && !videoId.isNullOrBlank()) {
+            Dialog(onDismissRequest = { showPlayer = false }) {
+                Box(modifier = Modifier.fillMaxWidth().aspectRatio(16f / 9f)) {
+                    com.example.mistreal_mini.ui.util.YoutubePlayerWebView(videoId = videoId, modifier = Modifier.fillMaxSize())
+                }
+            }
+        }
+    } else if (!post.videoUrl.isNullOrEmpty()) {
         FeedVideoPlayer(
             videoUrl = post.videoUrl,
             isActive = isActive,
@@ -210,7 +234,18 @@ private fun TextPostBody(
                         "comment" -> "FEEDBACK LOOP"
                         else -> "INTELLIGENCE REPORT"
                     }
-                    Text(label, style = MaterialTheme.typography.labelSmall, color = brandColor, fontWeight = FontWeight.Black)
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(label, style = MaterialTheme.typography.labelSmall, color = brandColor, fontWeight = FontWeight.Black)
+                        if (post.isCommunityPost) {
+                            Spacer(Modifier.width(6.dp))
+                            Text(
+                                "· via Mistreal",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.secondary,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+                    }
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Text(post.author, style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold)
                         if (capabilities.supportsFollow) {

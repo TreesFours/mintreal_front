@@ -1,8 +1,13 @@
 package com.example.mistreal_mini.data.api
 
+import okhttp3.MultipartBody
+import okhttp3.RequestBody
 import retrofit2.http.Body
 import retrofit2.http.GET
+import retrofit2.http.Multipart
+import retrofit2.http.PATCH
 import retrofit2.http.POST
+import retrofit2.http.Part
 import retrofit2.http.Path
 import retrofit2.http.Query
 import com.example.mistreal_mini.data.model.SocialSyncResponse
@@ -23,6 +28,19 @@ interface InfoApiService {
         @Query("firebaseUid") firebaseUid: String? = null,
         @Query("fastLoad") fastLoad: Boolean? = false
     ): NewsResponse
+
+    @PATCH("api/social/community-preferences")
+    suspend fun setCommunityFeedPreferences(@Body request: CommunityPreferencesRequest): SocialActionResponse
+
+    @GET("api/feed/youtube")
+    suspend fun getYoutubeVideos(): YoutubeFeedResponse
+
+    @GET("api/intel/location-photo")
+    suspend fun getLocationPhoto(
+        @Query("label") label: String,
+        @Query("lat") lat: Double,
+        @Query("lon") lon: Double
+    ): LocationPhotoResponse
 
     @POST("api/intel/pin")
     suspend fun pinIntel(@Body request: PinIntelRequest): Map<String, Boolean>
@@ -71,6 +89,30 @@ interface InfoApiService {
 
     @POST("api/email/send")
     suspend fun sendEmail(@Body request: SendEmailRequest): SendEmailResponse
+
+    @POST("api/business/register")
+    suspend fun registerBusiness(@Body request: RegisterBusinessRequest): SocialActionResponse
+
+    @Multipart
+    @POST("api/ads")
+    suspend fun createAd(
+        @Part("deviceId") deviceId: RequestBody,
+        @Part("firebaseUid") firebaseUid: RequestBody?,
+        @Part("businessId") businessId: RequestBody,
+        @Part("mediaType") mediaType: RequestBody,
+        @Part("durationSeconds") durationSeconds: RequestBody,
+        @Part("caption") caption: RequestBody?,
+        @Part("targetUrl") targetUrl: RequestBody?,
+        @Part("ctaLabel") ctaLabel: RequestBody?,
+        @Part video: MultipartBody.Part?,
+        @Part images: List<MultipartBody.Part>?
+    ): CreateAdResponse
+
+    @GET("api/ads/due")
+    suspend fun getDueAd(@Query("deviceId") deviceId: String): AdDueResponse
+
+    @POST("api/ads/{adId}/track")
+    suspend fun trackAdEvent(@Path("adId") adId: Int, @Body request: AdEventRequest): SocialActionResponse
 
     @GET("api/email/history")
     suspend fun getEmailHistory(
@@ -133,7 +175,8 @@ data class CelestialVectorResponse(
     val distSun: String? = null,
     val description: String? = null,
     val relativeToMoon: String? = null,
-    val status: String? = null
+    val status: String? = null,
+    val simulated: Boolean? = null
 )
 
 data class LocationRequest(
@@ -141,6 +184,72 @@ data class LocationRequest(
     val firebaseUid: String? = null,
     val lat: Double,
     val lon: Double
+)
+
+data class CreateAdResponse(
+    val success: Boolean,
+    val adId: Int? = null,
+    val error: String? = null
+)
+
+data class AdPayload(
+    val id: Int,
+    val mediaType: String,
+    val videoUrl: String? = null,
+    val imageUrls: List<String>? = null,
+    val durationSeconds: Int,
+    val caption: String? = null,
+    val targetUrl: String? = null,
+    val ctaLabel: String
+)
+
+data class AdDueResponse(
+    val success: Boolean,
+    val due: Boolean = false,
+    val ad: AdPayload? = null,
+    val error: String? = null
+)
+
+data class AdEventRequest(
+    val deviceId: String,
+    val eventType: String
+)
+
+data class YoutubeVideoResponse(
+    val videoId: String,
+    val title: String,
+    val thumbnailUrl: String,
+    val channelTitle: String? = null,
+    val publishedAt: String? = null,
+    val viewCount: Long? = null,
+    val likeCount: Long? = null
+)
+
+data class YoutubeFeedResponse(
+    val success: Boolean,
+    val videos: List<YoutubeVideoResponse> = emptyList(),
+    val error: String? = null
+)
+
+data class CommunityPreferencesRequest(
+    val deviceId: String,
+    val firebaseUid: String? = null,
+    val platforms: List<String>
+)
+
+data class LocationPhotoResponse(
+    val success: Boolean,
+    val photoUrl: String? = null,
+    val error: String? = null
+)
+
+data class RegisterBusinessRequest(
+    val deviceId: String,
+    val firebaseUid: String? = null,
+    val businessId: String,
+    val name: String,
+    val logoUrl: String? = null,
+    val category: String
 )
 
 data class EmergencyAlertRequest(
@@ -348,19 +457,20 @@ data class Article(
     val timestamp: String? = null
 )
 
+// Flat, matching the backend's socialActionSchema exactly — this used to
+// nest type/platform/content/targetId under an "action" sub-object, but the
+// Zod schema (and the route handler) read those fields at the top level, so
+// every social action (like/follow/comment/DM/post) was failing validation
+// with a 400 before the handler ever ran.
 data class SocialActionRequest(
     val deviceId: String,
-    val action: SocialAction,
-    val delayMinutes: Int? = 0
-)
-
-data class SocialAction(
     val type: String,
     val platform: String,
     val content: String,
     val targetId: String,
     val mediaBase64: String? = null,
-    val mediaMimeType: String? = null
+    val mediaMimeType: String? = null,
+    val shareToCommunity: Boolean = false
 )
 
 data class SocialActionResponse(

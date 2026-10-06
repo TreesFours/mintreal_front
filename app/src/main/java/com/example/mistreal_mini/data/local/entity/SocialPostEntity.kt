@@ -21,5 +21,6 @@ data class SocialPostEntity(
     val platformDisplayName: String?,
     val isLikedByUser: Boolean = false,
     val isBookmarked: Boolean = false,
+    val isCommunityPost: Boolean = false,
     val fetchedAt: Long
 )

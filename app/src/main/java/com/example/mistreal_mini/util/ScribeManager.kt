@@ -20,6 +20,14 @@ class ScribeManager @Inject constructor(
     private val _results = MutableSharedFlow<String>(extraBufferCapacity = 1)
     val results = _results.asSharedFlow()
 
+    // Android's SpeechRecognizer goes idle once it emits a result for one
+    // utterance — without restarting it ourselves on each onResults/recoverable
+    // onError, "live" scribing would actually stop after the user's first pause
+    // instead of transcribing continuously until they tap stop.
+    private var isActive = false
+    private var accumulatedText = ""
+    private var currentLanguage = "en-US"
+
     private val recognitionListener = object : RecognitionListener {
         override fun onReadyForSpeech(params: Bundle?) {
             timber.log.Timber.d("🎙️ Scribe Ready")
@@ -42,14 +50,25 @@ class ScribeManager @Inject constructor(
                 else -> "Unknown error"
             }
             timber.log.Timber.e("🎙️ Scribe Error: $message ($error)")
+            // No-match / timeout just means "silence since the last phrase" — keep
+            // listening rather than treating it as a failure that ends the session.
+            val recoverable = error == SpeechRecognizer.ERROR_NO_MATCH || error == SpeechRecognizer.ERROR_SPEECH_TIMEOUT
+            if (isActive && recoverable) restartListening()
         }
         override fun onResults(results: Bundle?) {
             val matches = results?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
-            matches?.get(0)?.let { _results.tryEmit(it) }
+            matches?.get(0)?.let { finalPhrase ->
+                accumulatedText = if (accumulatedText.isBlank()) finalPhrase else "$accumulatedText $finalPhrase"
+                _results.tryEmit(accumulatedText)
+            }
+            if (isActive) restartListening()
         }
         override fun onPartialResults(partialResults: Bundle?) {
             val matches = partialResults?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
-            matches?.get(0)?.let { _results.tryEmit(it) }
+            matches?.get(0)?.let { partialPhrase ->
+                val combined = if (accumulatedText.isBlank()) partialPhrase else "$accumulatedText $partialPhrase"
+                _results.tryEmit(combined)
+            }
         }
         override fun onEvent(eventType: Int, params: Bundle?) {}
     }
@@ -62,23 +81,32 @@ class ScribeManager @Inject constructor(
         }
     }
 
-    fun startScribing(language: String = "en-US") {
-        if (!SpeechRecognizer.isRecognitionAvailable(context)) {
-            timber.log.Timber.e("🎙️ Speech Recognition not available on this device")
-            return
-        }
-        ensureRecognizer()
+    private fun restartListening() {
         val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
             putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
-            putExtra(RecognizerIntent.EXTRA_LANGUAGE, language)
+            putExtra(RecognizerIntent.EXTRA_LANGUAGE, currentLanguage)
             putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, true)
         }
         speechRecognizer?.startListening(intent)
     }
 
+    fun startScribing(language: String = "en-US") {
+        if (!SpeechRecognizer.isRecognitionAvailable(context)) {
+            timber.log.Timber.e("🎙️ Speech Recognition not available on this device")
+            return
+        }
+        currentLanguage = language
+        accumulatedText = ""
+        isActive = true
+        ensureRecognizer()
+        restartListening()
+    }
+
     fun stopScribing() {
+        isActive = false
         speechRecognizer?.stopListening()
         speechRecognizer?.destroy()
         speechRecognizer = null
+        accumulatedText = ""
     }
 }

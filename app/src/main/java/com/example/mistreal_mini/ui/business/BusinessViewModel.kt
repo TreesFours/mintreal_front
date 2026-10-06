@@ -1,9 +1,13 @@
 package com.example.mistreal_mini.ui.business
 
+import android.net.Uri
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.example.mistreal_mini.data.Resource
 import com.example.mistreal_mini.data.local.entity.BusinessEntity
 import com.example.mistreal_mini.data.local.entity.BusinessItemEntity
+import com.example.mistreal_mini.data.local.PreferenceManager
+import com.example.mistreal_mini.data.repository.AdRepository
 import com.example.mistreal_mini.data.repository.BusinessRepository
 import com.example.mistreal_mini.util.LocationHelper
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -14,8 +18,37 @@ import javax.inject.Inject
 @HiltViewModel
 class BusinessViewModel @Inject constructor(
     private val repository: BusinessRepository,
-    private val locationHelper: LocationHelper
+    private val locationHelper: LocationHelper,
+    private val adRepository: AdRepository,
+    private val preferenceManager: PreferenceManager
 ) : ViewModel() {
+
+    val isPro: StateFlow<Boolean> = preferenceManager.isPro
+        .stateIn(viewModelScope, SharingStarted.Lazily, false)
+
+    private val _isCreatingAd = MutableStateFlow(false)
+    val isCreatingAd = _isCreatingAd.asStateFlow()
+
+    private val _adCreationResult = MutableSharedFlow<Resource<Int>>()
+    val adCreationResult = _adCreationResult.asSharedFlow()
+
+    fun createAd(
+        businessId: String,
+        mediaType: String,
+        durationSeconds: Int,
+        caption: String?,
+        targetUrl: String?,
+        ctaLabel: String?,
+        videoUri: Uri?,
+        imageUris: List<Uri>?
+    ) {
+        viewModelScope.launch {
+            _isCreatingAd.value = true
+            val result = adRepository.createAd(businessId, mediaType, durationSeconds, caption, targetUrl, ctaLabel, videoUri, imageUris)
+            _isCreatingAd.value = false
+            _adCreationResult.emit(result)
+        }
+    }
 
     private val _myBusiness = repository.getMyBusiness()
     val myBusiness: StateFlow<BusinessEntity?> = _myBusiness
@@ -39,7 +72,7 @@ class BusinessViewModel @Inject constructor(
         viewModelScope.launch {
             val business = BusinessEntity(
                 businessId = "bus_${System.currentTimeMillis()}",
-                ownerId = "current_user", // Should get from Auth
+                ownerId = repository.currentUserId,
                 name = name,
                 description = desc,
                 category = category,

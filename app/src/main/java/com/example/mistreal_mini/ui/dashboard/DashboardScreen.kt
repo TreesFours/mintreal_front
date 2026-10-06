@@ -209,22 +209,24 @@ fun DashboardScreen(
                             snackbarHostState = snackbarHostState
                         )
                     }
-                    (isArchitectMode && selectedTab == 3) || (!isArchitectMode && selectedTab == 2) -> SocialPagerView(
-                        posts = feedViewModel.socialPosts,
-                        onPostClick = {},
-                        onAiClick = { post, content ->
-                            insightContext = "SOCIAL_INTEL:\n$content\n\nAnalyze this post for potential leads or threats."
-                            insightSourcePost = post
-                            showInsightPopup = true
-                        },
-                        chatViewModel = chatViewModel,
-                        feedViewModel = feedViewModel,
-                        deviceId = deviceId,
-                        isLoading = feedViewModel.isLoading.value
-                    )
+                    (isArchitectMode && selectedTab == 3) || (!isArchitectMode && selectedTab == 2) -> com.example.mistreal_mini.ui.dashboard.components.ads.AdSplitScreenHost {
+                        SocialPagerView(
+                            posts = feedViewModel.socialPosts,
+                            onPostClick = {},
+                            onAiClick = { post, content ->
+                                insightContext = "SOCIAL_INTEL:\n$content\n\nAnalyze this post for potential leads or threats."
+                                insightSourcePost = post
+                                showInsightPopup = true
+                            },
+                            chatViewModel = chatViewModel,
+                            feedViewModel = feedViewModel,
+                            deviceId = deviceId,
+                            isLoading = feedViewModel.isLoading.value
+                        )
+                    }
                     (isArchitectMode && selectedTab == 4) || (!isArchitectMode && selectedTab == 3) -> DispatchCenterView(
                         deviceId = deviceId,
-                        socialUpdates = feedViewModel.socialUpdates,
+                        connectedSocials = chatViewModel.availablePlatforms.filter { it.isConnected }.map { it.id.lowercase() },
                         onPostToSocial = { _, platform, type, content ->
                             feedViewModel.postToSocial(deviceId, platform, type, content)
                         },
@@ -240,6 +242,10 @@ fun DashboardScreen(
     }
 
     if (showFullSolarSystem) {
+        DisposableEffect(Unit) {
+            celestialViewModel.startAutoRefresh()
+            onDispose { celestialViewModel.stopAutoRefresh() }
+        }
         Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
             Column(modifier = Modifier.padding(16.dp)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {

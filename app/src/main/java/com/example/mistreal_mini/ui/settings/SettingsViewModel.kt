@@ -82,6 +82,19 @@ class SettingsViewModel @Inject constructor(
     private val _voiceNoteAutoplay = mutableStateOf(true)
     val voiceNoteAutoplay: State<Boolean> = _voiceNoteAutoplay
 
+    private val _communityFeedPlatforms = mutableStateOf<List<String>>(emptyList())
+    val communityFeedPlatforms: State<List<String>> = _communityFeedPlatforms
+
+    fun toggleCommunityFeedPlatform(platform: String) {
+        val current = _communityFeedPlatforms.value
+        val updated = if (platform in current) current - platform else current + platform
+        _communityFeedPlatforms.value = updated
+        viewModelScope.launch {
+            preferenceManager.setCommunityFeedPlatforms(updated)
+            infoRepository.setCommunityFeedPreferences(updated)
+        }
+    }
+
     private val _byokStatus = MutableStateFlow<com.example.mistreal_mini.data.api.ByokStatusResponse?>(null)
     val byokStatus = _byokStatus.asStateFlow()
 
@@ -143,12 +156,11 @@ class SettingsViewModel @Inject constructor(
             preferenceManager.aiAutoSendEnabled.collect { _aiAutoSendEnabled.value = it }
         }
         viewModelScope.launch {
+            preferenceManager.communityFeedPlatforms.collect { _communityFeedPlatforms.value = it }
+        }
+        viewModelScope.launch {
             preferenceManager.voiceNoteAutoplay.collect { _voiceNoteAutoplay.value = it }
         }
-        fetchByokStatus()
-        fetchByokVideoStatus()
-        fetchMediaProviderConfigs("image_gen")
-        fetchMediaProviderConfigs("video_gen")
         viewModelScope.launch {
             preferenceManager.isSupportiveTruthTellerEnabled.collect { _isSupportiveTruthTellerEnabled.value = it }
         }
@@ -196,6 +208,15 @@ class SettingsViewModel @Inject constructor(
                 }
             }
         }
+    }
+
+    // Network-backed loads deferred out of init{} — see ChatViewModel.onAuthenticated()
+    // for why: these used to fire before the splash/auth/biometric gate resolved.
+    fun onAuthenticated() {
+        fetchByokStatus()
+        fetchByokVideoStatus()
+        fetchMediaProviderConfigs("image_gen")
+        fetchMediaProviderConfigs("video_gen")
         fetchAppConfig()
     }
 

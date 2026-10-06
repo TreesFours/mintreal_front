@@ -26,7 +26,7 @@ import com.example.mistreal_mini.data.local.entity.*
         BusinessItemEntity::class,
         BankLinkEntity::class
     ],
-    version = 11,
+    version = 12,
     exportSchema = false
 )
 abstract class MistrealDatabase : RoomDatabase() {

@@ -18,7 +18,10 @@ data class SocialPost(
     val platformDisplayName: String? = null,
     val comments: List<SocialComment>? = emptyList(),
     val isLikedByUser: Boolean = false,
-    val isBookmarked: Boolean = false
+    val isBookmarked: Boolean = false,
+    // From another app user's Community Feed share, not this viewer's own
+    // synced content — distinct from everything else above.
+    val isCommunityPost: Boolean = false
 ) {
     fun fetchDisplayName(): String = platformDisplayName ?: platform.replaceFirstChar { 
         if (it.isLowerCase()) it.titlecase(java.util.Locale.getDefault()) else it.toString()

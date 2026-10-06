@@ -58,9 +58,13 @@ import com.example.mistreal_mini.ui.chat.components.ChatBubble
 import com.example.mistreal_mini.ui.chat.components.ChatInputBar
 import com.example.mistreal_mini.ui.chat.components.InteractionMode
 import com.example.mistreal_mini.ui.chat.components.TypingIndicator
+import com.example.mistreal_mini.ui.chat.components.VoiceRecordingBar
 import com.example.mistreal_mini.ui.dashboard.components.*
 import com.example.mistreal_mini.util.ScreenshotHelper
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.Dispatchers
 import java.io.File
 
 data class PendingSave(
@@ -70,6 +74,23 @@ data class PendingSave(
     val longitude: Double,
     val radius: Double? = null
 )
+
+// A saved intel thumbnail may be a remote URL (Pexels/Firebase-hosted) —
+// the chat attachment pipeline reads via contentResolver, which can't fetch
+// a plain http(s) URL, so it's downloaded to a local file first.
+private suspend fun downloadToLocalUri(context: android.content.Context, url: String): Uri? {
+    return withContext(Dispatchers.IO) {
+        try {
+            val file = File(context.cacheDir, "intel_discuss_${System.currentTimeMillis()}.jpg")
+            java.net.URL(url).openStream().use { input ->
+                file.outputStream().use { output -> input.copyTo(output) }
+            }
+            Uri.fromFile(file)
+        } catch (e: Exception) {
+            null
+        }
+    }
+}
 
 @OptIn(ExperimentalFoundationApi::class, ExperimentalMaterial3Api::class)
 @Composable
@@ -122,6 +143,7 @@ fun InteractiveMapView(
     var selectedNavTab by remember { mutableIntStateOf(0) }
     var isHudExpanded by remember { mutableStateOf(false) }
     var isSatelliteOn by remember { mutableStateOf(false) }
+    var isMapReady by remember { mutableStateOf(false) }
     var isComputingRoute by remember { mutableStateOf(false) }
     var routeInfo by remember { mutableStateOf<String?>(null) }
     
@@ -181,28 +203,66 @@ fun InteractiveMapView(
         mapVisibleCategories = null
     }
 
-    LaunchedEffect(teleportRequest) {
-        teleportRequest?.let { (lat, lon, zoom) ->
-            webViewInstance?.evaluateJavascript("teleportTo($lat, $lon, $zoom)", null)
-            mapViewModel.clearTeleport()
-            isHudExpanded = false
+    LaunchedEffect(teleportRequest, isMapReady) {
+        if (isMapReady) {
+            teleportRequest?.let { (lat, lon, zoom) ->
+                webViewInstance?.evaluateJavascript("teleportTo($lat, $lon, $zoom)", null)
+                mapViewModel.clearTeleport()
+                isHudExpanded = false
+            }
         }
     }
 
-    LaunchedEffect(ghostMarkersRequest) {
-        ghostMarkersRequest?.let { json ->
-            webViewInstance?.evaluateJavascript("showGhostMarkers('$json')", null)
-            mapViewModel.clearGhostMarkers()
+    LaunchedEffect(ghostMarkersRequest, isMapReady) {
+        if (isMapReady) {
+            ghostMarkersRequest?.let { json ->
+                webViewInstance?.evaluateJavascript("showGhostMarkers('$json')", null)
+                mapViewModel.clearGhostMarkers()
+            }
         }
     }
 
-    LaunchedEffect(targetPoints.size) {
-        val json = com.google.gson.Gson().toJson(targetPoints.map { mapOf("lat" to it.first, "lon" to it.second) })
-        webViewInstance?.evaluateJavascript("setTargetBox('$json')", null)
+    LaunchedEffect(targetPoints.size, isMapReady) {
+        if (isMapReady) {
+            val json = com.google.gson.Gson().toJson(targetPoints.map { mapOf("lat" to it.first, "lon" to it.second) })
+            webViewInstance?.evaluateJavascript("setTargetBox('$json')", null)
+        }
     }
 
     LaunchedEffect(tacticalCircle) {
         if (tacticalCircle == null && targetPoints.isEmpty()) isDrawMode = false
+    }
+
+    // Replaces the old fetch-on-every-recomposition logic (which refired on
+    // every keystroke/state change with no cancellation of the prior call,
+    // and never actually recentered the map). This fetches once when enabled,
+    // teleports to it immediately (the "recenter" behavior the button name
+    // implies), then keeps polling so the marker reflects real movement —
+    // and LaunchedEffect's own cancellation on key change stops it cleanly
+    // the moment location tracking is toggled off.
+    LaunchedEffect(isLocationEnabled, isMapReady) {
+        if (isLocationEnabled && isMapReady) {
+            var isFirstFix = true
+            while (true) {
+                mapViewModel.locationHelper.getCurrentLocation()?.let { loc ->
+                    webViewInstance?.evaluateJavascript("updateGpsLocation(${loc.latitude}, ${loc.longitude}, $isFirstFix)", null)
+                    if (isFirstFix) {
+                        webViewInstance?.evaluateJavascript("teleportTo(${loc.latitude}, ${loc.longitude}, 15)", null)
+                        isFirstFix = false
+                    }
+                }
+                delay(8000)
+            }
+        }
+    }
+
+    // Re-applies whenever either the user's explicit choice or map readiness
+    // changes, so a toggle pressed before the WebView finished loading still
+    // takes effect once it's actually ready, instead of being silently lost.
+    LaunchedEffect(isSatelliteOn, isMapReady) {
+        if (isMapReady) {
+            webViewInstance?.evaluateJavascript("toggleSatellite($isSatelliteOn)", null)
+        }
     }
 
     DisposableEffect(Unit) {
@@ -238,7 +298,16 @@ fun InteractiveMapView(
                                 ViewGroup.LayoutParams.MATCH_PARENT
                             )
                             settings.javaScriptEnabled = true
-                            webViewClient = WebViewClient()
+                            // JS calls fired before the page (and the CDN-hosted Leaflet
+                            // script it loads) finish loading hit undefined functions and
+                            // fail silently — this is the root cause behind several
+                            // intermittent map issues (routing, satellite, recenter all
+                            // depend on JS functions that may not exist yet).
+                            webViewClient = object : WebViewClient() {
+                                override fun onPageFinished(view: WebView?, url: String?) {
+                                    isMapReady = true
+                                }
+                            }
                             
                             addJavascriptInterface(object {
                                 @android.webkit.JavascriptInterface
@@ -292,47 +361,41 @@ fun InteractiveMapView(
                         }
                     },
                     update = { webView ->
-                        mapViewModel.searchMarker.value?.let { entry ->
-                            val safeLabel = entry.label.replace("'", "\\'")
-                            webView.evaluateJavascript("updateSearchMarker(${entry.latitude}, ${entry.longitude}, '$safeLabel')", null)
-                        }
+                        if (isMapReady) {
+                            mapViewModel.searchMarker.value?.let { entry ->
+                                val safeLabel = entry.label.replace("'", "\\'")
+                                webView.evaluateJavascript("updateSearchMarker(${entry.latitude}, ${entry.longitude}, '$safeLabel')", null)
+                            }
 
-                        if (isLocationEnabled) {
-                            coroutineScope.launch {
-                                mapViewModel.locationHelper.getCurrentLocation()?.let { 
-                                    webView.evaluateJavascript("updateGpsLocation(${it.latitude}, ${it.longitude}, false)", null)
+                            tacticalCircle?.let {
+                                webView.evaluateJavascript("setCircle(${it.latitude}, ${it.longitude}, ${it.radius})", null)
+                                val label = mapViewModel.focusPlaceLabel.value?.replace("'", "\\'")
+                                if (label != null) {
+                                    webView.evaluateJavascript("showFocusPlaceMarker(${it.latitude}, ${it.longitude}, '$label')", null)
+                                } else {
+                                    webView.evaluateJavascript("if(focusPlaceMarker) map.removeLayer(focusPlaceMarker);", null)
+                                }
+                            } ?: webView.evaluateJavascript("if(tacticalCircle) map.removeLayer(tacticalCircle); if(focusPlaceMarker) map.removeLayer(focusPlaceMarker);", null)
+
+                            webView.evaluateJavascript("pins.clearLayers();", null)
+                            if (!isDrawMode) {
+                                mapViewModel.intelLog.filter { it.type == "PIN" }.forEach { pin ->
+                                    val safePinLabel = pin.label.replace("'", "\\'")
+                                    webView.evaluateJavascript("addTacticalPin(${pin.latitude}, ${pin.longitude}, '$safePinLabel')", null)
                                 }
                             }
-                        }
 
-                        tacticalCircle?.let {
-                            webView.evaluateJavascript("setCircle(${it.latitude}, ${it.longitude}, ${it.radius})", null)
-                            val label = mapViewModel.focusPlaceLabel.value?.replace("'", "\\'")
-                            if (label != null) {
-                                webView.evaluateJavascript("showFocusPlaceMarker(${it.latitude}, ${it.longitude}, '$label')", null)
-                            } else {
-                                webView.evaluateJavascript("if(focusPlaceMarker) map.removeLayer(focusPlaceMarker);", null)
+                            coroutineScope.launch {
+                                val center = tacticalCircle?.let { it.latitude to it.longitude }
+                                            ?: mapViewModel.mapFocusCoords.value
+                                            ?: (0.0 to 0.0)
+                                val visible = if (isDrawMode) emptyList() else {
+                                    mapVisibleCategories?.let { filter -> mapViewModel.discoveryResults.filter { it.category in filter } }
+                                        ?: mapViewModel.discoveryResults
+                                }
+                                val json = com.google.gson.Gson().toJson(visible).replace("'", "\\'")
+                                webView.evaluateJavascript("renderDiscovery('$json', ${center.first}, ${center.second})", null)
                             }
-                        } ?: webView.evaluateJavascript("if(tacticalCircle) map.removeLayer(tacticalCircle); if(focusPlaceMarker) map.removeLayer(focusPlaceMarker);", null)
-
-                        webView.evaluateJavascript("pins.clearLayers();", null)
-                        if (!isDrawMode) {
-                            mapViewModel.intelLog.filter { it.type == "PIN" }.forEach { pin ->
-                                val safePinLabel = pin.label.replace("'", "\\'")
-                                webView.evaluateJavascript("addTacticalPin(${pin.latitude}, ${pin.longitude}, '$safePinLabel')", null)
-                            }
-                        }
-
-                        coroutineScope.launch {
-                            val center = tacticalCircle?.let { it.latitude to it.longitude }
-                                        ?: mapViewModel.mapFocusCoords.value
-                                        ?: (0.0 to 0.0)
-                            val visible = if (isDrawMode) emptyList() else {
-                                mapVisibleCategories?.let { filter -> mapViewModel.discoveryResults.filter { it.category in filter } }
-                                    ?: mapViewModel.discoveryResults
-                            }
-                            val json = com.google.gson.Gson().toJson(visible).replace("'", "\\'")
-                            webView.evaluateJavascript("renderDiscovery('$json', ${center.first}, ${center.second})", null)
                         }
                     },
                     modifier = Modifier.fillMaxSize()
@@ -528,7 +591,28 @@ fun InteractiveMapView(
                                 when (selectedNavTab) {
                                     0 -> ExploreTabView(mapViewModel)
                                     1 -> HistoryTabView(mapViewModel)
-                                    2 -> IntelTabView(mapViewModel, savedIntel)
+                                    2 -> IntelTabView(mapViewModel, savedIntel, onDiscussIntel = { intel ->
+                                        coroutineScope.launch {
+                                            viewModel.loadTrend("Intel: ${intel.label}")
+                                            intel.thumbnailPath?.let { path ->
+                                                val uri = if (path.startsWith("http")) {
+                                                    downloadToLocalUri(mapChatContext, path)
+                                                } else {
+                                                    Uri.fromFile(File(path))
+                                                }
+                                                uri?.let { viewModel.addPendingAttachment(it) }
+                                            }
+                                            val intelContext = buildString {
+                                                append("[MAP_INTEL_CONTEXT] Discussing a saved intel pin: \"${intel.label}\" (${intel.type}), ")
+                                                append("coordinates ${intel.latitude}, ${intel.longitude}")
+                                                intel.radius?.let { append(", radius ${it.toInt()}m") }
+                                                if (!intel.discoveryResultsJson.isNullOrBlank()) append(". Nearby points of interest were logged for this area.")
+                                                if (!intel.blueprintJson.isNullOrBlank()) append(". An AI-generated structural blueprint exists for this location.")
+                                            }
+                                            viewModel.sendMessage("$intelContext\n\nGive me a tactical briefing on this location.", trendTitle = "Intel: ${intel.label}")
+                                            isChatVisible = true
+                                        }
+                                    })
                                     3 -> ScanTabView(mapViewModel)
                                 }
                             }
@@ -593,33 +677,49 @@ fun InteractiveMapView(
                             items(messages) { msg -> ChatBubble(msg, viewModel, {}, { _, _ -> }, snackbarHostState, coroutineScope) }
                             if (viewModel.isLoading.value) item { TypingIndicator() }
                         }
-                        ChatInputBar(
-                            text = chatText, 
-                            onTextChange = { chatText = it }, 
-                            onSend = {
-                                val contextParts = mutableListOf("Current map focus: $location.")
-                                val prompt = "MAP_CONTEXT:\n${contextParts.joinToString("\n")}\n\nUser question: $chatText"
-                                viewModel.sendMessage(prompt, trendTitle = mapIntelTitle); chatText = ""
-                                focusManager.clearFocus()
-                            }, 
-                            onScreenshotClick = {
-                                (mapChatContext as? Activity)?.let { activity ->
-                                    coroutineScope.launch {
-                                        ScreenshotHelper.captureAndSave(activity)?.let { viewModel.addPendingAttachment(it) }
+                        val isMapChatRecording by viewModel.isRecording
+                        val mapChatRecordedFile by viewModel.recordedFile
+                        if (isMapChatRecording || mapChatRecordedFile != null) {
+                            VoiceRecordingBar(
+                                isRecording = isMapChatRecording,
+                                duration = viewModel.recordingDuration.value,
+                                recordedFile = mapChatRecordedFile,
+                                isPlayingBack = viewModel.isPlayingBack.value,
+                                onStopRecording = { viewModel.stopRecording() },
+                                onDelete = { viewModel.deleteRecording() },
+                                onPlay = { viewModel.playRecording() },
+                                onSend = { viewModel.sendVoiceMessage() },
+                                onCancel = { viewModel.cancelRecording() }
+                            )
+                        } else {
+                            ChatInputBar(
+                                text = chatText,
+                                onTextChange = { chatText = it },
+                                onSend = {
+                                    val contextParts = mutableListOf("Current map focus: $location.")
+                                    val prompt = "MAP_CONTEXT:\n${contextParts.joinToString("\n")}\n\nUser question: $chatText"
+                                    viewModel.sendMessage(prompt, trendTitle = mapIntelTitle); chatText = ""
+                                    focusManager.clearFocus()
+                                },
+                                onScreenshotClick = {
+                                    (mapChatContext as? Activity)?.let { activity ->
+                                        coroutineScope.launch {
+                                            ScreenshotHelper.captureAndSave(activity)?.let { viewModel.addPendingAttachment(it) }
+                                        }
                                     }
-                                }
-                            },
-                            onScreenRecordClick = {},
-                            onCameraClick = { captureMapCameraImage() },
-                            onVideoClick = {},
-                            onFileClick = { mapFilePickerLauncher.launch("*/*") },
-                            onVoiceClick = {}, 
-                            onConversationClick = {},
-                            onScribeClick = {}, 
-                            isLoading = false, 
-                            pendingAttachments = viewModel.pendingAttachments, 
-                            onRemoveAttachment = {}
-                        )
+                                },
+                                onScreenRecordClick = {},
+                                onCameraClick = { captureMapCameraImage() },
+                                onVideoClick = {},
+                                onFileClick = { mapFilePickerLauncher.launch("*/*") },
+                                onVoiceClick = { viewModel.startRecording() },
+                                onConversationClick = {},
+                                onScribeClick = {},
+                                isLoading = false,
+                                pendingAttachments = viewModel.pendingAttachments,
+                                onRemoveAttachment = {}
+                            )
+                        }
                     }
                 }
             }

@@ -65,10 +65,26 @@ class FeedViewModel @Inject constructor(
             supervisorScope {
                 val intelDeferred = async { fetchIntelligence(fastLoad = true) }
                 val socialDeferred = async { syncSocials(deviceId) }
+                val youtubeDeferred = async { loadYoutubeVideos() }
                 intelDeferred.await()
                 socialDeferred.await()
+                youtubeDeferred.await()
             }
             _isLoading.value = false
+        }
+    }
+
+    private suspend fun loadYoutubeVideos() {
+        try {
+            val videos = infoRepository.getYoutubeVideos()
+            if (videos.isNotEmpty()) {
+                // Dedupe against anything already in the list (re-fetches on
+                // a pull-to-refresh shouldn't duplicate the same cached videos).
+                val existingIds = _socialPosts.map { it.id }.toSet()
+                _socialPosts.addAll(videos.filter { it.id !in existingIds })
+            }
+        } catch (e: Exception) {
+            // Best-effort enrichment — never block the rest of the feed.
         }
     }
 

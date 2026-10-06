@@ -196,6 +196,7 @@ fun ContactListDrawer(
                             } else if (selectedCategory == "ai") {
                                 val categorizedModels = viewModel.categorizedModels.value
                                 val sortedCategories = listOf("COMMAND CENTER", "GLOBAL OVERLORD", "OPTIC INTEL", "GHOST PROTOCOL", "OPEN INTELLIGENCE")
+                                val hasCustomProvider = viewModel.hasCustomProvider.value
 
                                 item {
                                     TabRow(selectedTabIndex = modelTab, modifier = Modifier.padding(bottom = 4.dp)) {
@@ -209,28 +210,55 @@ fun ContactListDrawer(
                                             onClick = { modelTab = 1 },
                                             text = { Text("PREMIUM", fontSize = 11.sp, fontWeight = FontWeight.Bold) }
                                         )
+                                        if (hasCustomProvider) {
+                                            Tab(
+                                                selected = modelTab == 2,
+                                                onClick = { modelTab = 2 },
+                                                text = { Text("CUSTOM", fontSize = 11.sp, fontWeight = FontWeight.Bold) }
+                                            )
+                                        }
                                     }
                                 }
 
-                                sortedCategories.forEach { category ->
-                                    // Free tab shows only unlocked models; Premium tab stays visible to
-                                    // free users too (with lock icons) so they can see what's available
-                                    // to upgrade into, rather than only ever seeing what they already have.
-                                    val models = (categorizedModels[category] ?: emptyList())
-                                        .filter { if (modelTab == 0) !it.isProOnly else it.isProOnly }
-                                    if (models.isNotEmpty()) {
-                                        item {
-                                            ModelCategoryAccordion(
-                                                title = category,
-                                                models = models,
-                                                selectedModelId = viewModel.selectedProvider.value,
-                                                isPro = viewModel.isPro.value,
-                                                onModelSelect = { model ->
-                                                    viewModel.setProvider(model.id)
-                                                    viewModel.switchChat(model.name, "ai")
-                                                    onClose()
-                                                }
+                                if (modelTab == 2 && hasCustomProvider) {
+                                    item {
+                                        Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
+                                            Text(
+                                                "Your own AI keys, configured in Settings:",
+                                                style = MaterialTheme.typography.labelSmall,
+                                                color = Color.Gray
                                             )
+                                            Spacer(modifier = Modifier.height(8.dp))
+                                            viewModel.customProviderSummary.value.forEach { line ->
+                                                Text(
+                                                    line,
+                                                    style = MaterialTheme.typography.bodyMedium,
+                                                    modifier = Modifier.padding(vertical = 6.dp)
+                                                )
+                                            }
+                                        }
+                                    }
+                                } else {
+                                    sortedCategories.forEach { category ->
+                                        // Free tab shows only unlocked models; Premium tab stays visible to
+                                        // free users too (with lock icons) so they can see what's available
+                                        // to upgrade into, rather than only ever seeing what they already have.
+                                        val models = (categorizedModels[category] ?: emptyList())
+                                            .filter { if (modelTab == 0) !it.isProOnly else it.isProOnly }
+                                        if (models.isNotEmpty()) {
+                                            item {
+                                                ModelCategoryAccordion(
+                                                    title = category,
+                                                    models = models,
+                                                    selectedModelId = viewModel.selectedProvider.value,
+                                                    isPro = viewModel.isPro.value,
+                                                    onModelSelect = { model ->
+                                                        viewModel.setProvider(model.id)
+                                                        viewModel.switchChat(model.name, "ai")
+                                                        onClose()
+                                                    }
+                                                )
+                                            }
                                         }
                                     }
                                 }

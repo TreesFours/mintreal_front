@@ -43,6 +43,8 @@ class PreferenceManager @Inject constructor(
     private val INTELLIGENCE_SPARK_KEY = booleanPreferencesKey("intelligence_spark_enabled")
     private val PERSISTENT_SCENE_MODE_KEY = booleanPreferencesKey("persistent_scene_mode_enabled")
     private val DEFAULT_TRANSLATION_LANG_KEY = androidx.datastore.preferences.core.stringPreferencesKey("default_translation_lang")
+    private val LAST_WEATHER_BRIEFING_DATE_KEY = androidx.datastore.preferences.core.stringPreferencesKey("last_weather_briefing_date")
+    private val COMMUNITY_FEED_PLATFORMS_KEY = androidx.datastore.preferences.core.stringPreferencesKey("community_feed_platforms")
     private val CONVERSATION_COUNTER_KEY = androidx.datastore.preferences.core.intPreferencesKey("conversation_counter")
     private val THEME_MODE_KEY = androidx.datastore.preferences.core.stringPreferencesKey("theme_mode") // "fire", "sand", "auto"
     private val LAST_INTERACTION_TIME_KEY = androidx.datastore.preferences.core.longPreferencesKey("last_interaction_time")
@@ -185,6 +187,18 @@ class PreferenceManager @Inject constructor(
     val conversationCounter: Flow<Int> = context.dataStore.data
         .map { preferences ->
             preferences[CONVERSATION_COUNTER_KEY] ?: 0
+        }
+
+    val lastWeatherBriefingDate: Flow<String> = context.dataStore.data
+        .map { preferences ->
+            preferences[LAST_WEATHER_BRIEFING_DATE_KEY] ?: ""
+        }
+
+    // Empty by default — Community Feed stays fully off until the user opts
+    // into specific platforms.
+    val communityFeedPlatforms: Flow<List<String>> = context.dataStore.data
+        .map { preferences ->
+            preferences[COMMUNITY_FEED_PLATFORMS_KEY]?.split(",")?.filter { it.isNotBlank() } ?: emptyList()
         }
 
     val themeMode: Flow<String> = context.dataStore.data
@@ -364,6 +378,18 @@ class PreferenceManager @Inject constructor(
     suspend fun setDefaultTranslationLang(lang: String) {
         context.dataStore.edit { preferences ->
             preferences[DEFAULT_TRANSLATION_LANG_KEY] = lang
+        }
+    }
+
+    suspend fun setLastWeatherBriefingDate(isoDate: String) {
+        context.dataStore.edit { preferences ->
+            preferences[LAST_WEATHER_BRIEFING_DATE_KEY] = isoDate
+        }
+    }
+
+    suspend fun setCommunityFeedPlatforms(platforms: List<String>) {
+        context.dataStore.edit { preferences ->
+            preferences[COMMUNITY_FEED_PLATFORMS_KEY] = platforms.joinToString(",")
         }
     }
 

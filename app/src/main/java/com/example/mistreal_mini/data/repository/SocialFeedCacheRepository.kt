@@ -50,6 +50,7 @@ private fun SocialPost.toEntity(fetchedAt: Long, isLikedByUser: Boolean = false,
     platformDisplayName = platformDisplayName,
     isLikedByUser = isLikedByUser,
     isBookmarked = isBookmarked,
+    isCommunityPost = isCommunityPost,
     fetchedAt = fetchedAt
 )
 
@@ -69,5 +70,6 @@ private fun SocialPostEntity.toSocialPost() = SocialPost(
     platformColor = platformColor,
     platformDisplayName = platformDisplayName,
     isLikedByUser = isLikedByUser,
-    isBookmarked = isBookmarked
+    isBookmarked = isBookmarked,
+    isCommunityPost = isCommunityPost
 )

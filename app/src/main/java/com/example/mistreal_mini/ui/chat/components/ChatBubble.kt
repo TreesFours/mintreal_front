@@ -1,6 +1,7 @@
 package com.example.mistreal_mini.ui.chat.components
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.selection.SelectionContainer
@@ -26,6 +27,7 @@ import com.example.mistreal_mini.ui.util.VideoPlayer
 import com.example.mistreal_mini.util.NoteExporter
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
+import timber.log.Timber
 
 @Composable
 fun ChatBubble(
@@ -201,9 +203,17 @@ fun ChatBubble(
                     }
 
                     if (message.type == "social_draft") {
-                        Row(modifier = Modifier.padding(top = 12.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        var shareToCommunity by remember(message.id) { mutableStateOf(false) }
+                        Row(
+                            modifier = Modifier.padding(top = 8.dp).clickable { shareToCommunity = !shareToCommunity },
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Checkbox(checked = shareToCommunity, onCheckedChange = { shareToCommunity = it })
+                            Text("Also share to Mistreal community feed", fontSize = 10.sp, color = textColor)
+                        }
+                        Row(modifier = Modifier.padding(top = 4.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                             Button(
-                                onClick = { viewModel.approveSocialAction(message) },
+                                onClick = { viewModel.approveSocialAction(message, shareToCommunity) },
                                 modifier = Modifier.weight(1f),
                                 colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF4CAF50)),
                                 shape = RoundedCornerShape(8.dp)
@@ -418,17 +428,33 @@ private fun VoiceNoteBubble(
         }
         try {
             mediaPlayer.value = android.media.MediaPlayer().apply {
+                setAudioAttributes(
+                    android.media.AudioAttributes.Builder()
+                        .setUsage(android.media.AudioAttributes.USAGE_MEDIA)
+                        .setContentType(android.media.AudioAttributes.CONTENT_TYPE_SPEECH)
+                        .build()
+                )
                 setDataSource(context, android.net.Uri.parse(uri))
                 setOnCompletionListener {
                     isPlaying = false
                     onPlaybackFinished()
+                }
+                setOnErrorListener { _, what, extra ->
+                    Timber.e("VoiceNoteBubble: playback error what=$what extra=$extra")
+                    isPlaying = false
+                    onPlaybackFinished()
+                    true
                 }
                 prepare()
                 start()
             }
             isPlaying = true
         } catch (e: Exception) {
+            // A failed voice note must not silently stall hands-free mode forever —
+            // onPlaybackFinished() is what resumes the next listen cycle.
+            Timber.e(e, "VoiceNoteBubble: failed to start playback")
             isPlaying = false
+            onPlaybackFinished()
         }
     }
 

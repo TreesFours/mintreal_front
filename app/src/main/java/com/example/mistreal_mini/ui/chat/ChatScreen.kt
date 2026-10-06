@@ -358,10 +358,13 @@ fun ChatScreen(
                     onVideoClick = { captureVideo() },
                     onFileClick = { filePickerLauncher.launch("*/*") },
                     onVoiceClick = { viewModel.startRecording() },
-                    onConversationClick = { viewModel.startHandsFreeLoop(textState) },
+                    onConversationClick = {
+                        if (isHandsFree) viewModel.toggleHandsFree(false) else viewModel.startHandsFreeLoop(textState)
+                    },
                     onScribeClick = {
                         if (isScribing) viewModel.stopScribe() else viewModel.startScribe()
                     },
+                    isHandsFreeActive = isHandsFree,
                     isScribing = isScribing,
                     onClearScribe = { textState = "" },
                     onSaveScribe = { 

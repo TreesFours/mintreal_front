@@ -464,6 +464,19 @@ fun NasaApodCard(article: Article, onPinClick: () -> Unit, onAiClick: () -> Unit
     }
 }
 
+private fun moonPhaseEmoji(phase: String?): String = when {
+    phase == null -> "🌙"
+    phase.contains("New", true) -> "🌑"
+    phase.contains("Waxing Crescent", true) -> "🌒"
+    phase.contains("First Quarter", true) -> "🌓"
+    phase.contains("Waxing Gibbous", true) -> "🌔"
+    phase.contains("Full", true) -> "🌕"
+    phase.contains("Waning Gibbous", true) -> "🌖"
+    phase.contains("Last Quarter", true) || phase.contains("Third Quarter", true) -> "🌗"
+    phase.contains("Waning Crescent", true) -> "🌘"
+    else -> "🌙"
+}
+
 @Composable
 fun LocationBanner(weather: WeatherResponse?) {
     val locationText = weather?.location ?: "Detecting Location..."
@@ -479,9 +492,26 @@ fun LocationBanner(weather: WeatherResponse?) {
             ) {
                 Icon(Icons.Default.LocationOn, contentDescription = null, modifier = Modifier.size(16.dp), tint = MaterialTheme.colorScheme.primary)
                 Spacer(modifier = Modifier.width(8.dp))
-                Column {
+                Column(modifier = Modifier.weight(1f, fill = false)) {
                     Text(text = "Active Location: $locationText", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold)
                     Text(text = "News & Weather updated for this region", style = MaterialTheme.typography.labelSmall, color = Color.Gray)
+                }
+                // Moon phase data is already fetched with every weather call —
+                // it just never had anywhere to render until now.
+                if (!weather?.moonPhase.isNullOrBlank()) {
+                    Spacer(modifier = Modifier.width(12.dp))
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        if (!weather?.moonImageUrl.isNullOrBlank()) {
+                            AsyncImage(
+                                model = weather?.moonImageUrl,
+                                contentDescription = weather?.moonPhase,
+                                modifier = Modifier.size(22.dp)
+                            )
+                        } else {
+                            Text(moonPhaseEmoji(weather?.moonPhase), fontSize = 16.sp)
+                        }
+                        Text(weather?.moonPhase ?: "", style = MaterialTheme.typography.labelSmall, color = Color.Gray, fontSize = 8.sp)
+                    }
                 }
             }
         }

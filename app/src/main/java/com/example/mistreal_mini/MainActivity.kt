@@ -168,8 +168,15 @@ class MainActivity : FragmentActivity() {
                                     onFailure = { /* Handle Failure */ }
                                 )
                             } else {
+                                // Fully authenticated: only now kick off the network-backed
+                                // loads these ViewModels deferred out of their init{} blocks,
+                                // so nothing talks to the backend before the password/biometric
+                                // prompt is cleared.
+                                chatViewModel.onAuthenticated()
+                                settingsViewModel.onAuthenticated()
+
                                 // Already authenticated, ensure we are in the main app
-                                if (navController.currentDestination?.route == "splash" || 
+                                if (navController.currentDestination?.route == "splash" ||
                                     navController.currentDestination?.route == "auth") {
                                     navController.navigate("chat") {
                                         popUpTo(0) { inclusive = true }
@@ -275,7 +282,8 @@ class MainActivity : FragmentActivity() {
                         }
                         composable("business_seller") {
                             com.example.mistreal_mini.ui.business.SellerCommandScreen(
-                                onBack = { navController.popBackStack() }
+                                onBack = { navController.popBackStack() },
+                                onUpgradeClick = { navController.navigate("subscription") }
                             )
                         }
                     }

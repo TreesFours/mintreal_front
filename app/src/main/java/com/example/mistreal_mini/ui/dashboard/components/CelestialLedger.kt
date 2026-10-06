@@ -98,7 +98,25 @@ fun CelestialObjectCard(
                 Text(icon, fontSize = 24.sp)
                 Spacer(modifier = Modifier.width(16.dp))
                 Column(modifier = Modifier.weight(1f)) {
-                    Text(obj.name.uppercase(), fontWeight = FontWeight.Black, style = MaterialTheme.typography.bodyLarge)
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(obj.name.uppercase(), fontWeight = FontWeight.Black, style = MaterialTheme.typography.bodyLarge)
+                        if (obj.simulated) {
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Surface(
+                                color = Color(0xFFB8860B).copy(alpha = 0.25f),
+                                shape = RoundedCornerShape(4.dp)
+                            ) {
+                                Text(
+                                    "SIMULATED",
+                                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                                    style = MaterialTheme.typography.labelSmall,
+                                    fontWeight = FontWeight.Black,
+                                    fontSize = 9.sp,
+                                    color = Color(0xFFB8860B)
+                                )
+                            }
+                        }
+                    }
                     Text(
                         text = if (obj.status == "Visible") "VISIBLE IN NIGHT SKY" else "BELOW HORIZON",
                         color = if (obj.status == "Visible") Color.Green else Color.Gray,

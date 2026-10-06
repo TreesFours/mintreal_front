@@ -36,6 +36,7 @@ import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.mistreal_mini.ui.settings.components.AddEmergencyContactDialog
+import com.example.mistreal_mini.ui.dashboard.components.FlowRow
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
@@ -659,6 +660,50 @@ fun SettingsScreen(
 
                         Spacer(modifier = Modifier.height(24.dp))
 
+                        // Business Hub
+                        Text("BUSINESS", style = MaterialTheme.typography.labelSmall, color = Color.Gray)
+                        Button(
+                            onClick = onBusinessHubClick,
+                            modifier = Modifier.fillMaxWidth(),
+                            shape = RoundedCornerShape(8.dp),
+                            colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.secondary.copy(alpha = 0.8f))
+                        ) {
+                            Icon(Icons.Default.Storefront, null)
+                            Spacer(Modifier.width(8.dp))
+                            Text("BUSINESS HUB", fontWeight = FontWeight.Bold)
+                        }
+
+                        Spacer(modifier = Modifier.height(24.dp))
+
+                        // Community Feed — off by default; the viewer opts into
+                        // specific platforms to see other app users' shared posts.
+                        Text("COMMUNITY FEED", style = MaterialTheme.typography.labelSmall, color = Color.Gray)
+                        Text(
+                            "See posts other Mistreal users have chosen to share, from these platforms only.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = Color.Gray
+                        )
+                        Spacer(modifier = Modifier.height(8.dp))
+                        val communityFeedPlatforms by viewModel.communityFeedPlatforms
+                        val allPlatforms = viewModel.availablePlatforms.collectAsStateWithLifecycle().value
+                        FlowRow(
+                            modifier = Modifier.fillMaxWidth(),
+                            mainAxisSpacing = 8.dp,
+                            crossAxisSpacing = 8.dp
+                        ) {
+                            allPlatforms.forEach { platform ->
+                                val isSelected = platform.id in communityFeedPlatforms
+                                FilterChip(
+                                    selected = isSelected,
+                                    onClick = { viewModel.toggleCommunityFeedPlatform(platform.id) },
+                                    label = { Text(platform.name, fontSize = 11.sp) },
+                                    leadingIcon = { Text(platform.icon, fontSize = 12.sp) }
+                                )
+                            }
+                        }
+
+                        Spacer(modifier = Modifier.height(24.dp))
+
                         // Mission Delay
                         Text("MISSION DELAY (GHOST MODE)", style = MaterialTheme.typography.labelSmall, color = Color.Gray)
                         var showDelayPicker by remember { mutableStateOf(false) }
@@ -767,6 +812,31 @@ fun SettingsScreen(
                                 },
                                 confirmButton = { TextButton(onClick = { showVoicePicker = false }) { Text("Close") } }
                             )
+                        }
+
+                        Spacer(modifier = Modifier.height(8.dp))
+
+                        OutlinedCard(modifier = Modifier.fillMaxWidth()) {
+                            Row(
+                                modifier = Modifier.padding(16.dp).fillMaxWidth(),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text("Speak Out", style = MaterialTheme.typography.labelSmall)
+                                    Text(
+                                        "AI replies are read aloud as conversational voice notes, not raw text.",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = Color.Gray
+                                    )
+                                }
+                                Switch(
+                                    checked = ttsEnabled,
+                                    onCheckedChange = {
+                                        ttsEnabled = it
+                                        viewModel.setTtsEnabled(it)
+                                    }
+                                )
+                            }
                         }
 
                         Spacer(modifier = Modifier.height(8.dp))

@@ -8,6 +8,9 @@ import com.example.mistreal_mini.data.api.CelestialVectorResponse
 import com.example.mistreal_mini.data.repository.InfoRepository
 import com.example.mistreal_mini.util.LocationHelper
 import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import javax.inject.Inject
 
@@ -23,19 +26,51 @@ class CelestialViewModel @Inject constructor(
     private val _trackedObjects = mutableStateListOf<CelestialObject>()
     val trackedObjects: List<CelestialObject> = _trackedObjects
 
+    private var autoRefreshJob: Job? = null
+
     fun fetchCelestialData() {
-        viewModelScope.launch {
-            val loc = locationHelper.getCurrentLocation()
-            val bodies = listOf("10", "199", "299", "499", "599", "699", "301") // Sun, Merc, Venus, Mars, Jup, Sat, Moon
-            _celestialPositions.clear()
-            bodies.forEach { body ->
-                when (val result = infoRepository.getCelestialVectors(body, loc?.latitude, loc?.longitude)) {
-                    is Resource.Success -> result.data?.let { _celestialPositions.add(it) }
-                    else -> {}
-                }
+        viewModelScope.launch { refreshOnce() }
+    }
+
+    // Called from the Celestial/Orbital screen's lifecycle so positions genuinely
+    // update while it's open, instead of only on a manual refresh tap — one
+    // fetch cycle (11 sequential JPL Horizons calls) is slow enough that we wait
+    // for it to finish before scheduling the next, rather than firing on a raw timer.
+    fun startAutoRefresh() {
+        if (autoRefreshJob?.isActive == true) return
+        autoRefreshJob = viewModelScope.launch {
+            while (isActive) {
+                refreshOnce()
+                delay(60_000)
             }
-            updateTrackedObjects()
         }
+    }
+
+    fun stopAutoRefresh() {
+        autoRefreshJob?.cancel()
+        autoRefreshJob = null
+    }
+
+    private suspend fun refreshOnce() {
+        val loc = locationHelper.getCurrentLocation()
+        // Earth/Uranus/Neptune/Pluto were already being fetched by a separate
+        // 30-min background worker (CelestialWorker) but the results were
+        // discarded rather than ever stored/surfaced — tracking them here
+        // directly instead, alongside the original seven bodies.
+        val bodies = listOf("10", "199", "299", "399", "499", "599", "699", "799", "899", "301", "999") // Sun, Merc, Venus, Earth, Mars, Jup, Sat, Uranus, Neptune, Moon, Pluto
+        _celestialPositions.clear()
+        bodies.forEach { body ->
+            when (val result = infoRepository.getCelestialVectors(body, loc?.latitude, loc?.longitude)) {
+                is Resource.Success -> result.data?.let { _celestialPositions.add(it) }
+                else -> {}
+            }
+        }
+        updateTrackedObjects()
+    }
+
+    override fun onCleared() {
+        super.onCleared()
+        stopAutoRefresh()
     }
 
     private fun updateTrackedObjects() {
@@ -53,7 +88,8 @@ class CelestialViewModel @Inject constructor(
                     distEarth = pos.distEarth ?: "N/A",
                     distSun = pos.distSun ?: "N/A",
                     description = pos.description ?: "",
-                    relativeToMoon = pos.relativeToMoon ?: ""
+                    relativeToMoon = pos.relativeToMoon ?: "",
+                    simulated = pos.simulated == true
                 )
             )
         }
@@ -71,5 +107,6 @@ data class CelestialObject(
     val distEarth: String,
     val distSun: String,
     val description: String,
-    val relativeToMoon: String
+    val relativeToMoon: String,
+    val simulated: Boolean = false
 )

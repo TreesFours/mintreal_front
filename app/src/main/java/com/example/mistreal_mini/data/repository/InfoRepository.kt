@@ -46,6 +46,58 @@ class InfoRepository @Inject constructor(
         }
     }
 
+    // Mapped into the existing flat SocialPost shape at this boundary so
+    // FeedPostCard/SocialPagerView need no branching changes for most of the
+    // pipeline — sourceUrl carries a "youtube://{videoId}" sentinel the
+    // client recognizes to route taps to the WebView player instead of the
+    // ExoPlayer-based FeedVideoPlayer (YouTube never gives a direct
+    // streamable URL).
+    suspend fun getYoutubeVideos(): List<com.example.mistreal_mini.data.model.SocialPost> {
+        return try {
+            api.getYoutubeVideos().videos.map { v ->
+                com.example.mistreal_mini.data.model.SocialPost(
+                    id = "youtube_${v.videoId}",
+                    platform = "youtube",
+                    author = v.channelTitle ?: "YouTube",
+                    content = v.title,
+                    timestamp = v.publishedAt ?: java.time.Instant.now().toString(),
+                    type = "post",
+                    imageUrl = v.thumbnailUrl,
+                    likes = v.likeCount?.toInt(),
+                    sourceUrl = "youtube://${v.videoId}",
+                    platformIcon = "▶️",
+                    platformColor = "#FF0000",
+                    platformDisplayName = "YouTube"
+                )
+            }
+        } catch (e: Exception) {
+            emptyList()
+        }
+    }
+
+    suspend fun setCommunityFeedPreferences(platforms: List<String>) {
+        try {
+            val firebaseUid = authRepository.currentUser?.uid
+            api.setCommunityFeedPreferences(
+                com.example.mistreal_mini.data.api.CommunityPreferencesRequest(deviceId, firebaseUid, platforms)
+            )
+        } catch (e: Exception) {
+            // Best-effort — the local DataStore write already happened; a
+            // failed server sync just means the next app open re-syncs it.
+        }
+    }
+
+    // Best-effort only — no photo API key configured, or no match found, both
+    // degrade to null rather than surfacing an error; saving intel must never
+    // fail just because an illustrative photo couldn't be found.
+    suspend fun getLocationPhoto(label: String, lat: Double, lon: Double): String? {
+        return try {
+            api.getLocationPhoto(label, lat, lon).photoUrl
+        } catch (e: Exception) {
+            null
+        }
+    }
+
     suspend fun togglePin(article: com.example.mistreal_mini.data.api.Article): Resource<Boolean> {
         return try {
             val firebaseUid = authRepository.currentUser?.uid ?: return Resource.Error("Auth required")
@@ -279,16 +331,21 @@ class InfoRepository @Inject constructor(
         platform: String,
         content: String,
         targetId: String,
-        delayMinutes: Int? = 0,
         mediaBase64: String? = null,
-        mediaMimeType: String? = null
+        mediaMimeType: String? = null,
+        shareToCommunity: Boolean = false
     ): Resource<Boolean> {
         return try {
             val response = api.performSocialAction(
                 com.example.mistreal_mini.data.api.SocialActionRequest(
-                    deviceId,
-                    com.example.mistreal_mini.data.api.SocialAction(type, platform, content, targetId, mediaBase64, mediaMimeType),
-                    delayMinutes
+                    deviceId = deviceId,
+                    type = type,
+                    platform = platform,
+                    content = content,
+                    targetId = targetId,
+                    mediaBase64 = mediaBase64,
+                    mediaMimeType = mediaMimeType,
+                    shareToCommunity = shareToCommunity
                 )
             )
             if (response.success) Resource.Success(true)

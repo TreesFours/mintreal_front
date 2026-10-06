@@ -90,6 +90,14 @@ class ChatViewModel @Inject constructor(
     private val _categorizedModels = mutableStateOf<Map<String, List<AiModelResponse>>>(emptyMap())
     val categorizedModels: State<Map<String, List<AiModelResponse>>> = _categorizedModels
 
+    // Drives the drawer's 3rd "Custom" tab — only shown once the user has
+    // actually configured at least one BYOK text/video/image/video-gen provider.
+    private val _hasCustomProvider = mutableStateOf(false)
+    val hasCustomProvider: State<Boolean> = _hasCustomProvider
+
+    private val _customProviderSummary = mutableStateOf<List<String>>(emptyList())
+    val customProviderSummary: State<List<String>> = _customProviderSummary
+
     private val _currentPersona = mutableStateOf(savedStateHandle.get<String>("currentPersona") ?: "Shadow")
     val currentPersona: State<String> = _currentPersona
 
@@ -223,7 +231,13 @@ class ChatViewModel @Inject constructor(
 
     private var recordingTimerJob: Job? = null
 
-    val pagedMessages: Flow<PagingData<ChatMessage>> = repository.getPagedMessagesFlow()
+    // Switches the underlying paged source with the active trend so a minichat
+    // shows its own messages instead of always rendering the main chat's query.
+    private val _activeTrendForPaging = MutableStateFlow<String?>(null)
+    val pagedMessages: Flow<PagingData<ChatMessage>> = _activeTrendForPaging
+        .flatMapLatest { trend ->
+            if (trend == null) repository.getPagedMessagesFlow() else repository.getPagedTrendMessagesFlow(trend)
+        }
         .cachedIn(viewModelScope)
 
     fun getTrendMessages(title: String): Flow<List<ChatMessage>> {
@@ -287,8 +301,16 @@ class ChatViewModel @Inject constructor(
 
         observeMessages()
         observeUniqueTrends()
+    }
+
+    // Network-backed loads deferred out of init{} — they used to fire the
+    // instant this ViewModel was constructed at the Activity's top level,
+    // which happened before the splash/auth/biometric gate ever resolved.
+    // MainActivity now calls this only once full authentication succeeds.
+    fun onAuthenticated() {
         fetchAvailableModels()
         fetchAvailablePlatforms()
+        fetchHasCustomProvider()
     }
 
     private fun observeUniqueTrends() {
@@ -329,6 +351,7 @@ class ChatViewModel @Inject constructor(
     fun loadTrend(title: String) {
         _isSocialChat.value = false
         _currentTrendTitle.value = title
+        _activeTrendForPaging.value = title
         _messages.clear()
         observeMessages()
     }
@@ -336,6 +359,7 @@ class ChatViewModel @Inject constructor(
     fun exitTrend() {
         _isSocialChat.value = false
         _currentTrendTitle.value = null
+        _activeTrendForPaging.value = null
         _messages.clear()
         observeMessages()
     }
@@ -443,6 +467,55 @@ class ChatViewModel @Inject constructor(
         deleteRecording()
     }
 
+    // --- SOS ambient audio capture ---
+    // Pressing SOS (manual or auto-triggered) starts recording ambient audio as
+    // evidence of the situation, independent of the chat voice-note recorder's
+    // state. Capped at a fixed duration rather than requiring a manual stop,
+    // since this fires during an emergency and must not depend on further input.
+    private val _isSosRecording = mutableStateOf(false)
+    val isSosRecording: State<Boolean> = _isSosRecording
+    private var sosRecordingFile: File? = null
+    private var sosRecordingTimeoutJob: Job? = null
+    private val SOS_RECORDING_MAX_DURATION_MS = 120_000L
+
+    private fun startSosAudioCapture() {
+        if (_isSosRecording.value || _isRecording.value) return // don't fight the chat recorder for the mic
+        val file = voiceRecorder.startRecording() ?: return
+        sosRecordingFile = file
+        _isSosRecording.value = true
+        sosRecordingTimeoutJob?.cancel()
+        sosRecordingTimeoutJob = viewModelScope.launch {
+            kotlinx.coroutines.delay(SOS_RECORDING_MAX_DURATION_MS)
+            stopSosAudioCapture()
+        }
+    }
+
+    private fun stopSosAudioCapture() {
+        if (!_isSosRecording.value) return
+        sosRecordingTimeoutJob?.cancel()
+        voiceRecorder.stopRecording()
+        _isSosRecording.value = false
+        val recorded = sosRecordingFile
+        sosRecordingFile = null
+        if (recorded != null && recorded.exists() && recorded.length() > 0) {
+            viewModelScope.launch {
+                val saved = try {
+                    val sosDir = java.io.File(context.filesDir, "sos_recordings").apply { if (!exists()) mkdirs() }
+                    val dest = java.io.File(sosDir, recorded.name)
+                    recorded.copyTo(dest, overwrite = true)
+                    recorded.delete()
+                    dest
+                } catch (e: Exception) {
+                    Timber.e(e, "Failed to persist SOS audio evidence")
+                    null
+                }
+                if (saved != null) {
+                    _errorEvents.emit("SOS audio evidence recorded (${saved.name})")
+                }
+            }
+        }
+    }
+
     fun fetchAvailablePlatforms() {
         viewModelScope.launch {
             val deviceId = Settings.Secure.getString(context.contentResolver, Settings.Secure.ANDROID_ID)
@@ -458,12 +531,33 @@ class ChatViewModel @Inject constructor(
         }
     }
 
+    fun fetchHasCustomProvider() {
+        viewModelScope.launch {
+            val byokStatus = (infoRepository.getByokStatus() as? Resource.Success)?.data
+            val byokVideoStatus = (infoRepository.getByokVideoStatus() as? Resource.Success)?.data
+            val imageConfigs = (infoRepository.getMediaProviderConfigs("image_gen") as? Resource.Success)?.data?.configs.orEmpty()
+            val videoConfigs = (infoRepository.getMediaProviderConfigs("video_gen") as? Resource.Success)?.data?.configs.orEmpty()
+
+            val summary = buildList {
+                if (byokStatus?.configured == true) add("💬 Text — ${byokStatus.providerType}${byokStatus.modelName?.let { " ($it)" } ?: ""}")
+                if (byokVideoStatus?.configured == true) add("🎬 Video Edit — ${byokVideoStatus.providerType}${byokVideoStatus.modelName?.let { " ($it)" } ?: ""}")
+                imageConfigs.forEach { add("🖼️ Image Gen — ${it.label}") }
+                videoConfigs.forEach { add("📹 Video Gen — ${it.label}") }
+            }
+            _customProviderSummary.value = summary
+            _hasCustomProvider.value = summary.isNotEmpty()
+        }
+    }
+
     fun toggleHandsFree(active: Boolean) {
         _isHandsFreeActive.value = active
         if (!active) {
             _isListening.value = false
             voiceManager.stop()
             context.stopService(Intent(context, com.example.mistreal_mini.service.VoiceService::class.java))
+            // A voice note already queued to autoplay must not fire after stop —
+            // its onPlaybackFinished would otherwise resume the listen loop.
+            _pendingVoiceNoteAutoplayUri.value = null
         }
     }
 
@@ -861,18 +955,19 @@ class ChatViewModel @Inject constructor(
         }
     }
 
-    fun approveSocialAction(draft: ChatMessage) {
+    fun approveSocialAction(draft: ChatMessage, shareToCommunity: Boolean = false) {
         viewModelScope.launch {
             _isLoading.value = true
             val deviceId = Settings.Secure.getString(context.contentResolver, Settings.Secure.ANDROID_ID)
             val metadata = draft.socialMetadata
-            
+
             val result = infoRepository.performSocialAction(
                 deviceId = deviceId,
                 type = metadata?.type ?: "Post",
                 platform = metadata?.platform ?: "Twitter",
                 content = draft.content,
-                targetId = metadata?.targetId ?: "self"
+                targetId = metadata?.targetId ?: "self",
+                shareToCommunity = shareToCommunity
             )
             if (result is Resource.Success) {
                 _messages.add(ChatMessage(role = "assistant", content = "Action Approved & Executed on ${metadata?.platform ?: "platform"}.", provider = "system"))
@@ -1239,7 +1334,23 @@ class ChatViewModel @Inject constructor(
                     }
                 }
                 is Resource.Error -> {
-                    _messages.add(ChatMessage(role = "assistant", content = "Mission Delayed: ${result.message}", provider = "system"))
+                    // The main chat/minichat view renders from pagedMessages (Room-backed),
+                    // not the in-memory _messages list — that list is only ever shown in
+                    // social-DM-chat mode. Writing only to _messages here meant a failed AI
+                    // request fired the error snackbar but the bubble itself never appeared
+                    // anywhere in the regular chat transcript.
+                    val errorMsg = ChatMessage(
+                        role = "assistant",
+                        content = "Mission Delayed: ${result.message}",
+                        provider = "system",
+                        isTrend = trendTitle != null,
+                        trendTitle = trendTitle
+                    )
+                    if (_isSocialChat.value) {
+                        _messages.add(errorMsg)
+                    } else {
+                        repository.saveMessage(errorMsg)
+                    }
                     _errorEvents.emit("Chat error: ${result.message}")
                 }
                 else -> {}
@@ -1249,6 +1360,9 @@ class ChatViewModel @Inject constructor(
     }
 
     private suspend fun startListeningLoop() {
+        // Defense in depth against the TTS-stop race: even if a stale onComplete
+        // callback slips through, never resume the mic once the user has stopped.
+        if (!_isHandsFreeActive.value) return
         _isListening.value = true
         val intent = Intent(context, com.example.mistreal_mini.service.VoiceService::class.java).apply {
             action = com.example.mistreal_mini.service.VoiceService.ACTION_RESUME_LISTENING
@@ -1266,12 +1380,14 @@ class ChatViewModel @Inject constructor(
 
     fun onDistressDetected() {
         if (_guardianEnabled.value) {
+            startSosAudioCapture()
             viewModelScope.launch {
                 voiceManager.speak("Detecting possible distress. Sending your location to emergency contacts and posting an alert to your connected social accounts.")
                 val deviceId = android.provider.Settings.Secure.getString(context.contentResolver, android.provider.Settings.Secure.ANDROID_ID)
                 // Also broadcasts publicly now, by explicit choice — accepted tradeoff
                 // is a false-positive audio trigger can post a public SOS.
                 handleDistressUseCase(deviceId, broadcastToSocials = true)
+                stopSosAudioCapture()
             }
         }
     }
@@ -1283,10 +1399,12 @@ class ChatViewModel @Inject constructor(
     fun triggerManualSos() {
         if (_isSendingSos.value) return
         _isSendingSos.value = true
+        startSosAudioCapture()
         viewModelScope.launch {
             val deviceId = android.provider.Settings.Secure.getString(context.contentResolver, android.provider.Settings.Secure.ANDROID_ID)
             val result = handleDistressUseCase(deviceId, distressSignature = "Manual SOS triggered", broadcastToSocials = true)
             _isSendingSos.value = false
+            stopSosAudioCapture()
             when (result) {
                 is Resource.Success -> {
                     val data = result.data
@@ -1455,7 +1573,9 @@ class ChatViewModel @Inject constructor(
                                 content = "",
                                 type = "video",
                                 attachmentPaths = listOf(videoUrl),
-                                provider = "byok-video-edit"
+                                provider = "byok-video-edit",
+                                isTrend = _currentTrendTitle.value != null,
+                                trendTitle = _currentTrendTitle.value
                             )
                         )
                         onResult(true)
@@ -1515,7 +1635,9 @@ class ChatViewModel @Inject constructor(
                                     content = "",
                                     type = "image",
                                     attachmentPaths = listOf(uri.toString()),
-                                    provider = "gemini-2.5-flash-image"
+                                    provider = "gemini-2.5-flash-image",
+                                    isTrend = _currentTrendTitle.value != null,
+                                    trendTitle = _currentTrendTitle.value
                                 )
                             )
                             onResult(true)

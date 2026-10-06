@@ -59,19 +59,29 @@ class VoiceManager @Inject constructor(
 
     private var onComplete: (() -> Unit)? = null
 
+    // Some OEM TTS engines still fire onDone for an utterance that was just
+    // stop()-ped instead of suppressing it — without this guard, that stale
+    // callback re-triggers the hands-free listen/speak loop even after the
+    // user pressed stop, which is exactly the "keeps talking" bug this guards.
+    @Volatile private var isStopped = false
+
     fun speak(text: String, onComplete: (() -> Unit)? = null) {
         if (isInitialized) {
+            isStopped = false
             this.onComplete = onComplete
             val params = android.os.Bundle()
             params.putString(TextToSpeech.Engine.KEY_PARAM_UTTERANCE_ID, "MistrealTTS")
             tts?.speak(text, TextToSpeech.QUEUE_FLUSH, params, "MistrealTTS")
-            
+
             tts?.setOnUtteranceProgressListener(object : android.speech.tts.UtteranceProgressListener() {
                 override fun onStart(utteranceId: String?) {}
                 override fun onDone(utteranceId: String?) {
-                    this@VoiceManager.onComplete?.invoke()
+                    if (!isStopped) this@VoiceManager.onComplete?.invoke()
                 }
                 override fun onError(utteranceId: String?) {}
+                override fun onStop(utteranceId: String?, interrupted: Boolean) {
+                    isStopped = true
+                }
             })
         }
     }
@@ -104,6 +114,8 @@ class VoiceManager @Inject constructor(
         }
 
     fun stop() {
+        isStopped = true
+        onComplete = null
         tts?.stop()
     }
 

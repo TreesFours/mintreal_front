@@ -15,21 +15,19 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.example.mistreal_mini.data.model.PlatformUpdate
 import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun DispatchCenterView(
     deviceId: String,
-    socialUpdates: List<PlatformUpdate>,
+    connectedSocials: List<String>,
     onPostToSocial: suspend (String, String, String, String) -> Boolean,
     snackbarHostState: SnackbarHostState
 ) {
     var content by remember { mutableStateOf("") }
     var selectedPlatforms by remember { mutableStateOf(setOf<String>()) }
     var postType by remember { mutableStateOf("post") }
-    val connectedSocials = socialUpdates.map { it.platform.lowercase() }
     var isPosting by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
     val scrollState = rememberScrollState()

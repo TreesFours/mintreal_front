@@ -199,6 +199,15 @@ class TacticalMapViewModel @Inject constructor(
                 }
             }
 
+            // No explicit screenshot was given (the normal case, since the one
+            // call site never passes thumbnailUri) — fetch a representative
+            // photo for the location instead. Already a stable public URL
+            // (CDN or our own Firebase-hosted copy), so it's stored as-is;
+            // AsyncImage displays a remote URL the same as a local path.
+            if (permanentPath == null) {
+                permanentPath = infoRepository.getLocationPhoto(label, lat, lon)
+            }
+
             savedIntelDao.insert(
                 SavedIntelEntity(
                     userId = userId,
@@ -258,8 +267,14 @@ class TacticalMapViewModel @Inject constructor(
         tacticalRepository.removeIntelItem(entry)
     }
 
-    fun fetchDiscoveryData(category: String, radius: Double) {
-        val coords = _mapFocusCoords.value ?: return
+    fun fetchDiscoveryData(category: String) {
+        // Search from the drawn tactical circle — its own center/radius, not
+        // _mapFocusCoords, which can diverge from it (e.g. a circle averaged
+        // from several selected pins never updates _mapFocusCoords). This is
+        // what makes the scan actually reflect "what's being checked."
+        val circle = tacticalCircle.value
+        val coords = circle?.let { it.latitude to it.longitude } ?: _mapFocusCoords.value ?: return
+        val radius = circle?.radius ?: 2000.0
         _isMapLoading.value = true
         _discoveryError.value = null
         viewModelScope.launch {
@@ -282,6 +297,10 @@ class TacticalMapViewModel @Inject constructor(
 
     fun clearDiscoveryCategory(category: String) {
         _discoveryResults.removeAll { it.category == category }
+    }
+
+    fun clearAllDiscoveryData() {
+        _discoveryResults.clear()
     }
 
     fun selectAmbiguousLocation(address: Address) {

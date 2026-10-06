@@ -38,10 +38,12 @@ import kotlinx.coroutines.launch
 @Composable
 fun SellerCommandScreen(
     onBack: () -> Unit,
+    onUpgradeClick: () -> Unit = {},
     viewModel: BusinessViewModel = hiltViewModel()
 ) {
     val myBusiness by viewModel.myBusiness.collectAsStateWithLifecycle()
     val isVerifying by viewModel.isVerifying.collectAsStateWithLifecycle()
+    val isPro by viewModel.isPro.collectAsStateWithLifecycle()
     val scope = rememberCoroutineScope()
 
     Scaffold(
@@ -67,6 +69,8 @@ fun SellerCommandScreen(
             InventoryManager(
                 business = myBusiness!!,
                 viewModel = viewModel,
+                isPro = isPro,
+                onUpgradeClick = onUpgradeClick,
                 modifier = Modifier.padding(padding)
             )
         }
@@ -147,36 +151,63 @@ fun BusinessRegistrationForm(
 fun InventoryManager(
     business: BusinessEntity,
     viewModel: BusinessViewModel,
+    isPro: Boolean = false,
+    onUpgradeClick: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val items by viewModel.getInventory(business.businessId).collectAsStateWithLifecycle(initialValue = emptyList())
     var showAddItem by remember { mutableStateOf(false) }
+    var showCreateAd by remember { mutableStateOf(false) }
+    val isCreatingAd by viewModel.isCreatingAd.collectAsStateWithLifecycle()
+    val snackbarHostState = remember { SnackbarHostState() }
+    val scope = rememberCoroutineScope()
 
-    Column(modifier = modifier.fillMaxSize().padding(16.dp)) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Column(modifier = Modifier.weight(1f)) {
-                Text(business.name.uppercase(), style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Black)
-                Text("Verified: ${java.text.SimpleDateFormat("HH:mm").format(business.verifiedTimestamp)} Today", color = Color(0xFF4CAF50), fontSize = 10.sp, fontWeight = FontWeight.Bold)
-            }
-            IconButton(onClick = { showAddItem = true }) {
-                Icon(Icons.Default.AddBox, "Add Item", tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(32.dp))
+    LaunchedEffect(Unit) {
+        viewModel.adCreationResult.collect { result ->
+            when (result) {
+                is com.example.mistreal_mini.data.Resource.Success -> {
+                    showCreateAd = false
+                    snackbarHostState.showSnackbar("Ad launched — it'll start cycling into rotation.")
+                }
+                is com.example.mistreal_mini.data.Resource.Error -> {
+                    snackbarHostState.showSnackbar(result.message ?: "Failed to launch ad")
+                }
+                else -> {}
             }
         }
+    }
 
-        Spacer(modifier = Modifier.height(16.dp))
-        Text("INTEL ASSETS (INVENTORY)", style = MaterialTheme.typography.labelSmall, color = Color.Gray)
-        
-        LazyVerticalGrid(
-            columns = GridCells.Fixed(2),
-            modifier = Modifier.weight(1f),
-            contentPadding = PaddingValues(vertical = 12.dp),
-            horizontalArrangement = Arrangement.spacedBy(12.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp)
-        ) {
-            items(items) { item ->
-                ItemTile(item)
+    Box(modifier = modifier.fillMaxSize()) {
+        Column(modifier = Modifier.fillMaxSize().padding(16.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(business.name.uppercase(), style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Black)
+                    Text("Verified: ${java.text.SimpleDateFormat("HH:mm").format(business.verifiedTimestamp)} Today", color = Color(0xFF4CAF50), fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                }
+                IconButton(onClick = { showCreateAd = true }) {
+                    Icon(Icons.Default.Campaign, "Launch Ad", tint = MaterialTheme.colorScheme.secondary, modifier = Modifier.size(28.dp))
+                }
+                IconButton(onClick = { showAddItem = true }) {
+                    Icon(Icons.Default.AddBox, "Add Item", tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(32.dp))
+                }
+            }
+
+            Spacer(modifier = Modifier.height(16.dp))
+            Text("INTEL ASSETS (INVENTORY)", style = MaterialTheme.typography.labelSmall, color = Color.Gray)
+
+            LazyVerticalGrid(
+                columns = GridCells.Fixed(2),
+                modifier = Modifier.weight(1f),
+                contentPadding = PaddingValues(vertical = 12.dp),
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                items(items) { item ->
+                    ItemTile(item)
+                }
             }
         }
+        SnackbarHost(hostState = snackbarHostState, modifier = Modifier.align(Alignment.BottomCenter))
     }
 
     if (showAddItem) {
@@ -185,6 +216,27 @@ fun InventoryManager(
             onAdd = { name, price, uri ->
                 viewModel.addInventoryItem(name, price, uri?.toString(), business.businessId)
                 showAddItem = false
+            }
+        )
+    }
+
+    if (showCreateAd) {
+        com.example.mistreal_mini.ui.business.components.CreateAdDialog(
+            isPro = isPro,
+            isSubmitting = isCreatingAd,
+            onDismiss = { showCreateAd = false },
+            onUpgradeClick = { showCreateAd = false; onUpgradeClick() },
+            onSubmit = { mediaType, durationSeconds, caption, targetUrl, videoUri, imageUris ->
+                viewModel.createAd(
+                    businessId = business.businessId,
+                    mediaType = mediaType,
+                    durationSeconds = durationSeconds,
+                    caption = caption,
+                    targetUrl = targetUrl.takeIf { it.isNotBlank() },
+                    ctaLabel = "Learn More",
+                    videoUri = videoUri,
+                    imageUris = imageUris.takeIf { it.isNotEmpty() }
+                )
             }
         )
     }

@@ -15,7 +15,10 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.draw.clip
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import coil.compose.AsyncImage
 import com.example.mistreal_mini.data.local.entity.SavedIntelEntity
 import com.example.mistreal_mini.ui.dashboard.TacticalMapViewModel
 
@@ -70,7 +73,11 @@ fun HistoryTabView(viewModel: TacticalMapViewModel) {
 }
 
 @Composable
-fun IntelTabView(viewModel: TacticalMapViewModel, savedIntel: List<SavedIntelEntity>) {
+fun IntelTabView(
+    viewModel: TacticalMapViewModel,
+    savedIntel: List<SavedIntelEntity>,
+    onDiscussIntel: (SavedIntelEntity) -> Unit = {}
+) {
     LazyColumn(modifier = Modifier.fillMaxSize()) {
         if (savedIntel.isNotEmpty()) {
             item {
@@ -78,11 +85,27 @@ fun IntelTabView(viewModel: TacticalMapViewModel, savedIntel: List<SavedIntelEnt
             }
             items(savedIntel) { intel ->
                 ListItem(
+                    leadingContent = {
+                        if (intel.thumbnailPath != null) {
+                            AsyncImage(
+                                model = intel.thumbnailPath,
+                                contentDescription = intel.label,
+                                modifier = Modifier.size(40.dp).clip(RoundedCornerShape(6.dp))
+                            )
+                        } else {
+                            Icon(Icons.Default.PinDrop, null, modifier = Modifier.size(24.dp), tint = Color.Gray)
+                        }
+                    },
                     headlineContent = { Text(intel.label.uppercase(), fontWeight = FontWeight.Bold, fontSize = 13.sp) },
                     supportingContent = { Text("${intel.type} • ${intel.groupName ?: "Individual"}", fontSize = 10.sp) },
                     trailingContent = {
-                        IconButton(onClick = { viewModel.deleteSavedIntel(intel.id) }) {
-                            Icon(Icons.Default.Delete, null, tint = Color.Red.copy(alpha = 0.6f), modifier = Modifier.size(16.dp))
+                        Row {
+                            IconButton(onClick = { onDiscussIntel(intel) }) {
+                                Icon(Icons.Default.Psychology, "Discuss with AI", tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(18.dp))
+                            }
+                            IconButton(onClick = { viewModel.deleteSavedIntel(intel.id) }) {
+                                Icon(Icons.Default.Delete, null, tint = Color.Red.copy(alpha = 0.6f), modifier = Modifier.size(16.dp))
+                            }
                         }
                     },
                     modifier = Modifier.clickable { viewModel.focusOnSavedIntel(intel) }
@@ -154,7 +177,7 @@ fun ScanTabView(viewModel: TacticalMapViewModel) {
         ) {
             categories.forEach { cat ->
                 AssistChip(
-                    onClick = { viewModel.fetchDiscoveryData(cat, 2000.0) },
+                    onClick = { viewModel.fetchDiscoveryData(cat) },
                     label = { Text(cat.uppercase(), fontSize = 9.sp) },
                     leadingIcon = { Icon(Icons.Default.Radar, null, modifier = Modifier.size(12.dp)) }
                 )
@@ -162,7 +185,7 @@ fun ScanTabView(viewModel: TacticalMapViewModel) {
         }
         Spacer(modifier = Modifier.height(16.dp))
         Button(
-            onClick = { viewModel.clearDiscoveryCategory("") /* should clear all */ },
+            onClick = { viewModel.clearAllDiscoveryData() },
             modifier = Modifier.fillMaxWidth(),
             colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error.copy(alpha = 0.7f))
         ) {
@@ -179,21 +202,32 @@ fun FlowRow(
     content: @Composable () -> Unit
 ) {
     androidx.compose.ui.layout.Layout(content = content, modifier = modifier) { measurables, constraints ->
-        val placeables = measurables.map { it.measure(constraints) }
-        var yPosition = 0
+        val itemConstraints = constraints.copy(minWidth = 0, minHeight = 0)
+        val placeables = measurables.map { it.measure(itemConstraints) }
+        val mainSpacingPx = mainAxisSpacing.roundToPx()
+        val crossSpacingPx = crossAxisSpacing.roundToPx()
+
         var xPosition = 0
+        var yPosition = 0
         var maxY = 0
-        
-        layout(constraints.maxWidth, constraints.maxHeight) {
-            placeables.forEach { placeable ->
-                if (xPosition + placeable.width > constraints.maxWidth) {
-                    xPosition = 0
-                    yPosition += maxY + crossAxisSpacing.roundToPx()
-                    maxY = 0
-                }
-                placeable.placeRelative(xPosition, yPosition)
-                xPosition += placeable.width + mainAxisSpacing.roundToPx()
-                maxY = maxOf(maxY, placeable.height)
+        val positions = ArrayList<Pair<Int, Int>>(placeables.size)
+
+        placeables.forEach { placeable ->
+            if (xPosition > 0 && xPosition + placeable.width > constraints.maxWidth) {
+                xPosition = 0
+                yPosition += maxY + crossSpacingPx
+                maxY = 0
+            }
+            positions.add(xPosition to yPosition)
+            xPosition += placeable.width + mainSpacingPx
+            maxY = maxOf(maxY, placeable.height)
+        }
+        val contentHeight = yPosition + maxY
+
+        layout(constraints.maxWidth, contentHeight.coerceIn(constraints.minHeight, constraints.maxHeight)) {
+            placeables.forEachIndexed { index, placeable ->
+                val (x, y) = positions[index]
+                placeable.placeRelative(x, y)
             }
         }
     }

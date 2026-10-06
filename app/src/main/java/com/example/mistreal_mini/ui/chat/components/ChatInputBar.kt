@@ -43,6 +43,7 @@ fun ChatInputBar(
     onConversationClick: () -> Unit,
     onScribeClick: () -> Unit,
     isLoading: Boolean,
+    isHandsFreeActive: Boolean = false,
     isScribing: Boolean = false,
     onClearScribe: () -> Unit = {},
     onSaveScribe: () -> Unit = {},
@@ -183,7 +184,7 @@ fun ChatInputBar(
                 
                 IconButton(onClick = onFileClick, modifier = Modifier.size(30.dp)) { Icon(Icons.Default.AttachFile, "Data Package", tint = iconTint, modifier = Modifier.size(16.dp)) }
                 IconButton(onClick = onVoiceClick, modifier = Modifier.size(30.dp)) { Icon(Icons.Default.Mic, "Voice Protocol", tint = iconTint, modifier = Modifier.size(16.dp)) }
-                IconButton(onClick = onConversationClick, modifier = Modifier.size(30.dp)) { Icon(Icons.Default.VoiceChat, "Conversation Mode", tint = iconTint, modifier = Modifier.size(16.dp)) }
+                IconButton(onClick = onConversationClick, modifier = Modifier.size(30.dp)) { Icon(Icons.Default.VoiceChat, "Conversation Mode", tint = if (isHandsFreeActive) Color.Green else iconTint, modifier = Modifier.size(16.dp)) }
                 IconButton(onClick = onScribeClick, modifier = Modifier.size(30.dp)) { Icon(Icons.Default.HistoryEdu, "Scribe Alpha", tint = if (isScribing) Color.Green else iconTint, modifier = Modifier.size(16.dp)) }
                 
                 if (onDraftClick != null) {
