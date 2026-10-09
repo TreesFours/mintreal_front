@@ -290,18 +290,32 @@ class MainActivity : FragmentActivity() {
                                     navController.popBackStack()
                                     navController.navigate("business_discovery") 
                                 },
-                                onNavigateToSellerCommand = { 
+                                onNavigateToSellerCommand = {
                                     navController.popBackStack()
-                                    navController.navigate("business_seller") 
+                                    navController.navigate("business_seller")
+                                },
+                                onNavigateToMeetups = {
+                                    navController.popBackStack()
+                                    navController.navigate("business_meetups")
                                 }
+                            )
+                        }
+                        composable("business_meetups") {
+                            com.example.mistreal_mini.ui.business.MeetupListScreen(
+                                onBack = { navController.popBackStack() }
                             )
                         }
                         composable("business_discovery") {
                             com.example.mistreal_mini.ui.business.DiscoverySearchScreen(
                                 onBack = { navController.popBackStack() },
                                 onContactBusiness = { business ->
-                                    chatViewModel.switchChat(business.name, "social") // Or relevant platform
-                                    navController.navigate("chat")
+                                    chatViewModel.contactBusiness(business) { success, error ->
+                                        if (success) {
+                                            navController.navigate("chat")
+                                        } else {
+                                            Toast.makeText(this@MainActivity, error ?: "Couldn't contact this business.", Toast.LENGTH_LONG).show()
+                                        }
+                                    }
                                 }
                             )
                         }

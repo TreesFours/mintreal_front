@@ -2,11 +2,16 @@ package com.example.mistreal_mini.data.repository
 
 import android.content.Context
 import android.provider.Settings
+import com.example.mistreal_mini.data.Resource
+import com.example.mistreal_mini.data.api.BusinessPlatformHandle
 import com.example.mistreal_mini.data.api.InfoApiService
 import com.example.mistreal_mini.data.api.RegisterBusinessRequest
+import com.example.mistreal_mini.data.api.RemoteBusiness
 import com.example.mistreal_mini.data.local.dao.business.BusinessDao
 import com.example.mistreal_mini.data.local.entity.BusinessEntity
 import com.example.mistreal_mini.data.local.entity.BusinessItemEntity
+import com.google.gson.Gson
+import com.google.gson.reflect.TypeToken
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.flow.Flow
 import timber.log.Timber
@@ -30,11 +35,25 @@ class BusinessRepository @Inject constructor(
         return businessDao.getBusinessByOwner(currentUserId)
     }
 
+    fun parseConnectedPlatforms(json: String?): List<BusinessPlatformHandle> {
+        if (json.isNullOrBlank()) return emptyList()
+        return try {
+            Gson().fromJson(json, object : TypeToken<List<BusinessPlatformHandle>>() {}.type) ?: emptyList()
+        } catch (e: Exception) {
+            Timber.w(e, "BusinessRepository: couldn't parse connectedPlatforms JSON")
+            emptyList()
+        }
+    }
+
+    fun serializeConnectedPlatforms(platforms: List<BusinessPlatformHandle>): String = Gson().toJson(platforms)
+
     suspend fun saveBusiness(business: BusinessEntity) {
         businessDao.upsertBusiness(business)
-        // Best-effort server mirror so Ad.businessId has something real to FK
-        // against — the local save above is the source of truth either way,
-        // so a network failure here must never block business registration.
+        // Best-effort server mirror — this is what makes the business
+        // discoverable/contactable by OTHER users at all; previously this
+        // mirror only ever carried name/logo/category, with no address,
+        // location or declared contact handles, so even when it worked the
+        // server copy wasn't useful for cross-device discovery yet.
         try {
             api.registerBusiness(
                 RegisterBusinessRequest(
@@ -42,8 +61,13 @@ class BusinessRepository @Inject constructor(
                     firebaseUid = authRepository.currentUser?.uid,
                     businessId = business.businessId,
                     name = business.name,
+                    description = business.description,
                     logoUrl = business.logoUrl,
-                    category = business.category
+                    category = business.category,
+                    address = business.address,
+                    latitude = business.latitude,
+                    longitude = business.longitude,
+                    connectedPlatforms = parseConnectedPlatforms(business.connectedPlatforms)
                 )
             )
         } catch (e: Exception) {
@@ -51,8 +75,33 @@ class BusinessRepository @Inject constructor(
         }
     }
 
+    /** Local-only cache of the owner's own business (used by SellerCommandScreen). */
     fun searchBusinesses(category: String, city: String): Flow<List<BusinessEntity>> {
         return businessDao.searchBusinesses(category, city)
+    }
+
+    /**
+     * The actual cross-device business directory — previously this didn't
+     * exist at all: /business only had a /register endpoint, so a business
+     * was only ever visible on the device that registered it.
+     */
+    suspend fun searchBusinessesRemote(category: String, city: String): Resource<List<RemoteBusiness>> {
+        return try {
+            val response = api.searchBusinessesRemote(category.takeIf { it != "All" }, city.takeIf { it.isNotBlank() })
+            if (response.success) Resource.Success(response.businesses ?: emptyList())
+            else Resource.Error(response.error ?: "Failed to search businesses")
+        } catch (e: Exception) {
+            Resource.Error(e.message ?: "Failed to search businesses")
+        }
+    }
+
+    suspend fun getBusinessDetail(businessId: String): Resource<com.example.mistreal_mini.data.api.BusinessDetailResponse> {
+        return try {
+            val response = api.getBusinessDetail(businessId)
+            if (response.success) Resource.Success(response) else Resource.Error(response.error ?: "Business not found")
+        } catch (e: Exception) {
+            Resource.Error(e.message ?: "Failed to load business")
+        }
     }
 
     suspend fun addInventoryItem(name: String, price: String?, imageUrl: String?, businessId: String) {

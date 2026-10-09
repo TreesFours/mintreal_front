@@ -179,6 +179,12 @@ class ChatViewModel @Inject constructor(
     private val _activeSocialContact = mutableStateOf<SocialContact?>(null)
     val activeSocialContact: State<SocialContact?> = _activeSocialContact
 
+    // Set only when this chat was opened via contactBusiness() below, so a
+    // meetup proposed from this chat can attribute to the right business's
+    // trust counter — cleared on any other chat switch.
+    private val _activeBusinessId = mutableStateOf<String?>(null)
+    val activeBusinessId: State<String?> = _activeBusinessId
+
     private val _currentTrendTitle = mutableStateOf<String?>(null)
     val currentTrendTitle: State<String?> = _currentTrendTitle
 
@@ -676,6 +682,7 @@ class ChatViewModel @Inject constructor(
     fun switchChat(partner: String, platform: String = "ai") {
         _currentChatPartner.value = partner
         _currentChatPartnerPlatform.value = platform
+        _activeBusinessId.value = null
         
         if (platform == "ai") {
             _isSocialChat.value = false
@@ -706,6 +713,73 @@ class ChatViewModel @Inject constructor(
             _activeSocialContact.value = contact
             _currentChatPartnerStatus.value = if (contact?.unreadCount ?: 0 > 0) "New Message" else "Active"
             fetchSocialHistory(partner, platform)
+        }
+    }
+
+    /**
+     * Opens a chat with a contact resolved directly (e.g. from a business's
+     * declared platform+handle via searchBusinessContact below) rather than
+     * looked up from the already-synced `_socialContacts` list — switchChat
+     * alone can't do this since it only ever matches against contacts
+     * that list already knows about.
+     */
+    private fun openResolvedContact(contact: com.example.mistreal_mini.data.api.SocialContact) {
+        _currentChatPartner.value = contact.name
+        _currentChatPartnerPlatform.value = contact.platform
+        _isSocialChat.value = true
+        _activeSocialContact.value = contact
+        _currentChatPartnerStatus.value = if (contact.unreadCount > 0) "New Message" else "Active"
+        viewModelScope.launch {
+            socialContactDao.upsert(
+                SocialContactEntity(
+                    contactId = contact.id,
+                    platform = contact.platform,
+                    name = contact.name,
+                    avatarUrl = contact.avatar,
+                    lastInteractionTime = System.currentTimeMillis(),
+                    isEmergency = false,
+                    platformUserId = contact.id
+                )
+            )
+        }
+        fetchSocialHistory(contact.name, contact.platform)
+    }
+
+    private val _isContactingBusiness = mutableStateOf(false)
+    val isContactingBusiness: State<Boolean> = _isContactingBusiness
+
+    /**
+     * "Contact Business" used to call switchChat(business.name, "social") —
+     * platform "social" can never match a real contact, so it silently fell
+     * through to chatting with the AI instead. This resolves the business's
+     * declared @handle (NOT an opaque contactId — see RemoteBusiness) into
+     * a real, DM-able contact via the same platform-username search the
+     * chat drawer already uses, then opens a genuine social chat with it.
+     */
+    fun contactBusiness(business: com.example.mistreal_mini.data.api.RemoteBusiness, onResult: (success: Boolean, error: String?) -> Unit) {
+        val target = business.connectedPlatforms.firstOrNull()
+        if (target == null) {
+            onResult(false, "${business.name} hasn't listed a way to contact them yet.")
+            return
+        }
+        _isContactingBusiness.value = true
+        viewModelScope.launch {
+            val deviceId = Settings.Secure.getString(context.contentResolver, Settings.Secure.ANDROID_ID)
+            val result = infoRepository.searchContacts(deviceId, target.platform, target.handle)
+            _isContactingBusiness.value = false
+            when (result) {
+                is Resource.Success -> {
+                    val match = result.data?.firstOrNull()
+                    if (match != null) {
+                        openResolvedContact(match)
+                        _activeBusinessId.value = business.businessId
+                        onResult(true, null)
+                    } else {
+                        onResult(false, "Couldn't find @${target.handle} on ${target.platform} — make sure your own ${target.platform} account is connected in Settings.")
+                    }
+                }
+                else -> onResult(false, "Couldn't reach ${target.platform} right now.")
+            }
         }
     }
 

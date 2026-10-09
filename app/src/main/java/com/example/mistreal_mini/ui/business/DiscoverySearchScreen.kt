@@ -23,19 +23,20 @@ import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import coil.compose.AsyncImage
-import com.example.mistreal_mini.data.local.entity.BusinessEntity
+import com.example.mistreal_mini.data.api.RemoteBusiness
 import com.example.mistreal_mini.ui.chat.ChatViewModel
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun DiscoverySearchScreen(
     onBack: () -> Unit,
-    onContactBusiness: (BusinessEntity) -> Unit,
+    onContactBusiness: (RemoteBusiness) -> Unit,
     viewModel: BusinessViewModel = hiltViewModel()
 ) {
     val selectedCategory by viewModel.selectedCategory.collectAsStateWithLifecycle()
     val searchQuery by viewModel.searchQuery.collectAsStateWithLifecycle()
     val results by viewModel.searchResults.collectAsStateWithLifecycle()
+    val isSearching by viewModel.isSearching.collectAsStateWithLifecycle()
 
     Scaffold(
         topBar = {
@@ -51,7 +52,7 @@ fun DiscoverySearchScreen(
             // Search Bar
             OutlinedTextField(
                 value = searchQuery,
-                onValueChange = { /* viewModel search query updated internally */ },
+                onValueChange = { viewModel.onSearchQueryChanged(it) },
                 modifier = Modifier.fillMaxWidth().padding(16.dp),
                 placeholder = { Text("Search city (e.g. Lagos, Abuja)...") },
                 leadingIcon = { Icon(Icons.Default.Search, null) },
@@ -64,17 +65,17 @@ fun DiscoverySearchScreen(
                 contentPadding = PaddingValues(horizontal = 16.dp),
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                items(BusinessCategories) { cat ->
+                items(listOf("All") + BusinessCategories) { cat ->
                     FilterChip(
                         selected = selectedCategory == cat,
-                        onClick = { /* Update viewmodel cat */ },
+                        onClick = { viewModel.onCategorySelected(cat) },
                         label = { Text(cat) }
                     )
                 }
             }
 
             Spacer(modifier = Modifier.height(16.dp))
-            
+
             // Mandatory Safety Protocol
             Surface(
                 color = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.3f),
@@ -88,13 +89,27 @@ fun DiscoverySearchScreen(
                 }
             }
 
-            LazyColumn(
-                modifier = Modifier.weight(1f),
-                contentPadding = PaddingValues(16.dp),
-                verticalArrangement = Arrangement.spacedBy(16.dp)
-            ) {
-                items(results) { business ->
-                    BusinessResultCard(business, onContact = { onContactBusiness(business) })
+            Spacer(modifier = Modifier.height(8.dp))
+
+            if (isSearching && results.isEmpty()) {
+                Box(modifier = Modifier.fillMaxWidth().padding(32.dp), contentAlignment = Alignment.Center) {
+                    CircularProgressIndicator()
+                }
+            } else if (results.isEmpty()) {
+                Text(
+                    "No businesses found for this category/city yet.",
+                    color = Color.Gray,
+                    modifier = Modifier.padding(32.dp)
+                )
+            } else {
+                LazyColumn(
+                    modifier = Modifier.weight(1f),
+                    contentPadding = PaddingValues(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(16.dp)
+                ) {
+                    items(results) { business ->
+                        BusinessResultCard(business, onContact = { onContactBusiness(business) })
+                    }
                 }
             }
         }
@@ -102,7 +117,7 @@ fun DiscoverySearchScreen(
 }
 
 @Composable
-fun BusinessResultCard(business: BusinessEntity, onContact: () -> Unit) {
+fun BusinessResultCard(business: RemoteBusiness, onContact: () -> Unit) {
     Card(
         modifier = Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(16.dp),
@@ -116,7 +131,15 @@ fun BusinessResultCard(business: BusinessEntity, onContact: () -> Unit) {
                 Spacer(modifier = Modifier.width(12.dp))
                 Column(modifier = Modifier.weight(1f)) {
                     Text(business.name, fontWeight = FontWeight.Bold)
-                    Text(business.address, style = MaterialTheme.typography.bodySmall, color = Color.Gray)
+                    Text(business.address ?: "", style = MaterialTheme.typography.bodySmall, color = Color.Gray)
+                    if (business.confirmedMeetupsCount > 0) {
+                        Text(
+                            "${business.confirmedMeetupsCount} confirmed meetup${if (business.confirmedMeetupsCount == 1) "" else "s"}",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = Color(0xFF4CAF50),
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
                 }
                 Surface(
                     color = Color(0xFF4CAF50).copy(alpha = 0.1f),

@@ -112,6 +112,24 @@ interface InfoApiService {
     @POST("api/business/register")
     suspend fun registerBusiness(@Body request: RegisterBusinessRequest): SocialActionResponse
 
+    @GET("api/business/search")
+    suspend fun searchBusinessesRemote(
+        @Query("category") category: String?,
+        @Query("city") city: String?
+    ): BusinessSearchResponse
+
+    @GET("api/business/{businessId}")
+    suspend fun getBusinessDetail(@Path("businessId") businessId: String): BusinessDetailResponse
+
+    @POST("api/meetups")
+    suspend fun proposeMeetup(@Body request: ProposeMeetupRequest): MeetupResponse
+
+    @GET("api/meetups")
+    suspend fun getMeetups(@Query("deviceId") deviceId: String): MeetupsListResponse
+
+    @POST("api/meetups/{id}/confirm")
+    suspend fun confirmMeetup(@Path("id") id: Int, @Body request: ConfirmMeetupRequest): MeetupConfirmResponse
+
     @Multipart
     @POST("api/ads")
     suspend fun createAd(
@@ -307,13 +325,103 @@ data class LocationPhotoResponse(
     val error: String? = null
 )
 
+data class BusinessPlatformHandle(val platform: String, val handle: String)
+
 data class RegisterBusinessRequest(
     val deviceId: String,
     val firebaseUid: String? = null,
     val businessId: String,
     val name: String,
+    val description: String? = null,
     val logoUrl: String? = null,
-    val category: String
+    val category: String,
+    val address: String? = null,
+    val latitude: Double? = null,
+    val longitude: Double? = null,
+    val connectedPlatforms: List<BusinessPlatformHandle> = emptyList()
+)
+
+// Server-side mirror of a business — distinct from the local Room
+// BusinessEntity (which stays the owner-device's own source of truth for
+// edits); this is what makes OTHER users' searches/profile views possible.
+data class RemoteBusiness(
+    val businessId: String,
+    val name: String,
+    val description: String? = null,
+    val category: String,
+    val address: String? = null,
+    val latitude: Double? = null,
+    val longitude: Double? = null,
+    val logoUrl: String? = null,
+    val connectedPlatforms: List<BusinessPlatformHandle> = emptyList(),
+    val confirmedMeetupsCount: Int = 0
+)
+
+data class BusinessSearchResponse(
+    val success: Boolean,
+    val businesses: List<RemoteBusiness>? = null,
+    val error: String? = null
+)
+
+data class BusinessDetailResponse(
+    val success: Boolean,
+    val business: RemoteBusiness? = null,
+    val confirmedMeetupsCount: Int = 0,
+    val error: String? = null
+)
+
+data class ProposeMeetupRequest(
+    val deviceId: String,
+    val firebaseUid: String? = null,
+    val businessId: String? = null,
+    val counterpartyPlatform: String? = null,
+    val counterpartyContactId: String? = null,
+    val latitude: Double,
+    val longitude: Double,
+    val addressLabel: String? = null,
+    val scheduledAt: String
+)
+
+data class Meetup(
+    val id: Int,
+    val businessId: String? = null,
+    val proposerDeviceId: String,
+    val counterpartyPlatform: String? = null,
+    val counterpartyContactId: String? = null,
+    val latitude: Double,
+    val longitude: Double,
+    val addressLabel: String? = null,
+    val scheduledAt: String,
+    val status: String, // "proposed" | "accepted" | "declined" | "completed"
+    val transactionToken: String
+)
+
+data class MeetupResponse(
+    val success: Boolean,
+    val meetup: Meetup? = null,
+    val error: String? = null
+)
+
+data class MeetupsListResponse(
+    val success: Boolean,
+    val meetups: List<Meetup>? = null,
+    val error: String? = null
+)
+
+data class ConfirmMeetupRequest(
+    val deviceId: String,
+    val latitude: Double,
+    val longitude: Double,
+    val outcome: String, // "success" | "failed"
+    val reasonIfFailed: String? = null,
+    val reviewText: String? = null,
+    val photoBase64: String? = null,
+    val photoMimeType: String? = null
+)
+
+data class MeetupConfirmResponse(
+    val success: Boolean,
+    val error: String? = null
 )
 
 // Public auto-escalation to real connected platforms is no longer a client

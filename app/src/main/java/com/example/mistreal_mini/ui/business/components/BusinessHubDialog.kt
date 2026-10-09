@@ -20,7 +20,8 @@ import com.example.mistreal_mini.ui.business.BusinessViewModel
 fun BusinessHubDialog(
     onDismiss: () -> Unit,
     onNavigateToDiscovery: () -> Unit,
-    onNavigateToSellerCommand: () -> Unit
+    onNavigateToSellerCommand: () -> Unit,
+    onNavigateToMeetups: () -> Unit = {}
 ) {
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -66,6 +67,21 @@ fun BusinessHubDialog(
                         Column {
                             Text("Tactical Shopfront", fontWeight = FontWeight.Bold)
                             Text("Register or manage your business intel.", fontSize = 10.sp, color = Color.Gray)
+                        }
+                    }
+                }
+
+                // MEETUPS
+                Card(
+                    modifier = Modifier.fillMaxWidth().clickable { onNavigateToMeetups() },
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.tertiaryContainer.copy(alpha = 0.4f))
+                ) {
+                    Row(modifier = Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Icon(Icons.Default.Handshake, null, tint = MaterialTheme.colorScheme.tertiary)
+                        Spacer(modifier = Modifier.width(16.dp))
+                        Column {
+                            Text("My Meetups", fontWeight = FontWeight.Bold)
+                            Text("Proposed, accepted, and confirmed in-person meetups.", fontSize = 10.sp, color = Color.Gray)
                         }
                     }
                 }

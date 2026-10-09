@@ -96,6 +96,7 @@ fun ChatScreen(
 
     var showContactList by remember { mutableStateOf(false) }
     var showNukeConfirm by remember { mutableStateOf(false) }
+    var showProposeMeetup by remember { mutableStateOf(false) }
     var insightContext by remember { mutableStateOf<String?>(null) }
     var showInsightPopup by remember { mutableStateOf(false) }
     var screenshotUri by remember { mutableStateOf<Uri?>(null) }
@@ -296,6 +297,13 @@ fun ChatScreen(
                                 }
                             }) {
                                 Icon(Icons.Default.VideoCall, "Open in Messenger to call", tint = Color(0xFF0084FF))
+                            }
+                        }
+                        // A scheduled in-person meetup only makes sense with a real
+                        // person/business on the other end of the chat, not the AI.
+                        if (viewModel.isSocialChat.value && viewModel.activeSocialContact.value != null) {
+                            IconButton(onClick = { showProposeMeetup = true }) {
+                                Icon(Icons.Default.Handshake, "Propose Meetup", tint = MaterialTheme.colorScheme.tertiary)
                             }
                         }
                         if (viewModel.currentTrendTitle.value != null) {
@@ -573,6 +581,17 @@ fun ChatScreen(
                         }
                     }
                 }
+            }
+
+            if (showProposeMeetup) {
+                val contact = viewModel.activeSocialContact.value
+                com.example.mistreal_mini.ui.business.ProposeMeetupDialog(
+                    businessId = viewModel.activeBusinessId.value,
+                    counterpartyPlatform = contact?.platform,
+                    counterpartyContactId = contact?.id,
+                    onDismiss = { showProposeMeetup = false },
+                    onProposed = { showProposeMeetup = false }
+                )
             }
 
             if (showNukeConfirm) {

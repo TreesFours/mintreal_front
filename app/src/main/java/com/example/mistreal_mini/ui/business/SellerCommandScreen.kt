@@ -59,8 +59,8 @@ fun SellerCommandScreen(
         if (myBusiness == null) {
             BusinessRegistrationForm(
                 isVerifying = isVerifying,
-                onRegister = { name, desc, cat, addr, lat, lon ->
-                    viewModel.registerBusiness(name, desc, cat, addr, lat, lon)
+                onRegister = { name, desc, cat, addr, lat, lon, platforms ->
+                    viewModel.registerBusiness(name, desc, cat, addr, lat, lon, platforms)
                 },
                 onVerifyLocation = { viewModel.verifyCurrentLocation() },
                 modifier = Modifier.padding(padding)
@@ -80,7 +80,7 @@ fun SellerCommandScreen(
 @Composable
 fun BusinessRegistrationForm(
     isVerifying: Boolean,
-    onRegister: (String, String, String, String, Double, Double) -> Unit,
+    onRegister: (String, String, String, String, Double, Double, List<com.example.mistreal_mini.data.api.BusinessPlatformHandle>) -> Unit,
     onVerifyLocation: suspend () -> Location?,
     modifier: Modifier = Modifier
 ) {
@@ -89,6 +89,7 @@ fun BusinessRegistrationForm(
     var category by remember { mutableStateOf(BusinessCategories[0]) }
     var address by remember { mutableStateOf("") }
     var verifiedLoc by remember { mutableStateOf<Location?>(null) }
+    var platforms by remember { mutableStateOf(listOf<com.example.mistreal_mini.data.api.BusinessPlatformHandle>()) }
     val scope = rememberCoroutineScope()
 
     Column(
@@ -134,15 +135,69 @@ fun BusinessRegistrationForm(
             Text("Coordinates Secured: ${verifiedLoc!!.latitude}, ${verifiedLoc!!.longitude}", style = MaterialTheme.typography.labelSmall, color = Color.Gray)
         }
 
+        Text("Where customers can message you", style = MaterialTheme.typography.labelMedium)
+        Text(
+            "A public @handle per platform — not a login. A customer resolves it to a real DM themselves when they tap Contact.",
+            style = MaterialTheme.typography.labelSmall,
+            color = Color.Gray
+        )
+        ConnectedPlatformsEditor(platforms = platforms, onChange = { platforms = it })
+
         Spacer(modifier = Modifier.weight(1f))
 
         Button(
-            onClick = { onRegister(name, desc, category, address, verifiedLoc?.latitude ?: 0.0, verifiedLoc?.longitude ?: 0.0) },
+            onClick = { onRegister(name, desc, category, address, verifiedLoc?.latitude ?: 0.0, verifiedLoc?.longitude ?: 0.0, platforms) },
             modifier = Modifier.fillMaxWidth().height(56.dp),
             enabled = name.isNotBlank() && verifiedLoc != null,
             shape = RoundedCornerShape(12.dp)
         ) {
             Text("SECURE REGISTRATION", fontWeight = FontWeight.Bold)
+        }
+    }
+}
+
+private val BUSINESS_CONTACT_PLATFORMS = listOf(
+    "instagram", "facebook", "whatsapp", "twitter", "telegram", "linkedin", "reddit", "discord"
+)
+
+@Composable
+fun ConnectedPlatformsEditor(
+    platforms: List<com.example.mistreal_mini.data.api.BusinessPlatformHandle>,
+    onChange: (List<com.example.mistreal_mini.data.api.BusinessPlatformHandle>) -> Unit
+) {
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        platforms.forEachIndexed { index, entry ->
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                var menuExpanded by remember { mutableStateOf(false) }
+                Box {
+                    OutlinedButton(onClick = { menuExpanded = true }) { Text(entry.platform) }
+                    DropdownMenu(expanded = menuExpanded, onDismissRequest = { menuExpanded = false }) {
+                        BUSINESS_CONTACT_PLATFORMS.forEach { p ->
+                            DropdownMenuItem(text = { Text(p) }, onClick = {
+                                onChange(platforms.toMutableList().also { it[index] = entry.copy(platform = p) })
+                                menuExpanded = false
+                            })
+                        }
+                    }
+                }
+                OutlinedTextField(
+                    value = entry.handle,
+                    onValueChange = { newHandle ->
+                        onChange(platforms.toMutableList().also { it[index] = entry.copy(handle = newHandle) })
+                    },
+                    modifier = Modifier.weight(1f),
+                    placeholder = { Text("@handle") },
+                    singleLine = true
+                )
+                IconButton(onClick = { onChange(platforms.toMutableList().also { it.removeAt(index) }) }) {
+                    Icon(Icons.Default.Close, null, tint = Color.Red.copy(alpha = 0.6f))
+                }
+            }
+        }
+        TextButton(onClick = { onChange(platforms + com.example.mistreal_mini.data.api.BusinessPlatformHandle(BUSINESS_CONTACT_PLATFORMS[0], "")) }) {
+            Icon(Icons.Default.Add, null, modifier = Modifier.size(16.dp))
+            Spacer(modifier = Modifier.width(4.dp))
+            Text("ADD PLATFORM")
         }
     }
 }
@@ -158,6 +213,7 @@ fun InventoryManager(
     val items by viewModel.getInventory(business.businessId).collectAsStateWithLifecycle(initialValue = emptyList())
     var showAddItem by remember { mutableStateOf(false) }
     var showCreateAd by remember { mutableStateOf(false) }
+    var showEditPlatforms by remember { mutableStateOf(false) }
     val isCreatingAd by viewModel.isCreatingAd.collectAsStateWithLifecycle()
     val snackbarHostState = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
@@ -184,6 +240,9 @@ fun InventoryManager(
                     Text(business.name.uppercase(), style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Black)
                     Text("Verified: ${java.text.SimpleDateFormat("HH:mm").format(business.verifiedTimestamp)} Today", color = Color(0xFF4CAF50), fontSize = 10.sp, fontWeight = FontWeight.Bold)
                 }
+                IconButton(onClick = { showEditPlatforms = true }) {
+                    Icon(Icons.Default.Link, "Edit Contact Platforms", tint = MaterialTheme.colorScheme.tertiary, modifier = Modifier.size(24.dp))
+                }
                 IconButton(onClick = { showCreateAd = true }) {
                     Icon(Icons.Default.Campaign, "Launch Ad", tint = MaterialTheme.colorScheme.secondary, modifier = Modifier.size(28.dp))
                 }
@@ -208,6 +267,31 @@ fun InventoryManager(
             }
         }
         SnackbarHost(hostState = snackbarHostState, modifier = Modifier.align(Alignment.BottomCenter))
+    }
+
+    if (showEditPlatforms) {
+        var editedPlatforms by remember { mutableStateOf(emptyList<com.example.mistreal_mini.data.api.BusinessPlatformHandle>()) }
+        LaunchedEffect(business.connectedPlatforms) {
+            editedPlatforms = try {
+                if (business.connectedPlatforms.isNullOrBlank()) emptyList()
+                else com.google.gson.Gson().fromJson(
+                    business.connectedPlatforms,
+                    object : com.google.gson.reflect.TypeToken<List<com.example.mistreal_mini.data.api.BusinessPlatformHandle>>() {}.type
+                )
+            } catch (e: Exception) { emptyList() }
+        }
+        AlertDialog(
+            onDismissRequest = { showEditPlatforms = false },
+            title = { Text("Contact Platforms") },
+            text = { ConnectedPlatformsEditor(platforms = editedPlatforms, onChange = { editedPlatforms = it }) },
+            confirmButton = {
+                Button(onClick = {
+                    viewModel.updateConnectedPlatforms(business, editedPlatforms)
+                    showEditPlatforms = false
+                }) { Text("Save") }
+            },
+            dismissButton = { TextButton(onClick = { showEditPlatforms = false }) { Text("Cancel") } }
+        )
     }
 
     if (showAddItem) {

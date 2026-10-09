@@ -4,6 +4,9 @@ import android.net.Uri
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.mistreal_mini.data.Resource
+import com.example.mistreal_mini.data.api.BusinessDetailResponse
+import com.example.mistreal_mini.data.api.BusinessPlatformHandle
+import com.example.mistreal_mini.data.api.RemoteBusiness
 import com.example.mistreal_mini.data.local.entity.BusinessEntity
 import com.example.mistreal_mini.data.local.entity.BusinessItemEntity
 import com.example.mistreal_mini.data.local.PreferenceManager
@@ -60,15 +63,51 @@ class BusinessViewModel @Inject constructor(
     private val _searchQuery = MutableStateFlow("")
     val searchQuery = _searchQuery.asStateFlow()
 
-    private val _selectedCategory = MutableStateFlow("Market")
+    private val _selectedCategory = MutableStateFlow("All")
     val selectedCategory = _selectedCategory.asStateFlow()
 
-    val searchResults: StateFlow<List<BusinessEntity>> = _selectedCategory
-        .combine(_searchQuery) { cat, query ->
-            repository.searchBusinesses(cat, query).first()
+    private val _isSearching = MutableStateFlow(false)
+    val isSearching = _isSearching.asStateFlow()
+
+    // Previously this only ever queried the local Room cache — meaning a
+    // user could only ever see businesses THEY registered on THIS device.
+    // Now a real cross-device directory (businessRoutes.ts's /search).
+    val searchResults: StateFlow<List<RemoteBusiness>> = _selectedCategory
+        .combine(_searchQuery) { cat, query -> cat to query }
+        .mapLatest { (cat, query) ->
+            _isSearching.value = true
+            val result = repository.searchBusinessesRemote(cat, query)
+            _isSearching.value = false
+            (result as? Resource.Success)?.data ?: emptyList()
         }.stateIn(viewModelScope, SharingStarted.Lazily, emptyList())
 
-    fun registerBusiness(name: String, desc: String, category: String, address: String, lat: Double, lon: Double) {
+    fun onSearchQueryChanged(query: String) {
+        _searchQuery.value = query
+    }
+
+    fun onCategorySelected(category: String) {
+        _selectedCategory.value = category
+    }
+
+    private val _businessDetail = MutableStateFlow<BusinessDetailResponse?>(null)
+    val businessDetail = _businessDetail.asStateFlow()
+
+    fun fetchBusinessDetail(businessId: String) {
+        viewModelScope.launch {
+            val result = repository.getBusinessDetail(businessId)
+            _businessDetail.value = (result as? Resource.Success)?.data
+        }
+    }
+
+    fun registerBusiness(
+        name: String,
+        desc: String,
+        category: String,
+        address: String,
+        lat: Double,
+        lon: Double,
+        connectedPlatforms: List<BusinessPlatformHandle> = emptyList()
+    ) {
         viewModelScope.launch {
             val business = BusinessEntity(
                 businessId = "bus_${System.currentTimeMillis()}",
@@ -82,9 +121,16 @@ class BusinessViewModel @Inject constructor(
                 logoUrl = null,
                 ownerImageUrl = null,
                 verifiedTimestamp = System.currentTimeMillis(),
-                connectedPlatforms = null
+                connectedPlatforms = repository.serializeConnectedPlatforms(connectedPlatforms)
             )
             repository.saveBusiness(business)
+        }
+    }
+
+    /** Lets an existing business owner add/edit the public handles customers can reach them on. */
+    fun updateConnectedPlatforms(business: BusinessEntity, platforms: List<BusinessPlatformHandle>) {
+        viewModelScope.launch {
+            repository.saveBusiness(business.copy(connectedPlatforms = repository.serializeConnectedPlatforms(platforms)))
         }
     }
 
