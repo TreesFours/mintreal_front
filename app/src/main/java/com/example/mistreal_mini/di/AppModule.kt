@@ -112,4 +112,9 @@ object AppModule {
     fun provideBankDao(db: MistrealDatabase): com.example.mistreal_mini.data.local.dao.BankDao {
         return db.bankDao()
     }
+
+    @Provides
+    fun provideVerifiedFaceDao(db: MistrealDatabase): com.example.mistreal_mini.data.local.dao.VerifiedFaceDao {
+        return db.verifiedFaceDao()
+    }
 }

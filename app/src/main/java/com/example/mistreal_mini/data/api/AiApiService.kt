@@ -20,6 +20,7 @@ interface AiApiService {
         @Part("deviceId") deviceId: RequestBody?,
         @Part("firebaseUid") firebaseUid: RequestBody?,
         @Part images: List<MultipartBody.Part>?,
+        @Part("imageRoles") imageRoles: RequestBody?,
         @Part audio: MultipartBody.Part?,
         @Part video: MultipartBody.Part?
     ): ChatResponse

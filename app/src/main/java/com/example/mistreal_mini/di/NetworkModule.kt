@@ -110,4 +110,10 @@ object NetworkModule {
     fun provideAiProviderApiService(retrofit: Retrofit): AiProviderApiService {
         return retrofit.create(AiProviderApiService::class.java)
     }
+
+    @Provides
+    @Singleton
+    fun provideMarketApiService(retrofit: Retrofit): com.example.mistreal_mini.data.api.MarketApiService {
+        return retrofit.create(com.example.mistreal_mini.data.api.MarketApiService::class.java)
+    }
 }

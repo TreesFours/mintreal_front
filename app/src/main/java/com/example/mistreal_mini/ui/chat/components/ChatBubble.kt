@@ -67,6 +67,22 @@ fun ChatBubble(
         ) {
             SelectionContainer {
                 Column(modifier = Modifier.padding(12.dp)) {
+                    if (message.provider?.contains("face-swap") == true && (message.type == "image" || message.type == "video")) {
+                        Surface(
+                            color = Color(0xFFB8860B).copy(alpha = 0.2f),
+                            shape = RoundedCornerShape(4.dp),
+                            modifier = Modifier.padding(bottom = 6.dp)
+                        ) {
+                            Text(
+                                "AI FACE-EDITED",
+                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                                style = MaterialTheme.typography.labelSmall,
+                                fontWeight = FontWeight.Black,
+                                fontSize = 9.sp,
+                                color = Color(0xFFB8860B)
+                            )
+                        }
+                    }
                     if (message.type == "video" || message.attachmentUrl?.endsWith(".mp4") == true) {
                         message.attachmentUrl?.let { url ->
                             VideoPlayer(
@@ -253,7 +269,7 @@ fun ChatBubble(
                         var showSendToContactDialog by remember { mutableStateOf(false) }
 
                         DropdownMenu(expanded = showMenu, onDismissRequest = { showMenu = false }) {
-                            if (message.type == "image") {
+                            if (message.type == "image" || message.type == "video") {
                                 val imageUri = message.attachmentPaths?.firstOrNull() ?: message.attachmentUrl
                                 if (imageUri != null) {
                                     DropdownMenuItem(
@@ -335,11 +351,17 @@ fun ChatBubble(
                         
                         Spacer(modifier = Modifier.width(4.dp))
                         
+                        val isReadingThis = viewModel.currentlyReadingContent.value == message.content
                         IconButton(
                             onClick = { onReadAloud(message.content, InteractionMode.SINGLE) },
                             modifier = Modifier.size(24.dp)
                         ) {
-                            Icon(Icons.Default.Hearing, "Audio", modifier = Modifier.size(14.dp), tint = textColor.copy(alpha = 0.5f))
+                            Icon(
+                                if (isReadingThis) Icons.Default.VolumeUp else Icons.Default.Hearing,
+                                if (isReadingThis) "Stop reading" else "Read aloud",
+                                modifier = Modifier.size(14.dp),
+                                tint = if (isReadingThis) MaterialTheme.colorScheme.primary else textColor.copy(alpha = 0.5f)
+                            )
                         }
                         
                         Spacer(modifier = Modifier.width(4.dp))

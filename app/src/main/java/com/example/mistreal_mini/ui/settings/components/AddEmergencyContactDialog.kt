@@ -14,9 +14,17 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.example.mistreal_mini.data.api.EmergencyContact
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.mistreal_mini.ui.settings.SettingsViewModel
 
+/**
+ * Only sends an invite now — the contact must confirm/decline via the
+ * link before ever becoming a real, alert-receiving emergency contact (see
+ * emergencyRoutes.ts). "Phone" was dropped as a channel: no SMS provider
+ * exists anywhere in this app, so those contacts were previously stored but
+ * never actually reachable. Email replaces it — a channel the backend can
+ * genuinely deliver on via the existing Gmail SMTP sender.
+ */
 @Composable
 fun AddEmergencyContactDialog(
     viewModel: SettingsViewModel,
@@ -25,26 +33,33 @@ fun AddEmergencyContactDialog(
     var selectedTab by remember { mutableIntStateOf(0) }
     var searchQuery by remember { mutableStateOf("") }
     var manualName by remember { mutableStateOf("") }
-    var manualPhone by remember { mutableStateOf("") }
-    
+    var manualEmail by remember { mutableStateOf("") }
+
     val socialContacts by viewModel.recentSocialContacts.collectAsState(initial = emptyList())
+    val isSaving by viewModel.isSavingEmergencyContact.collectAsStateWithLifecycle()
 
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text("Add Emergency Contact") },
         text = {
             Column(modifier = Modifier.fillMaxWidth().heightIn(max = 400.dp)) {
+                Text(
+                    "They'll get a link to confirm or decline — they won't receive any real alert until they do.",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = Color.Gray
+                )
+                Spacer(modifier = Modifier.height(12.dp))
                 TabRow(selectedTabIndex = selectedTab) {
                     Tab(selected = selectedTab == 0, onClick = { selectedTab = 0 }) {
                         Text("Socials", modifier = Modifier.padding(8.dp))
                     }
                     Tab(selected = selectedTab == 1, onClick = { selectedTab = 1 }) {
-                        Text("Phone", modifier = Modifier.padding(8.dp))
+                        Text("Email", modifier = Modifier.padding(8.dp))
                     }
                 }
-                
+
                 Spacer(modifier = Modifier.height(16.dp))
-                
+
                 if (selectedTab == 0) {
                     OutlinedTextField(
                         value = searchQuery,
@@ -54,9 +69,9 @@ fun AddEmergencyContactDialog(
                         leadingIcon = { Icon(Icons.Default.Search, null) },
                         singleLine = true
                     )
-                    
+
                     Spacer(modifier = Modifier.height(8.dp))
-                    
+
                     LazyColumn(modifier = Modifier.weight(1f)) {
                         val filtered = socialContacts.filter { it.name.contains(searchQuery, ignoreCase = true) }
                         if (filtered.isEmpty()) {
@@ -66,12 +81,13 @@ fun AddEmergencyContactDialog(
                                 ListItem(
                                     headlineContent = { Text(contact.name) },
                                     supportingContent = { Text(contact.platform) },
-                                    modifier = Modifier.clickable { 
-                                        viewModel.addEmergencyContact(EmergencyContact(
+                                    modifier = Modifier.clickable {
+                                        viewModel.addEmergencyContact(
                                             name = contact.name,
-                                            type = "social",
-                                            value = "${contact.platform}:${contact.contactId}"
-                                        ))
+                                            channel = "platform",
+                                            platform = contact.platform,
+                                            platformContactId = contact.contactId
+                                        )
                                         onDismiss()
                                     }
                                 )
@@ -87,27 +103,28 @@ fun AddEmergencyContactDialog(
                             modifier = Modifier.fillMaxWidth()
                         )
                         OutlinedTextField(
-                            value = manualPhone,
-                            onValueChange = { manualPhone = it },
-                            label = { Text("Phone Number") },
+                            value = manualEmail,
+                            onValueChange = { manualEmail = it },
+                            label = { Text("Email Address") },
                             modifier = Modifier.fillMaxWidth(),
-                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Phone)
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email)
                         )
                         Button(
                             onClick = {
-                                if (manualName.isNotBlank() && manualPhone.isNotBlank()) {
-                                    viewModel.addEmergencyContact(EmergencyContact(
+                                if (manualName.isNotBlank() && manualEmail.isNotBlank()) {
+                                    viewModel.addEmergencyContact(
                                         name = manualName,
-                                        type = "phone",
-                                        value = manualPhone
-                                    ))
+                                        channel = "email",
+                                        email = manualEmail
+                                    )
                                     onDismiss()
                                 }
                             },
                             modifier = Modifier.fillMaxWidth(),
-                            enabled = manualName.isNotBlank() && manualPhone.isNotBlank()
+                            enabled = !isSaving && manualName.isNotBlank() && manualEmail.isNotBlank()
                         ) {
-                            Text("Secure Emergency Contact")
+                            if (isSaving) CircularProgressIndicator(modifier = Modifier.size(18.dp), color = Color.White)
+                            else Text("Send Confirmation Request")
                         }
                     }
                 }

@@ -5,7 +5,6 @@ import android.speech.tts.Voice
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import androidx.compose.runtime.State
-import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import com.example.mistreal_mini.data.api.EmergencyContact
 import com.example.mistreal_mini.data.local.PreferenceManager
@@ -28,6 +27,8 @@ class SettingsViewModel @Inject constructor(
     private val infoRepository: InfoRepository,
     private val socialContactDao: SocialContactDao,
     private val bankDao: com.example.mistreal_mini.data.local.dao.BankDao,
+    private val marketRepository: com.example.mistreal_mini.data.repository.MarketRepository,
+    private val verifiedFaceRepository: com.example.mistreal_mini.data.repository.VerifiedFaceRepository,
     private val updateUserSettingsUseCase: UpdateUserSettingsUseCase,
     @dagger.hilt.android.qualifiers.ApplicationContext private val context: android.content.Context
 ) : ViewModel() {
@@ -101,8 +102,15 @@ class SettingsViewModel @Inject constructor(
     private val _isSavingByok = MutableStateFlow(false)
     val isSavingByok = _isSavingByok.asStateFlow()
 
-    private val _emergencyContacts = mutableStateListOf<EmergencyContact>()
-    val emergencyContacts: List<EmergencyContact> = _emergencyContacts
+    // Backend-synced now (was purely local in-memory before — never even
+    // reloaded on screen reopen). Each contact must confirm/decline via the
+    // link sent to them before `status` leaves "pending"; see
+    // emergencyRoutes.ts.
+    private val _emergencyContacts = MutableStateFlow<List<EmergencyContact>>(emptyList())
+    val emergencyContacts: StateFlow<List<EmergencyContact>> = _emergencyContacts.asStateFlow()
+
+    private val _isSavingEmergencyContact = MutableStateFlow(false)
+    val isSavingEmergencyContact: StateFlow<Boolean> = _isSavingEmergencyContact.asStateFlow()
 
     val recentSocialContacts = socialContactDao.getRecentContacts()
     val allBankLinks = bankDao.getAllBanks()
@@ -149,6 +157,7 @@ class SettingsViewModel @Inject constructor(
     private val gson = Gson()
 
     init {
+        fetchEmergencyContacts()
         viewModelScope.launch {
             preferenceManager.guardianEnabled.collect { _guardianEnabled.value = it }
         }
@@ -210,26 +219,41 @@ class SettingsViewModel @Inject constructor(
         }
     }
 
+    // Drives the boot screen's "Loading your settings..." line — true once every
+    // await below has settled (success or not), not just once kicked off.
+    private val _settingsBootLoaded = mutableStateOf(false)
+    val settingsBootLoaded: State<Boolean> = _settingsBootLoaded
+
     // Network-backed loads deferred out of init{} — see ChatViewModel.onAuthenticated()
     // for why: these used to fire before the splash/auth/biometric gate resolved.
     fun onAuthenticated() {
-        fetchByokStatus()
-        fetchByokVideoStatus()
-        fetchMediaProviderConfigs("image_gen")
-        fetchMediaProviderConfigs("video_gen")
-        fetchAppConfig()
+        viewModelScope.launch {
+            kotlinx.coroutines.coroutineScope {
+                launch { fetchByokStatusAwait() }
+                launch { fetchByokVideoStatusAwait() }
+                launch { fetchMediaProviderConfigsAwait("image_gen") }
+                launch { fetchMediaProviderConfigsAwait("video_gen") }
+                launch { fetchAppConfigAwait() }
+            }
+            _settingsBootLoaded.value = true
+        }
+        fetchMarketWatchlist()
+        fetchMarketAlerts()
+        fetchBankChannels()
     }
 
     private fun fetchAppConfig() {
-        viewModelScope.launch {
-            when (val result = infoRepository.getAppConfig()) {
-                is Resource.Success -> {
-                    result.data?.let { config ->
-                        _freePlatformLimit.value = config.freePlatformLimit
-                    }
+        viewModelScope.launch { fetchAppConfigAwait() }
+    }
+
+    private suspend fun fetchAppConfigAwait() {
+        when (val result = infoRepository.getAppConfig()) {
+            is Resource.Success -> {
+                result.data?.let { config ->
+                    _freePlatformLimit.value = config.freePlatformLimit
                 }
-                else -> {}
             }
+            else -> {}
         }
     }
 
@@ -255,11 +279,13 @@ class SettingsViewModel @Inject constructor(
     }
 
     fun fetchByokStatus() {
-        viewModelScope.launch {
-            when (val result = infoRepository.getByokStatus()) {
-                is Resource.Success -> _byokStatus.value = result.data
-                else -> {}
-            }
+        viewModelScope.launch { fetchByokStatusAwait() }
+    }
+
+    private suspend fun fetchByokStatusAwait() {
+        when (val result = infoRepository.getByokStatus()) {
+            is Resource.Success -> _byokStatus.value = result.data
+            else -> {}
         }
     }
 
@@ -302,11 +328,13 @@ class SettingsViewModel @Inject constructor(
     val isSavingByokVideo = _isSavingByokVideo.asStateFlow()
 
     fun fetchByokVideoStatus() {
-        viewModelScope.launch {
-            when (val result = infoRepository.getByokVideoStatus()) {
-                is Resource.Success -> _byokVideoStatus.value = result.data
-                else -> {}
-            }
+        viewModelScope.launch { fetchByokVideoStatusAwait() }
+    }
+
+    private suspend fun fetchByokVideoStatusAwait() {
+        when (val result = infoRepository.getByokVideoStatus()) {
+            is Resource.Success -> _byokVideoStatus.value = result.data
+            else -> {}
         }
     }
 
@@ -355,13 +383,15 @@ class SettingsViewModel @Inject constructor(
     val isSavingMediaProvider = _isSavingMediaProvider.asStateFlow()
 
     fun fetchMediaProviderConfigs(capability: String) {
-        viewModelScope.launch {
-            when (val result = infoRepository.getMediaProviderConfigs(capability)) {
-                is Resource.Success -> {
-                    if (capability == "image_gen") _imageGenConfigs.value = result.data else _videoGenConfigs.value = result.data
-                }
-                else -> {}
+        viewModelScope.launch { fetchMediaProviderConfigsAwait(capability) }
+    }
+
+    private suspend fun fetchMediaProviderConfigsAwait(capability: String) {
+        when (val result = infoRepository.getMediaProviderConfigs(capability)) {
+            is Resource.Success -> {
+                if (capability == "image_gen") _imageGenConfigs.value = result.data else _videoGenConfigs.value = result.data
             }
+            else -> {}
         }
     }
 
@@ -400,13 +430,128 @@ class SettingsViewModel @Inject constructor(
         }
     }
 
+    // --- Market Watch & Alerts ---
+    private val _marketWatchlist = MutableStateFlow<List<com.example.mistreal_mini.data.api.MarketQuote>>(emptyList())
+    val marketWatchlist = _marketWatchlist.asStateFlow()
+
+    private val _marketAlerts = MutableStateFlow<List<com.example.mistreal_mini.data.api.MarketAlert>>(emptyList())
+    val marketAlerts = _marketAlerts.asStateFlow()
+
+    private val _isSavingMarketAlert = MutableStateFlow(false)
+    val isSavingMarketAlert = _isSavingMarketAlert.asStateFlow()
+
+    fun fetchMarketWatchlist() {
+        viewModelScope.launch {
+            when (val result = marketRepository.getWatchlist()) {
+                is Resource.Success -> _marketWatchlist.value = result.data ?: emptyList()
+                else -> {}
+            }
+        }
+    }
+
+    fun fetchMarketAlerts() {
+        viewModelScope.launch {
+            when (val result = marketRepository.getAlerts()) {
+                is Resource.Success -> _marketAlerts.value = result.data ?: emptyList()
+                else -> {}
+            }
+        }
+    }
+
+    fun addMarketAlert(symbol: String, assetClass: String, direction: String, targetPrice: Double) {
+        viewModelScope.launch {
+            _isSavingMarketAlert.value = true
+            when (val result = marketRepository.createAlert(symbol, assetClass, direction, targetPrice)) {
+                is Resource.Success -> {
+                    fetchMarketAlerts()
+                    _saveSuccess.emit(Unit)
+                }
+                is Resource.Error -> _errorEvent.emit(result.message ?: "Failed to create alert")
+                else -> {}
+            }
+            _isSavingMarketAlert.value = false
+        }
+    }
+
+    fun removeMarketAlert(id: Int) {
+        viewModelScope.launch {
+            when (val result = marketRepository.deleteAlert(id)) {
+                is Resource.Success -> fetchMarketAlerts()
+                is Resource.Error -> _errorEvent.emit(result.message ?: "Failed to remove alert")
+                else -> {}
+            }
+        }
+    }
+
+    private val _selectedChartSymbol = MutableStateFlow<String?>(null)
+    val selectedChartSymbol = _selectedChartSymbol.asStateFlow()
+
+    private val _chartCandles = MutableStateFlow<List<com.example.mistreal_mini.data.api.MarketCandle>>(emptyList())
+    val chartCandles = _chartCandles.asStateFlow()
+
+    private val _isLoadingChart = MutableStateFlow(false)
+    val isLoadingChart = _isLoadingChart.asStateFlow()
+
+    fun openChart(symbol: String, assetClass: String) {
+        _selectedChartSymbol.value = symbol
+        _chartCandles.value = emptyList()
+        viewModelScope.launch {
+            _isLoadingChart.value = true
+            when (val result = marketRepository.getCandles(symbol, assetClass)) {
+                is Resource.Success -> _chartCandles.value = result.data ?: emptyList()
+                is Resource.Error -> _errorEvent.emit(result.message ?: "Chart unavailable")
+                else -> {}
+            }
+            _isLoadingChart.value = false
+        }
+    }
+
+    fun closeChart() {
+        _selectedChartSymbol.value = null
+    }
+
+    // --- Contact Your Bank ---
+    private val _bankChannels = MutableStateFlow<List<com.example.mistreal_mini.data.api.BankChannel>>(emptyList())
+    val bankChannels = _bankChannels.asStateFlow()
+
+    fun fetchBankChannels() {
+        viewModelScope.launch {
+            when (val result = infoRepository.getBankChannels()) {
+                is Resource.Success -> _bankChannels.value = result.data ?: emptyList()
+                else -> {}
+            }
+        }
+    }
+
+    // --- Verified Faces (face-swap safeguard) ---
+    val verifiedFaces = verifiedFaceRepository.allFaceUris.stateIn(
+        viewModelScope, kotlinx.coroutines.flow.SharingStarted.WhileSubscribed(5000), emptyList()
+    )
+
+    private val _isRegisteringFace = MutableStateFlow(false)
+    val isRegisteringFace = _isRegisteringFace.asStateFlow()
+
+    fun registerFace(label: String, liveCaptureUri: android.net.Uri) {
+        viewModelScope.launch {
+            _isRegisteringFace.value = true
+            when (val result = verifiedFaceRepository.register(label, liveCaptureUri)) {
+                is com.example.mistreal_mini.data.repository.VerifiedFaceRepository.RegisterResult.Success -> _saveSuccess.emit(Unit)
+                is com.example.mistreal_mini.data.repository.VerifiedFaceRepository.RegisterResult.Error -> _errorEvent.emit(result.message)
+            }
+            _isRegisteringFace.value = false
+        }
+    }
+
+    fun deleteFace(entity: com.example.mistreal_mini.data.local.entity.VerifiedFaceEntity) {
+        viewModelScope.launch { verifiedFaceRepository.delete(entity) }
+    }
+
     fun saveSettings(
         name: String,
         persona: String,
         audience: String,
         delayMinutes: Int,
         guardianEnabled: Boolean? = null,
-        contacts: List<EmergencyContact>? = null,
         aiCustomName: String? = null,
         aiAutoSendEnabled: Boolean? = null
     ) {
@@ -421,7 +566,6 @@ class SettingsViewModel @Inject constructor(
                 audience = audience,
                 delayMinutes = delayMinutes,
                 guardianEnabled = guardianEnabled,
-                contacts = contacts,
                 aiAutoSendEnabled = aiAutoSendEnabled
             )
             
@@ -720,14 +864,37 @@ class SettingsViewModel @Inject constructor(
         }
     }
 
-    fun addEmergencyContact(contact: EmergencyContact) {
-        if (!_emergencyContacts.any { it.value == contact.value }) {
-            _emergencyContacts.add(contact)
+    fun fetchEmergencyContacts() {
+        viewModelScope.launch {
+            val deviceId = android.provider.Settings.Secure.getString(context.contentResolver, android.provider.Settings.Secure.ANDROID_ID)
+            when (val result = infoRepository.getEmergencyContacts(deviceId)) {
+                is Resource.Success -> _emergencyContacts.value = result.data ?: emptyList()
+                else -> {}
+            }
+        }
+    }
+
+    /** Sends the confirm/decline invite — the contact must accept before any real alert ever reaches them. */
+    fun addEmergencyContact(name: String, channel: String, platform: String? = null, platformContactId: String? = null, email: String? = null) {
+        viewModelScope.launch {
+            _isSavingEmergencyContact.value = true
+            val deviceId = android.provider.Settings.Secure.getString(context.contentResolver, android.provider.Settings.Secure.ANDROID_ID)
+            val result = infoRepository.addEmergencyContact(deviceId, name, channel, platform, platformContactId, email)
+            _isSavingEmergencyContact.value = false
+            if (result is Resource.Success) {
+                fetchEmergencyContacts()
+            }
         }
     }
 
     fun removeEmergencyContact(contact: EmergencyContact) {
-        _emergencyContacts.remove(contact)
+        viewModelScope.launch {
+            val deviceId = android.provider.Settings.Secure.getString(context.contentResolver, android.provider.Settings.Secure.ANDROID_ID)
+            val result = infoRepository.deleteEmergencyContact(contact.id, deviceId)
+            if (result is Resource.Success) {
+                _emergencyContacts.value = _emergencyContacts.value.filter { it.id != contact.id }
+            }
+        }
     }
 
     fun addBankLink(name: String, url: String, packageId: String?) {

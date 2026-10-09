@@ -51,7 +51,11 @@ data class SocialComment(
     val text: String,
     val timestamp: String,
     val likes: Int = 0,
-    val replies: List<SocialComment> = emptyList()
+    val replies: List<SocialComment> = emptyList(),
+    // True for a reply posted in-app (Mistreal-native, not synced from the
+    // source platform) — lets the UI label it "· via Mistreal" instead of
+    // claiming it's a real comment confirmed from the platform.
+    val isCommunityComment: Boolean = false
 )
 
 data class SocialSyncResponse(
@@ -92,5 +96,9 @@ data class PlatformCapabilities(
     val supportsDM: Boolean = true,
     val supportsFollow: Boolean = false,
     val supportsLike: Boolean = true,
-    val supportsComments: Boolean = true
+    val supportsComments: Boolean = true,
+    // True when posting this platform goes through a dedicated native OAuth
+    // + upload path instead of the generic Zernio action pipeline — keep in
+    // sync with backend/src/services/socialPlatforms/platformRegistry.ts.
+    val supportsNativeUpload: Boolean = false
 )

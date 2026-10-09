@@ -81,6 +81,90 @@ object MediaEditorUtil {
         }
 
     /**
+     * Rasterizes freehand pencil strokes onto a copy of the FULL source image
+     * (not just the tapped region/thumbnail) so the AI sees the markup with
+     * real spatial context — "fix the 5th finger here" only makes sense next
+     * to the whole hand, not a cropped sliver of it. [strokes] are lists of
+     * (x,y) points as 0f..1f fractions of the source image, matching the
+     * same convention [cropImage]/[extractImageRegionThumbnail] already use.
+     */
+    suspend fun rasterizeAnnotation(
+        context: Context,
+        sourceUri: Uri,
+        strokes: List<List<Pair<Float, Float>>>,
+        colorArgb: Int,
+        strokeWidthFraction: Float = 0.01f
+    ): Uri? = withContext(Dispatchers.IO) {
+        try {
+            val source = context.contentResolver.openInputStream(sourceUri)?.use { stream ->
+                BitmapFactory.decodeStream(stream)
+            } ?: return@withContext null
+
+            val annotated = source.copy(Bitmap.Config.ARGB_8888, true)
+            val canvas = android.graphics.Canvas(annotated)
+            val paint = android.graphics.Paint().apply {
+                color = colorArgb
+                style = android.graphics.Paint.Style.STROKE
+                strokeWidth = strokeWidthFraction * annotated.width
+                strokeCap = android.graphics.Paint.Cap.ROUND
+                strokeJoin = android.graphics.Paint.Join.ROUND
+                isAntiAlias = true
+            }
+
+            strokes.forEach { points ->
+                if (points.size < 2) return@forEach
+                val path = android.graphics.Path()
+                val (startX, startY) = points.first()
+                path.moveTo(startX * annotated.width, startY * annotated.height)
+                points.drop(1).forEach { (x, y) -> path.lineTo(x * annotated.width, y * annotated.height) }
+                canvas.drawPath(path, paint)
+            }
+
+            saveBitmapAndGetUri(context, annotated, "annotation")
+        } catch (e: Exception) {
+            Timber.e(e, "Annotation rasterization failed")
+            null
+        }
+    }
+
+    /**
+     * Highlights one detected face's bounding box on a copy of an
+     * already-in-memory frame (e.g. from [ChatViewModel.detectFacesInVideo])
+     * so a multi-face video can say "swap THIS one" with a visual pointer,
+     * the same way [rasterizeAnnotation] gives pencil markup real spatial
+     * context instead of a text-only description of "which face."
+     * [targetBoxFraction] is 0f..1f of the frame's own dimensions.
+     */
+    suspend fun rasterizeFaceTargetMarker(
+        context: Context,
+        frame: Bitmap,
+        targetBoxFraction: android.graphics.RectF,
+        colorArgb: Int = android.graphics.Color.MAGENTA
+    ): Uri? = withContext(Dispatchers.IO) {
+        try {
+            val marked = frame.copy(Bitmap.Config.ARGB_8888, true)
+            val canvas = android.graphics.Canvas(marked)
+            val paint = android.graphics.Paint().apply {
+                color = colorArgb
+                style = android.graphics.Paint.Style.STROKE
+                strokeWidth = 0.01f * marked.width
+                isAntiAlias = true
+            }
+            canvas.drawRect(
+                targetBoxFraction.left * marked.width,
+                targetBoxFraction.top * marked.height,
+                targetBoxFraction.right * marked.width,
+                targetBoxFraction.bottom * marked.height,
+                paint
+            )
+            saveBitmapAndGetUri(context, marked, "face_target")
+        } catch (e: Exception) {
+            Timber.e(e, "rasterizeFaceTargetMarker failed")
+            null
+        }
+    }
+
+    /**
      * Spatial counterpart to [extractSegmentThumbnail] for images — a 2-column x
      * 3-row grid (6 regions) instead of a time axis, so the same "tap a segment,
      * give it a specific instruction" workflow works for pictures too, not just
@@ -181,6 +265,52 @@ object MediaEditorUtil {
                     .build()
 
                 transformer.start(editedMediaItem, outputFile.absolutePath)
+
+                continuation.invokeOnCancellation { transformer.cancel() }
+            }
+        }
+
+    /**
+     * Muxes [audioUri] onto [videoUri] as a separate audio track via two
+     * parallel Transformer sequences (video-only + audio-only), composited
+     * together — this is how Media3 combines independently-sourced audio and
+     * video rather than needing them pre-muxed in one container already.
+     * [replaceExisting] strips the video's own audio first; otherwise the new
+     * track plays alongside whatever audio the video already had.
+     */
+    suspend fun addAudioToVideo(context: Context, videoUri: Uri, audioUri: Uri, replaceExisting: Boolean = true): Uri? =
+        withContext(Dispatchers.Main) {
+            suspendCancellableCoroutine { continuation ->
+                val outputFile = File(context.cacheDir, "voiceover_${System.currentTimeMillis()}.mp4")
+
+                val videoItem = EditedMediaItem.Builder(MediaItem.fromUri(videoUri))
+                    .setRemoveAudio(replaceExisting)
+                    .build()
+                val audioItem = EditedMediaItem.Builder(MediaItem.fromUri(audioUri)).build()
+
+                val composition = androidx.media3.transformer.Composition.Builder(
+                    androidx.media3.transformer.EditedMediaItemSequence(videoItem),
+                    androidx.media3.transformer.EditedMediaItemSequence(audioItem)
+                ).build()
+
+                val transformer = Transformer.Builder(context)
+                    .addListener(object : Transformer.Listener {
+                        override fun onCompleted(composition: Composition, exportResult: ExportResult) {
+                            if (continuation.isActive) {
+                                continuation.resume(
+                                    FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", outputFile)
+                                )
+                            }
+                        }
+
+                        override fun onError(composition: Composition, exportResult: ExportResult, exportException: ExportException) {
+                            Timber.e(exportException, "Voice-over mux failed")
+                            if (continuation.isActive) continuation.resume(null)
+                        }
+                    })
+                    .build()
+
+                transformer.start(composition, outputFile.absolutePath)
 
                 continuation.invokeOnCancellation { transformer.cancel() }
             }

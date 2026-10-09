@@ -11,6 +11,7 @@ import com.example.mistreal_mini.util.FileUtil
 import dagger.hilt.android.qualifiers.ApplicationContext
 import okhttp3.MediaType.Companion.toMediaTypeOrNull
 import okhttp3.RequestBody.Companion.toRequestBody
+import timber.log.Timber
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -54,9 +55,11 @@ class AdRepository @Inject constructor(
             if (response.success && response.adId != null) {
                 Resource.Success(response.adId)
             } else {
+                Timber.w("AdRepository.createAd: backend rejected — %s", response.error)
                 Resource.Error(response.error ?: "Failed to create ad")
             }
         } catch (e: Exception) {
+            Timber.e(e, "AdRepository.createAd failed")
             Resource.Error(e.message ?: "Failed to create ad")
         }
     }
@@ -65,6 +68,7 @@ class AdRepository @Inject constructor(
         return try {
             api.getDueAd(deviceId).takeIf { it.success && it.due }?.ad
         } catch (e: Exception) {
+            Timber.e(e, "AdRepository.getDueAd failed")
             null
         }
     }
@@ -73,7 +77,8 @@ class AdRepository @Inject constructor(
         try {
             api.trackAdEvent(adId, AdEventRequest(deviceId, eventType))
         } catch (e: Exception) {
-            // Best-effort — a failed tracking call must never surface to the user.
+            // Best-effort — a failed tracking call must never surface to the user, but still log it.
+            Timber.w(e, "AdRepository.trackAdEvent(%d, %s) failed", adId, eventType)
         }
     }
 }

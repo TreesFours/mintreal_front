@@ -60,9 +60,23 @@ class CelestialViewModel @Inject constructor(
         val bodies = listOf("10", "199", "299", "399", "499", "599", "699", "799", "899", "301", "999") // Sun, Merc, Venus, Earth, Mars, Jup, Sat, Uranus, Neptune, Moon, Pluto
         _celestialPositions.clear()
         bodies.forEach { body ->
-            when (val result = infoRepository.getCelestialVectors(body, loc?.latitude, loc?.longitude)) {
-                is Resource.Success -> result.data?.let { _celestialPositions.add(it) }
-                else -> {}
+            val result = infoRepository.getCelestialVectors(body, loc?.latitude, loc?.longitude)
+            // The backend returns HTTP 200 even when JPL Horizons is down (so Retrofit
+            // never throws), with success:false and every numeric field null — check
+            // that flag explicitly rather than trusting the Resource wrapper alone,
+            // otherwise a failed body would render with fabricated-looking defaults.
+            val data = (result as? Resource.Success)?.data
+            if (data?.success == true) {
+                _celestialPositions.add(data)
+            } else {
+                _celestialPositions.add(
+                    CelestialVectorResponse(
+                        success = false,
+                        body = body,
+                        name = BODY_NAMES[body] ?: body,
+                        status = "Unavailable"
+                    )
+                )
             }
         }
         updateTrackedObjects()
@@ -83,16 +97,24 @@ class CelestialViewModel @Inject constructor(
                     type = if (pos.body == "301") "SATELLITE" else (if(pos.body == "10") "STAR" else "PLANET"),
                     azimuth = pos.azimuth?.toFloat() ?: 0f,
                     elevation = pos.elevation?.toFloat() ?: 0f,
-                    status = pos.status ?: "VISIBLE",
+                    status = pos.status ?: "Unavailable",
                     orientation = pos.orientation ?: "N/A",
                     distEarth = pos.distEarth ?: "N/A",
                     distSun = pos.distSun ?: "N/A",
-                    description = pos.description ?: "",
+                    description = pos.description ?: "Live position data is temporarily unavailable.",
                     relativeToMoon = pos.relativeToMoon ?: "",
-                    simulated = pos.simulated == true
+                    isLive = pos.success
                 )
             )
         }
+    }
+
+    companion object {
+        private val BODY_NAMES = mapOf(
+            "10" to "Sun", "199" to "Mercury", "299" to "Venus", "399" to "Earth",
+            "499" to "Mars", "599" to "Jupiter", "699" to "Saturn", "799" to "Uranus",
+            "899" to "Neptune", "301" to "Moon", "999" to "Pluto"
+        )
     }
 }
 
@@ -108,5 +130,5 @@ data class CelestialObject(
     val distSun: String,
     val description: String,
     val relativeToMoon: String,
-    val simulated: Boolean = false
+    val isLive: Boolean = true
 )

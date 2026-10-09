@@ -136,12 +136,19 @@ class AiRepository @Inject constructor(
         images: List<MultipartBody.Part>?,
         audio: MultipartBody.Part?,
         video: MultipartBody.Part? = null,
+        // Parallel to `images`, by position — e.g. ["start", "end", "character"].
+        // Lets the backend know which uploaded image plays which role for
+        // keyframe-conditioned generation, without needing separate named
+        // multipart fields per role (those require a backend allowlist change
+        // every time a new role is added; this doesn't).
+        imageRoles: List<String>? = null,
         retryCount: Int = 0
     ): Resource<ChatResponse> {
         return try {
             val gson = Gson()
             val historyJson = gson.toJson(history)
             val firebaseUid = authRepository.currentUser?.uid
+            val imageRolesJson = imageRoles?.let { gson.toJson(it) }
 
             val response = api.sendMessage(
                 prompt = prompt.toRequestBody("text/plain".toMediaTypeOrNull()),
@@ -150,6 +157,7 @@ class AiRepository @Inject constructor(
                 deviceId = this@AiRepository.deviceId.toRequestBody("text/plain".toMediaTypeOrNull()),
                 firebaseUid = firebaseUid?.toRequestBody("text/plain".toMediaTypeOrNull()),
                 images = images,
+                imageRoles = imageRolesJson?.toRequestBody("application/json".toMediaTypeOrNull()),
                 audio = audio,
                 video = video
             )
@@ -163,12 +171,12 @@ class AiRepository @Inject constructor(
                 if (isRateLimit && retryCount < 3) {
                     val waitTime = 2000L * (retryCount + 1)
                     kotlinx.coroutines.delay(waitTime)
-                    return sendMessage(prompt, provider, history, deviceId, images, audio, video, retryCount + 1)
+                    return sendMessage(prompt, provider, history, deviceId, images, audio, video, imageRoles, retryCount + 1)
                 }
 
                 if (retryCount < 2 && (response.error?.contains("Timeout") == true || response.error?.contains("503") == true)) {
                     kotlinx.coroutines.delay(2000L * (retryCount + 1))
-                    return sendMessage(prompt, provider, history, deviceId, images, audio, video, retryCount + 1)
+                    return sendMessage(prompt, provider, history, deviceId, images, audio, video, imageRoles, retryCount + 1)
                 }
                 
                 // Final error message for the user if all retries fail

@@ -53,10 +53,17 @@ fun ChatInputBar(
     onReplaceAttachment: (Uri, Uri) -> Unit = { _, _ -> },
     segmentNotes: Map<Uri, Map<Int, String>> = emptyMap(),
     onSegmentNotesChanged: (Uri, Map<Int, String>) -> Unit = { _, _ -> },
+    segmentDrawings: Map<Uri, Map<Int, List<List<Pair<Float, Float>>>>> = emptyMap(),
+    onSegmentDrawingsChanged: (Uri, Map<Int, List<List<Pair<Float, Float>>>>) -> Unit = { _, _ -> },
+    verifiedFaces: List<Pair<com.example.mistreal_mini.data.local.entity.VerifiedFaceEntity, Uri>> = emptyList(),
+    onDetectFacesInVideo: suspend (Uri) -> Pair<android.graphics.Bitmap, List<android.graphics.RectF>>? = { null },
+    onMarkFaceTarget: suspend (android.graphics.Bitmap, android.graphics.RectF) -> Uri? = { _, _ -> null },
     isAiEditingVideo: Boolean = false,
-    onAiEditVideo: (Uri, String, (Boolean) -> Unit) -> Unit = { _, _, cb -> cb(false) },
+    onAiEditVideo: (Uri, Uri?, Uri?, String, (Boolean) -> Unit) -> Unit = { _, _, _, _, cb -> cb(false) },
     isAiEditingImage: Boolean = false,
-    onAiEditImage: (Uri, String, (Boolean) -> Unit) -> Unit = { _, _, cb -> cb(false) },
+    onAiEditImage: (Uri, List<Uri>, Boolean, String, (Boolean) -> Unit) -> Unit = { _, _, _, _, cb -> cb(false) },
+    isSynthesizingVoiceOver: Boolean = false,
+    onAddVoiceOver: (Uri, String, (Uri?) -> Unit) -> Unit = { _, _, cb -> cb(null) },
     isSceneMode: Boolean = false,
     onToggleSceneMode: (Boolean) -> Unit = {},
     isAutoReplyEnabled: Boolean = false,
@@ -122,6 +129,7 @@ fun ChatInputBar(
                                 val label = when(index) {
                                     0 -> "START"
                                     1 -> "END"
+                                    2 -> "CHARACTER"
                                     else -> "EXTRA"
                                 }
                                 Text(label, style = MaterialTheme.typography.labelSmall, fontSize = 8.sp, color = MaterialTheme.colorScheme.primary)
@@ -141,7 +149,7 @@ fun ChatInputBar(
                     )
                 } else {
                     Text(
-                        "💡 TIP: Attach at least 2 frames (Start/End) for maximum video stability.",
+                        "💡 TIP: Attach Start/End frames, plus an optional 3rd Character reference image, for maximum video stability.",
                         style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.tertiary,
                         modifier = Modifier.padding(bottom = 8.dp)
@@ -325,6 +333,13 @@ fun ChatInputBar(
             },
             onDiscardAttachment = { onRemoveAttachment(uri) },
             onSegmentNotesChanged = { notes -> onSegmentNotesChanged(uri, notes) },
+            segmentDrawings = segmentDrawings[uri] ?: emptyMap(),
+            onSegmentDrawingsChanged = { drawings -> onSegmentDrawingsChanged(uri, drawings) },
+            verifiedFaces = verifiedFaces,
+            onDetectFacesInVideo = onDetectFacesInVideo,
+            onMarkFaceTarget = onMarkFaceTarget,
+            isSynthesizingVoiceOver = isSynthesizingVoiceOver,
+            onAddVoiceOver = onAddVoiceOver,
             isAiEditingVideo = isAiEditingVideo,
             onAiEditVideo = onAiEditVideo,
             isAiEditingImage = isAiEditingImage,

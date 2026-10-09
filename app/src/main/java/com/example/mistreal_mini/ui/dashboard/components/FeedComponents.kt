@@ -9,6 +9,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
@@ -114,10 +115,10 @@ fun IntelligenceFeedView(
         // --- CATEGORY FILTER CHIPS ---
         item {
             Row(
-                modifier = Modifier.fillMaxWidth(),
+                modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                listOf("ALL", "NEWS", "ORBITAL", "RESEARCH").forEach { category ->
+                listOf("ALL", "NEWS", "TECH", "SCIENCE", "ENTERTAINMENT", "ORBITAL", "RESEARCH").forEach { category ->
                     FilterChip(
                         selected = selectedCategory == category,
                         onClick = { selectedCategory = category },
@@ -183,6 +184,9 @@ fun IntelligenceFeedView(
         val filteredArticles = articles.filter { article ->
             when (selectedCategory) {
                 "NEWS" -> article.type == "news" || article.type == null
+                "TECH" -> article.type == "news" && article.category == "technology"
+                "SCIENCE" -> article.type == "news" && article.category == "science"
+                "ENTERTAINMENT" -> article.type == "news" && article.category == "entertainment"
                 "ORBITAL" -> article.type == "astro"
                 "RESEARCH" -> article.type in listOf("novel", "wiki", "journal")
                 else -> article.type !in listOf("novel", "wiki", "journal", "sports")
@@ -248,6 +252,13 @@ fun IntelDetailPopup(
         },
         confirmButton = {
             Row {
+                if (article.url.isNotBlank()) {
+                    val context = LocalContext.current
+                    TextButton(onClick = {
+                        androidx.browser.customtabs.CustomTabsIntent.Builder().build()
+                            .launchUrl(context, android.net.Uri.parse(article.url))
+                    }) { Text("OPEN") }
+                }
                 TextButton(onClick = onPin) { Text("PIN") }
                 TextButton(onClick = onSaveToScribe) { Text("SAVE TO SCRIBE") }
             }

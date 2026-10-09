@@ -3,16 +3,11 @@ package com.example.mistreal_mini.service
 import android.app.*
 import android.content.Intent
 import android.os.*
-import android.speech.RecognitionListener
-import android.speech.RecognizerIntent
-import android.speech.SpeechRecognizer
 import androidx.core.app.NotificationCompat
 import com.example.mistreal_mini.MainActivity
 import com.example.mistreal_mini.R
 import com.example.mistreal_mini.util.VoiceManager
-import com.example.mistreal_mini.domain.usecase.HandleDistressUseCase
 import dagger.hilt.android.AndroidEntryPoint
-import timber.log.Timber
 import javax.inject.Inject
 import kotlinx.coroutines.*
 
@@ -20,19 +15,14 @@ import kotlinx.coroutines.*
 class VoiceService : Service() {
 
     @Inject lateinit var voiceManager: VoiceManager
-    @Inject lateinit var handleDistressUseCase: HandleDistressUseCase
-    
+
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
-    private var speechRecognizer: SpeechRecognizer? = null
     private var isRadioMode = false
-    private var isGuardianMode = false
     private var currentFeed: List<String> = emptyList()
     private var currentFeedIndex = 0
 
     companion object {
         const val ACTION_START_RADIO = "ACTION_START_RADIO"
-        const val ACTION_START_GUARDIAN = "ACTION_START_GUARDIAN"
-        const val ACTION_RESUME_LISTENING = "ACTION_RESUME_LISTENING"
         const val ACTION_STOP = "ACTION_STOP"
         const val EXTRA_FEED = "EXTRA_FEED"
     }
@@ -41,26 +31,15 @@ class VoiceService : Service() {
         super.onCreate()
         createNotificationChannel()
         startForeground(1, createNotification("Mistreal Active", "Standby Mode"))
-        initSpeechRecognizer()
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         when (intent?.action) {
             ACTION_START_RADIO -> {
                 isRadioMode = true
-                isGuardianMode = false
                 currentFeed = intent.getStringArrayListExtra(EXTRA_FEED) ?: emptyList()
                 currentFeedIndex = 0
                 startRadioLoop()
-            }
-            ACTION_START_GUARDIAN -> {
-                isRadioMode = false
-                isGuardianMode = true
-                startForeground(1, createNotification("Guardian Active", "Monitoring for distress..."))
-                startListening()
-            }
-            ACTION_RESUME_LISTENING -> {
-                if (isGuardianMode) startListening()
             }
             ACTION_STOP -> {
                 stopSelf()
@@ -84,48 +63,6 @@ class VoiceService : Service() {
             updateNotification("Radio Mode", "Feed Complete")
             isRadioMode = false
         }
-    }
-
-    private fun initSpeechRecognizer() {
-        if (SpeechRecognizer.isRecognitionAvailable(this)) {
-            speechRecognizer = SpeechRecognizer.createSpeechRecognizer(this)
-            speechRecognizer?.setRecognitionListener(object : RecognitionListener {
-                override fun onReadyForSpeech(params: Bundle?) {}
-                override fun onBeginningOfSpeech() {}
-                override fun onRmsChanged(rmsdB: Float) {
-                    if (isGuardianMode && rmsdB > 10.0f) { // Threshold for sudden loud noise
-                        Timber.w("🔊 Possible distress signature detected!")
-                        // Logic to trigger UseCase
-                    }
-                }
-                override fun onBufferReceived(buffer: ByteArray?) {}
-                override fun onEndOfSpeech() {}
-                override fun onError(error: Int) {
-                    if (isGuardianMode) startListening()
-                }
-                override fun onResults(results: Bundle?) {
-                    val transcript = results?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)?.firstOrNull()
-                    if (isGuardianMode) {
-                        if (!transcript.isNullOrBlank()) {
-                            // Hand the recognized speech off to ChatViewModel and wait for
-                            // ACTION_RESUME_LISTENING once the AI has replied (see VoiceManager.transcripts).
-                            voiceManager.emitTranscript(transcript)
-                        } else {
-                            startListening()
-                        }
-                    }
-                }
-                override fun onPartialResults(partialResults: Bundle?) {}
-                override fun onEvent(eventType: Int, params: Bundle?) {}
-            })
-        }
-    }
-
-    private fun startListening() {
-        val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
-            putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
-        }
-        speechRecognizer?.startListening(intent)
     }
 
     private fun updateNotification(title: String, content: String) {
@@ -162,7 +99,6 @@ class VoiceService : Service() {
     override fun onDestroy() {
         super.onDestroy()
         serviceScope.cancel()
-        speechRecognizer?.destroy()
         voiceManager.stop()
     }
 }

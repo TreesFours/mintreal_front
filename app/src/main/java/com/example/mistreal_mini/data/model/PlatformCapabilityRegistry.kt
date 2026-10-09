@@ -29,7 +29,7 @@ object PlatformCapabilityRegistry {
         "linkedin" to FULL_SOCIAL,
         "tiktok" to READ_ONLY_FEED,
         "snapchat" to DM_ONLY.copy(supportsFeed = true, supportsStories = true),
-        "youtube" to READ_ONLY_FEED.copy(supportsComments = true),
+        "youtube" to READ_ONLY_FEED.copy(supportsComments = true, supportsNativeUpload = true),
         "twitch" to READ_ONLY_FEED.copy(supportsComments = true)
     )
 

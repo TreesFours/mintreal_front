@@ -1,6 +1,7 @@
 package com.example.mistreal_mini.data.repository
 
 import android.content.Context
+import android.net.Uri
 import android.provider.Settings
 import com.example.mistreal_mini.data.Resource
 import com.example.mistreal_mini.data.api.AiProviderApiService
@@ -14,7 +15,10 @@ import com.example.mistreal_mini.data.model.SocialSyncResponse
 import com.example.mistreal_mini.data.api.SocialPlatformResponse
 import com.example.mistreal_mini.data.api.CelestialVectorResponse
 import com.example.mistreal_mini.data.repository.AuthRepository
+import com.example.mistreal_mini.util.FileUtil
 import dagger.hilt.android.qualifiers.ApplicationContext
+import okhttp3.MediaType.Companion.toMediaTypeOrNull
+import okhttp3.RequestBody.Companion.toRequestBody
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -177,13 +181,12 @@ class InfoRepository @Inject constructor(
         aiAudience: String?,
         autoReplyDelay: Int?,
         guardianEnabled: Boolean? = null,
-        emergencyContacts: List<com.example.mistreal_mini.data.api.EmergencyContact>? = null,
         aiAutoSendEnabled: Boolean? = null
     ): Resource<Boolean> {
         return try {
             val response = api.updateUserSettings(
                 com.example.mistreal_mini.data.api.UserSettingsRequest(
-                    deviceId, authRepository.currentUser?.uid, userName, aiPersona, aiAudience, autoReplyDelay, guardianEnabled, emergencyContacts, aiAutoSendEnabled
+                    deviceId, authRepository.currentUser?.uid, userName, aiPersona, aiAudience, autoReplyDelay, guardianEnabled, aiAutoSendEnabled
                 )
             )
             if (response.success) Resource.Success(true)
@@ -355,6 +358,46 @@ class InfoRepository @Inject constructor(
         }
     }
 
+    private fun String.toTextBody() = this.toRequestBody("text/plain".toMediaTypeOrNull())
+
+    // Native upload — bypasses performSocialAction/Zernio entirely, since
+    // Zernio has no YouTube posting capability at all. Requires the device
+    // to have already connected YouTube via the native Google OAuth flow
+    // (same "Connect" button in Social Connections as every other platform —
+    // the backend routes it differently once it sees platform == "youtube").
+    suspend fun uploadYoutubeVideo(
+        title: String,
+        description: String?,
+        privacyStatus: String,
+        videoUri: Uri
+    ): Resource<String> {
+        return try {
+            val videoPart = FileUtil.uriToMultipart(context, videoUri, "video")
+                ?: return Resource.Error("Couldn't read the selected video.")
+
+            val response = api.uploadYoutubeVideo(
+                deviceId = deviceId.toTextBody(),
+                title = title.toTextBody(),
+                description = description?.toTextBody(),
+                privacyStatus = privacyStatus.toTextBody(),
+                video = videoPart
+            )
+            if (response.success && response.url != null) Resource.Success(response.url)
+            else Resource.Error(response.error ?: "YouTube upload failed")
+        } catch (e: Exception) {
+            Resource.Error(e.message ?: "YouTube upload failed")
+        }
+    }
+
+    suspend fun getYoutubeConnectStatus(): Resource<Boolean> {
+        return try {
+            val response = api.getYoutubeConnectStatus(deviceId)
+            Resource.Success(response.connected)
+        } catch (e: Exception) {
+            Resource.Error(e.message ?: "Couldn't check YouTube connection status")
+        }
+    }
+
     suspend fun initiateConnection(deviceId: String, platform: String): Resource<String> {
         return try {
             val response = api.initiateConnection(mapOf("deviceId" to deviceId, "platform" to platform))
@@ -424,23 +467,97 @@ class InfoRepository @Inject constructor(
         }
     }
 
-    suspend fun sendEmergencyAlert(
+    suspend fun fireEmergencyAlert(
         deviceId: String,
         latitude: Double,
         longitude: Double,
         distressSignature: String,
-        broadcastToSocials: Boolean = false
-    ): Resource<com.example.mistreal_mini.data.api.EmergencyAlertResponse> {
+        triggerType: String = "manual",
+        sosAudioBase64: String? = null,
+        sosAudioMimeType: String? = null
+    ): Resource<com.example.mistreal_mini.data.api.EmergencyAlertFireResponse> {
         return try {
-            val response = api.sendEmergencyAlert(
-                com.example.mistreal_mini.data.api.EmergencyAlertRequest(
-                    deviceId, authRepository.currentUser?.uid, latitude, longitude, distressSignature, broadcastToSocials
+            val response = api.fireEmergencyAlert(
+                com.example.mistreal_mini.data.api.FireEmergencyAlertRequest(
+                    deviceId, authRepository.currentUser?.uid, latitude, longitude, distressSignature,
+                    triggerType, sosAudioBase64, sosAudioMimeType
                 )
             )
             if (response.success) Resource.Success(response)
             else Resource.Error(response.error ?: "Emergency alert failed")
         } catch (e: Exception) {
             Resource.Error(e.message ?: "Emergency alert error")
+        }
+    }
+
+    suspend fun getEmergencyAlerts(deviceId: String): Resource<List<com.example.mistreal_mini.data.api.EmergencyAlert>> {
+        return try {
+            val response = api.getEmergencyAlerts(deviceId)
+            if (response.success) Resource.Success(response.alerts ?: emptyList())
+            else Resource.Error(response.error ?: "Failed to load alerts")
+        } catch (e: Exception) {
+            Resource.Error(e.message ?: "Failed to load alerts")
+        }
+    }
+
+    suspend fun attachSosAudio(alertId: Int, deviceId: String, sosAudioBase64: String, sosAudioMimeType: String): Resource<Boolean> {
+        return try {
+            val response = api.attachSosAudio(
+                alertId,
+                com.example.mistreal_mini.data.api.AttachSosAudioRequest(deviceId, sosAudioBase64, sosAudioMimeType)
+            )
+            if (response.success) Resource.Success(true) else Resource.Error(response.error ?: "Failed to attach SOS audio")
+        } catch (e: Exception) {
+            Resource.Error(e.message ?: "Failed to attach SOS audio")
+        }
+    }
+
+    suspend fun resolveEmergencyAlert(alertId: Int, deviceId: String): Resource<Boolean> {
+        return try {
+            val response = api.resolveEmergencyAlert(alertId, mapOf("deviceId" to deviceId))
+            if (response.success) Resource.Success(true) else Resource.Error(response.error ?: "Failed to resolve alert")
+        } catch (e: Exception) {
+            Resource.Error(e.message ?: "Failed to resolve alert")
+        }
+    }
+
+    suspend fun getEmergencyContacts(deviceId: String): Resource<List<com.example.mistreal_mini.data.api.EmergencyContact>> {
+        return try {
+            val response = api.getEmergencyContacts(deviceId)
+            if (response.success) Resource.Success(response.contacts ?: emptyList())
+            else Resource.Error(response.error ?: "Failed to load emergency contacts")
+        } catch (e: Exception) {
+            Resource.Error(e.message ?: "Failed to load emergency contacts")
+        }
+    }
+
+    suspend fun addEmergencyContact(
+        deviceId: String,
+        name: String,
+        channel: String,
+        platform: String? = null,
+        platformContactId: String? = null,
+        email: String? = null
+    ): Resource<com.example.mistreal_mini.data.api.EmergencyContact> {
+        return try {
+            val response = api.addEmergencyContact(
+                com.example.mistreal_mini.data.api.AddEmergencyContactRequest(
+                    deviceId, authRepository.currentUser?.uid, name, channel, platform, platformContactId, email
+                )
+            )
+            if (response.success && response.contact != null) Resource.Success(response.contact)
+            else Resource.Error(response.error ?: "Failed to add emergency contact")
+        } catch (e: Exception) {
+            Resource.Error(e.message ?: "Failed to add emergency contact")
+        }
+    }
+
+    suspend fun deleteEmergencyContact(id: Int, deviceId: String): Resource<Boolean> {
+        return try {
+            val response = api.deleteEmergencyContact(id, deviceId)
+            if (response.success) Resource.Success(true) else Resource.Error(response.error ?: "Failed to remove contact")
+        } catch (e: Exception) {
+            Resource.Error(e.message ?: "Failed to remove contact")
         }
     }
 
@@ -483,6 +600,20 @@ class InfoRepository @Inject constructor(
             Resource.Success(api.getCelestialVectors(bodyId, lat, lon))
         } catch (e: Exception) {
             Resource.Error(e.message ?: "Celestial data failure")
+        }
+    }
+
+    suspend fun getBankChannels(): Resource<List<com.example.mistreal_mini.data.api.BankChannel>> {
+        return try {
+            val response = api.getBankChannels(deviceId)
+            if (response.success) Resource.Success(response.banks)
+            else {
+                timber.log.Timber.w("InfoRepository.getBankChannels: success=false — %s", response.error)
+                Resource.Error(response.error ?: "Could not load bank list")
+            }
+        } catch (e: Exception) {
+            timber.log.Timber.e(e, "InfoRepository.getBankChannels failed")
+            Resource.Error(e.message ?: "Could not load bank list")
         }
     }
 

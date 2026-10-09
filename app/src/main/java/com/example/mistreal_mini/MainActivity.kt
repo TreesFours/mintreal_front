@@ -13,8 +13,14 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Warning
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Button
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
+import androidx.compose.material3.Text
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Modifier
@@ -108,6 +114,11 @@ class MainActivity : FragmentActivity() {
                         val dashboardViewModel: DashboardViewModel = hiltViewModel()
                         val feedViewModel: com.example.mistreal_mini.ui.dashboard.FeedViewModel = hiltViewModel()
                         val settingsViewModel: SettingsViewModel = hiltViewModel()
+                        val guardianViewModel: com.example.mistreal_mini.ui.guardian.GuardianViewModel = hiltViewModel()
+
+                        LaunchedEffect(isAuthenticated) {
+                            if (isAuthenticated) guardianViewModel.fetchAlerts()
+                        }
 
                         // 🔗 Deep Link Handler
                         LaunchedEffect(intentState) {
@@ -168,17 +179,14 @@ class MainActivity : FragmentActivity() {
                                     onFailure = { /* Handle Failure */ }
                                 )
                             } else {
-                                // Fully authenticated: only now kick off the network-backed
-                                // loads these ViewModels deferred out of their init{} blocks,
-                                // so nothing talks to the backend before the password/biometric
-                                // prompt is cleared.
-                                chatViewModel.onAuthenticated()
-                                settingsViewModel.onAuthenticated()
-
-                                // Already authenticated, ensure we are in the main app
+                                // Fully authenticated: route through "boot" first — it's the
+                                // one that actually kicks off the network-backed loads these
+                                // ViewModels deferred out of their init{} blocks (so nothing
+                                // talks to the backend before this point), and shows that
+                                // sequence to the user instead of it happening silently.
                                 if (navController.currentDestination?.route == "splash" ||
                                     navController.currentDestination?.route == "auth") {
-                                    navController.navigate("chat") {
+                                    navController.navigate("boot") {
                                         popUpTo(0) { inclusive = true }
                                     }
                                 }
@@ -202,6 +210,17 @@ class MainActivity : FragmentActivity() {
                                     // Guard logic handled by LaunchedEffect above
                                 }
                             })
+                        }
+                        composable("boot") {
+                            com.example.mistreal_mini.ui.boot.BootScreen(
+                                chatViewModel = chatViewModel,
+                                settingsViewModel = settingsViewModel,
+                                onComplete = {
+                                    navController.navigate("chat") {
+                                        popUpTo(0) { inclusive = true }
+                                    }
+                                }
+                            )
                         }
                         composable("onboarding") {
                             OnboardingScreen(
@@ -255,7 +274,13 @@ class MainActivity : FragmentActivity() {
                                 onBack = { navController.popBackStack() },
                                 onUpgradeClick = { navController.navigate("subscription") },
                                 onConnectionsClick = { navController.navigate("connections") },
-                                onBusinessHubClick = { navController.navigate("business_hub") }
+                                onBusinessHubClick = { navController.navigate("business_hub") },
+                                onGuardianAlertsClick = { navController.navigate("guardian_alerts") }
+                            )
+                        }
+                        composable("guardian_alerts") {
+                            com.example.mistreal_mini.ui.guardian.AlertHistoryScreen(
+                                onBack = { navController.popBackStack() }
                             )
                         }
                         composable("business_hub") {
@@ -286,6 +311,26 @@ class MainActivity : FragmentActivity() {
                                 onUpgradeClick = { navController.navigate("subscription") }
                             )
                         }
+                    }
+
+                    // Blocking "Safe Haven" check-in — shows app-wide (not tied to any
+                    // one screen) whenever this device has a fired, unresolved alert.
+                    // Confirming here cancels the 30-day public-escalation sweep
+                    // server-side immediately; dismissing by tapping outside is
+                    // intentionally not allowed (onDismissRequest is a no-op).
+                    val activeAlert by guardianViewModel.activeAlert.collectAsState()
+                    if (isAuthenticated && activeAlert != null) {
+                        AlertDialog(
+                            onDismissRequest = { },
+                            icon = { Icon(Icons.Default.Warning, null, tint = MaterialTheme.colorScheme.error) },
+                            title = { Text("Active Safety Alert") },
+                            text = { Text("You triggered a safety alert. If you're safe now, confirm below — otherwise this may be shared publicly if no confirmed emergency contact responds in time.") },
+                            confirmButton = {
+                                Button(onClick = { guardianViewModel.resolveActiveAlert() }) {
+                                    Text("I'm safe — cancel alert")
+                                }
+                            }
+                        )
                     }
                 }
             }
@@ -328,6 +373,17 @@ class MainActivity : FragmentActivity() {
 
         val silentPartnerRequest = PeriodicWorkRequestBuilder<com.example.mistreal_mini.worker.SilentPartnerWorker>(4, TimeUnit.HOURS).build()
         WorkManager.getInstance(this).enqueueUniquePeriodicWork("SilentPartner", ExistingPeriodicWorkPolicy.KEEP, silentPartnerRequest)
+
+        // While a Guardian alert is active, this re-checks every 30 min and
+        // keeps reminding the user to confirm they're safe — silence is
+        // what leads to the 30-day public escalation server-side.
+        val safeHavenRequest = PeriodicWorkRequestBuilder<com.example.mistreal_mini.worker.SafeHavenCheckinWorker>(30, TimeUnit.MINUTES).build()
+        WorkManager.getInstance(this).enqueueUniquePeriodicWork("SafeHavenCheckin", ExistingPeriodicWorkPolicy.KEEP, safeHavenRequest)
+
+        val marketAlertRequest = PeriodicWorkRequestBuilder<com.example.mistreal_mini.worker.MarketAlertWorker>(30, TimeUnit.MINUTES)
+            .setConstraints(constraints)
+            .build()
+        WorkManager.getInstance(this).enqueueUniquePeriodicWork("MarketAlerts", ExistingPeriodicWorkPolicy.KEEP, marketAlertRequest)
     }
 
     override fun onConfigurationChanged(newConfig: android.content.res.Configuration) {

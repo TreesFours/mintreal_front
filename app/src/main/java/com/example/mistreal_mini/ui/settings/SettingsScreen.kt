@@ -49,6 +49,7 @@ fun SettingsScreen(
     onUpgradeClick: () -> Unit = {}, 
     onConnectionsClick: () -> Unit = {},
     onBusinessHubClick: () -> Unit = {},
+    onGuardianAlertsClick: () -> Unit = {},
     viewModel: SettingsViewModel = hiltViewModel(),
     billingViewModel: com.example.mistreal_mini.ui.subscription.SubscriptionViewModel = hiltViewModel()
 ) {
@@ -202,13 +203,15 @@ fun SettingsScreen(
                 detectTapGestures(onTap = { focusManager.clearFocus() })
             }
         ) { padding ->
+            val accordionState = remember { mutableStateOf<String?>("TACTICAL IDENTITY") }
+            androidx.compose.runtime.CompositionLocalProvider(LocalSettingsAccordionState provides accordionState) {
             SelectionContainer {
                 Column(
                     modifier = Modifier
                         .padding(padding)
                         .padding(16.dp)
                         .verticalScroll(rememberScrollState()),
-                    verticalArrangement = Arrangement.spacedBy(32.dp)
+                    verticalArrangement = Arrangement.spacedBy(16.dp)
                 ) {
                     // --- SECTION 1: OPERATOR & AI IDENTITY ---
                     SettingsSection(title = "TACTICAL IDENTITY", icon = Icons.Default.Badge) {
@@ -586,16 +589,29 @@ fun SettingsScreen(
 
                         HorizontalDivider(modifier = Modifier.padding(vertical = 16.dp), thickness = 0.5.dp, color = MaterialTheme.colorScheme.outlineVariant)
 
-                        // Emergency Contacts
-                        val emergencyContacts = viewModel.emergencyContacts
+                        // Emergency Contacts — each must confirm/decline via the link sent
+                        // to them before they can ever receive real alert content.
+                        val emergencyContacts by viewModel.emergencyContacts.collectAsStateWithLifecycle()
                         if (emergencyContacts.isNotEmpty()) {
                             emergencyContacts.forEach { contact ->
+                                val statusColor = when (contact.status) {
+                                    "confirmed" -> Color(0xFF2E7D32)
+                                    "declined" -> Color.Red
+                                    else -> Color(0xFFF9A825)
+                                }
                                 ListItem(
                                     headlineContent = { Text(contact.name) },
-                                    supportingContent = { Text("${contact.type}: ${contact.value}", fontSize = 10.sp) },
+                                    supportingContent = {
+                                        Text(
+                                            "${if (contact.channel == "email") contact.email else contact.platform} · ${contact.status.uppercase()}",
+                                            fontSize = 10.sp,
+                                            color = statusColor,
+                                            fontWeight = FontWeight.Bold
+                                        )
+                                    },
                                     trailingContent = {
-                                        IconButton(onClick = { viewModel.removeEmergencyContact(contact) }) { 
-                                            Icon(Icons.Default.Delete, null, tint = Color.Red.copy(alpha = 0.6f), modifier = Modifier.size(18.dp)) 
+                                        IconButton(onClick = { viewModel.removeEmergencyContact(contact) }) {
+                                            Icon(Icons.Default.Delete, null, tint = Color.Red.copy(alpha = 0.6f), modifier = Modifier.size(18.dp))
                                         }
                                     },
                                     colors = ListItemDefaults.colors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.2f))
@@ -616,11 +632,15 @@ fun SettingsScreen(
                             Spacer(modifier = Modifier.width(8.dp))
                             Text("CONFIGURE EMERGENCY NODES")
                         }
+                        TextButton(onClick = onGuardianAlertsClick, modifier = Modifier.fillMaxWidth()) {
+                            Icon(Icons.Default.History, null, modifier = Modifier.size(16.dp))
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text("VIEW ALERT HISTORY")
+                        }
                     }
 
-                    // --- SECTION 4: COMMUNICATIONS HUB ---
-                    SettingsSection(title = "COMMUNICATIONS HUB", icon = Icons.Default.Link) {
-                        // Social Channels
+                    // --- SECTION 4a: SOCIAL CHANNELS ---
+                    SettingsSection(title = "SOCIAL CHANNELS", icon = Icons.Default.Link) {
                         val connectedPlatforms = viewModel.availablePlatforms.collectAsStateWithLifecycle().value.filter { it.isConnected }
                         if (connectedPlatforms.isNotEmpty()) {
                             Text("ACTIVE SOCIAL CHANNELS", style = MaterialTheme.typography.labelSmall, color = Color.Gray)
@@ -657,11 +677,10 @@ fun SettingsScreen(
                             Spacer(Modifier.width(8.dp))
                             Text("LINK NEW ACCOUNT", fontWeight = FontWeight.Bold)
                         }
+                    }
 
-                        Spacer(modifier = Modifier.height(24.dp))
-
-                        // Business Hub
-                        Text("BUSINESS", style = MaterialTheme.typography.labelSmall, color = Color.Gray)
+                    // --- SECTION 4b: BUSINESS ---
+                    SettingsSection(title = "BUSINESS", icon = Icons.Default.Storefront) {
                         Button(
                             onClick = onBusinessHubClick,
                             modifier = Modifier.fillMaxWidth(),
@@ -672,12 +691,12 @@ fun SettingsScreen(
                             Spacer(Modifier.width(8.dp))
                             Text("BUSINESS HUB", fontWeight = FontWeight.Bold)
                         }
+                    }
 
-                        Spacer(modifier = Modifier.height(24.dp))
-
-                        // Community Feed — off by default; the viewer opts into
-                        // specific platforms to see other app users' shared posts.
-                        Text("COMMUNITY FEED", style = MaterialTheme.typography.labelSmall, color = Color.Gray)
+                    // --- SECTION 4c: COMMUNITY FEED ---
+                    // Off by default; the viewer opts into specific platforms to
+                    // see other app users' shared posts.
+                    SettingsSection(title = "COMMUNITY FEED", icon = Icons.Default.Public) {
                         Text(
                             "See posts other Mistreal users have chosen to share, from these platforms only.",
                             style = MaterialTheme.typography.bodySmall,
@@ -701,11 +720,10 @@ fun SettingsScreen(
                                 )
                             }
                         }
+                    }
 
-                        Spacer(modifier = Modifier.height(24.dp))
-
-                        // Mission Delay
-                        Text("MISSION DELAY (GHOST MODE)", style = MaterialTheme.typography.labelSmall, color = Color.Gray)
+                    // --- SECTION 4d: MISSION DELAY (GHOST MODE) ---
+                    SettingsSection(title = "MISSION DELAY (GHOST MODE)", icon = Icons.Default.Timer) {
                         var showDelayPicker by remember { mutableStateOf(false) }
                         var customDelayInput by remember { mutableStateOf(customDelayValue) }
                         
@@ -763,11 +781,10 @@ fun SettingsScreen(
                                 }
                             }
                         }
+                    }
 
-                        Spacer(modifier = Modifier.height(16.dp))
-
-                        // Voice & Translation
-                        Text("VOICE & TRANSLATION", style = MaterialTheme.typography.labelSmall, color = Color.Gray)
+                    // --- SECTION 4e: VOICE & TRANSLATION ---
+                    SettingsSection(title = "VOICE & TRANSLATION", icon = Icons.Default.RecordVoiceOver) {
                         var showVoicePicker by remember { mutableStateOf(false) }
                         val selectedVoiceName by viewModel.selectedVoiceName.collectAsStateWithLifecycle()
                         val availableVoices by viewModel.availableVoices.collectAsStateWithLifecycle()
@@ -860,11 +877,10 @@ fun SettingsScreen(
                                 )
                             }
                         }
+                    }
 
-                        Spacer(modifier = Modifier.height(24.dp))
-
-                        // External Command Deck
-                        Text("COMMAND DECK", style = MaterialTheme.typography.labelSmall, color = Color.Gray)
+                    // --- SECTION 4f: COMMAND DECK ---
+                    SettingsSection(title = "COMMAND DECK", icon = Icons.Default.Language) {
                         Button(
                             onClick = { 
                                 val intent = android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse("https://mistreal-console.com"))
@@ -892,6 +908,15 @@ fun SettingsScreen(
                     Spacer(modifier = Modifier.height(24.dp))
                     MediaGenProviderSection(viewModel, "video_gen", "VIDEO GENERATION PROVIDER", "Our Recommended (Veo)")
 
+                    Spacer(modifier = Modifier.height(24.dp))
+                    MarketAlertsSection(viewModel)
+
+                    Spacer(modifier = Modifier.height(24.dp))
+                    BankChannelsSection(viewModel)
+
+                    Spacer(modifier = Modifier.height(24.dp))
+                    VerifiedFacesSection(viewModel)
+
                     // Secure Changes Footer
                     Button(
                         onClick = {
@@ -901,7 +926,6 @@ fun SettingsScreen(
                                 selectedAudience,
                                 calculateDelayMinutes(selectedDelay, customDelayValue, customDelayUnit),
                                 viewModel.guardianEnabled.value,
-                                viewModel.emergencyContacts.toList(),
                                 aiCustomName = aiCustomName,
                                 aiAutoSendEnabled = viewModel.aiAutoSendEnabled.value
                             )
@@ -914,6 +938,7 @@ fun SettingsScreen(
                         else Text("SECURE MISSION SETTINGS", fontWeight = FontWeight.Black)
                     }
                 }
+            }
             }
         }
     }
@@ -949,16 +974,49 @@ fun ThemeCard(
     }
 }
 
+// One section open at a time, shared across every SettingsSection call in this
+// screen — including the ones inside ByokSettingsSection.kt/MediaGenProviderSection,
+// since they call this same composable. A CompositionLocal avoids threading an
+// expand-state parameter through four separate wrapper functions just for this.
+val LocalSettingsAccordionState = compositionLocalOf { mutableStateOf<String?>(null) }
+
 @Composable
 fun SettingsSection(title: String, icon: androidx.compose.ui.graphics.vector.ImageVector, content: @Composable ColumnScope.() -> Unit) {
-    Column {
-        Row(verticalAlignment = Alignment.CenterVertically) {
+    val expandedState = LocalSettingsAccordionState.current
+    val isExpanded = expandedState.value == title
+
+    Column(modifier = Modifier.fillMaxWidth()) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier.fillMaxWidth().clickable {
+                expandedState.value = if (isExpanded) null else title
+            }
+        ) {
             Icon(icon, null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(20.dp))
             Spacer(modifier = Modifier.width(12.dp))
-            Text(title, style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Black, color = MaterialTheme.colorScheme.primary)
+            Text(
+                title,
+                style = MaterialTheme.typography.labelMedium,
+                fontWeight = FontWeight.Black,
+                color = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.weight(1f)
+            )
+            Icon(
+                imageVector = if (isExpanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
+                contentDescription = if (isExpanded) "Collapse" else "Expand",
+                tint = Color.Gray
+            )
         }
-        Spacer(modifier = Modifier.height(16.dp))
-        content()
+        androidx.compose.animation.AnimatedVisibility(
+            visible = isExpanded,
+            enter = androidx.compose.animation.expandVertically() + androidx.compose.animation.fadeIn(),
+            exit = androidx.compose.animation.shrinkVertically() + androidx.compose.animation.fadeOut()
+        ) {
+            Column {
+                Spacer(modifier = Modifier.height(16.dp))
+                content()
+            }
+        }
     }
 }
 
@@ -996,102 +1054,3 @@ private fun calculateDelayMinutes(selectedDelay: String, customValue: String, cu
     }
 }
 
-@Composable
-fun AddEmergencyContactDialog(
-    viewModel: SettingsViewModel,
-    onDismiss: () -> Unit
-) {
-    var selectedTab by remember { mutableIntStateOf(0) }
-    var searchQuery by remember { mutableStateOf("") }
-    var manualName by remember { mutableStateOf("") }
-    var manualPhone by remember { mutableStateOf("") }
-    
-    val socialContacts by viewModel.recentSocialContacts.collectAsState(initial = emptyList())
-
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text("Add Emergency Contact") },
-        text = {
-            Column(modifier = Modifier.fillMaxWidth().heightIn(max = 400.dp)) {
-                TabRow(selectedTabIndex = selectedTab) {
-                    Tab(selected = selectedTab == 0, onClick = { selectedTab = 0 }) {
-                        Text("Socials", modifier = Modifier.padding(8.dp))
-                    }
-                    Tab(selected = selectedTab == 1, onClick = { selectedTab = 1 }) {
-                        Text("Phone", modifier = Modifier.padding(8.dp))
-                    }
-                }
-                
-                Spacer(modifier = Modifier.height(16.dp))
-                
-                if (selectedTab == 0) {
-                    OutlinedTextField(
-                        value = searchQuery,
-                        onValueChange = { searchQuery = it },
-                        modifier = Modifier.fillMaxWidth(),
-                        placeholder = { Text("Search linked contacts...") },
-                        leadingIcon = { Icon(Icons.Default.Search, null) },
-                        singleLine = true
-                    )
-                    
-                    Spacer(modifier = Modifier.height(8.dp))
-                    
-                    LazyColumn(modifier = Modifier.weight(1f)) {
-                        val filtered = socialContacts.filter { it.name.contains(searchQuery, ignoreCase = true) }
-                        if (filtered.isEmpty()) {
-                            item { Text("No linked contacts found.", color = Color.Gray, fontSize = 12.sp, modifier = Modifier.padding(16.dp)) }
-                        } else {
-                            items(filtered) { contact ->
-                                ListItem(
-                                    headlineContent = { Text(contact.name) },
-                                    supportingContent = { Text(contact.platform) },
-                                    modifier = Modifier.clickable { 
-                                        viewModel.addEmergencyContact(com.example.mistreal_mini.data.api.EmergencyContact(
-                                            name = contact.name,
-                                            type = "social",
-                                            value = "${contact.platform}:${contact.contactId}"
-                                        ))
-                                        onDismiss()
-                                    }
-                                )
-                            }
-                        }
-                    }
-                } else {
-                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        OutlinedTextField(
-                            value = manualName,
-                            onValueChange = { manualName = it },
-                            label = { Text("Contact Name") },
-                            modifier = Modifier.fillMaxWidth()
-                        )
-                        OutlinedTextField(
-                            value = manualPhone,
-                            onValueChange = { manualPhone = it },
-                            label = { Text("Phone Number") },
-                            modifier = Modifier.fillMaxWidth(),
-                            keyboardOptions = KeyboardOptions(keyboardType = androidx.compose.ui.text.input.KeyboardType.Phone)
-                        )
-                        Button(
-                            onClick = {
-                                if (manualName.isNotBlank() && manualPhone.isNotBlank()) {
-                                    viewModel.addEmergencyContact(com.example.mistreal_mini.data.api.EmergencyContact(
-                                        name = manualName,
-                                        type = "phone",
-                                        value = manualPhone
-                                    ))
-                                    onDismiss()
-                                }
-                            },
-                            modifier = Modifier.fillMaxWidth(),
-                            enabled = manualName.isNotBlank() && manualPhone.isNotBlank()
-                        ) {
-                            Text("Secure Emergency Contact")
-                        }
-                    }
-                }
-            }
-        },
-        confirmButton = { TextButton(onClick = onDismiss) { Text("Close") } }
-    )
-}

@@ -39,6 +39,7 @@ import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.tasks.await
 import timber.log.Timber
 import java.io.File
 import javax.inject.Inject
@@ -58,6 +59,8 @@ class ChatViewModel @Inject constructor(
     private val scribeRepository: com.example.mistreal_mini.data.repository.ScribeRepository,
     private val scribeManager: com.example.mistreal_mini.util.ScribeManager,
     private val voiceRecorder: com.example.mistreal_mini.util.VoiceRecorder,
+    private val verifiedFaceRepository: com.example.mistreal_mini.data.repository.VerifiedFaceRepository,
+    private val faceGuard: com.example.mistreal_mini.util.FaceGuard,
     private val savedStateHandle: SavedStateHandle,
     @ApplicationContext private val context: Context
 ) : ViewModel() {
@@ -144,9 +147,9 @@ class ChatViewModel @Inject constructor(
     }
 
     fun onVoiceNotePlaybackFinished() {
-        if (_isHandsFreeActive.value) {
-            viewModelScope.launch { startListeningLoop() }
-        }
+        // Conversation Mode is fully manual turn-by-turn now (see
+        // startHandsFreeLoop) — the user explicitly taps to record the next
+        // turn themselves, so there's nothing to auto-resume here anymore.
     }
 
     private val _isSttEnabled = mutableStateOf(true)
@@ -186,6 +189,16 @@ class ChatViewModel @Inject constructor(
     // Uri (set via the full-size attachment editor's "Split into 6" tool).
     private val _attachmentSegmentNotes = mutableStateMapOf<Uri, Map<Int, String>>()
     val attachmentSegmentNotes: Map<Uri, Map<Int, String>> = _attachmentSegmentNotes
+
+    // Pencil-markup strokes per region, keyed the same way — region-local
+    // 0f..1f points, converted to full-image coordinates only when actually
+    // rasterized for an AI Edit send (see AttachmentEditorDialog).
+    private val _attachmentSegmentDrawings = mutableStateMapOf<Uri, Map<Int, List<List<Pair<Float, Float>>>>>()
+    val attachmentSegmentDrawings: Map<Uri, Map<Int, List<List<Pair<Float, Float>>>>> = _attachmentSegmentDrawings
+
+    val verifiedFaces = verifiedFaceRepository.allFaceUris.stateIn(
+        viewModelScope, kotlinx.coroutines.flow.SharingStarted.WhileSubscribed(5000), emptyList()
+    )
 
     private val _uniqueTrends = mutableStateListOf<ChatMessage>()
     val uniqueTrends: List<ChatMessage> = _uniqueTrends
@@ -282,11 +295,6 @@ class ChatViewModel @Inject constructor(
             preferenceManager.defaultTranslationLang.collect { _defaultTranslationLang.value = it }
         }
         viewModelScope.launch {
-            voiceManager.transcripts.collect { transcript ->
-                onHandsFreeTranscript(transcript)
-            }
-        }
-        viewModelScope.launch {
             scribeManager.results.collect { transcript ->
                 _scribeText.value = transcript
             }
@@ -303,14 +311,30 @@ class ChatViewModel @Inject constructor(
         observeUniqueTrends()
     }
 
+    // Per-step completion flags the boot screen watches to render its status
+    // log line-by-line — true once the step has settled (success or not),
+    // not just once it was kicked off.
+    private val _modelsLoaded = mutableStateOf(false)
+    val modelsLoaded: State<Boolean> = _modelsLoaded
+    private val _platformsLoaded = mutableStateOf(false)
+    val platformsLoaded: State<Boolean> = _platformsLoaded
+    private val _customProviderChecked = mutableStateOf(false)
+    val customProviderChecked: State<Boolean> = _customProviderChecked
+
     // Network-backed loads deferred out of init{} — they used to fire the
     // instant this ViewModel was constructed at the Activity's top level,
     // which happened before the splash/auth/biometric gate ever resolved.
-    // MainActivity now calls this only once full authentication succeeds.
+    // MainActivity's boot screen calls this only once full authentication
+    // succeeds, and renders a status line per step as each flag flips.
     fun onAuthenticated() {
-        fetchAvailableModels()
-        fetchAvailablePlatforms()
-        fetchHasCustomProvider()
+        viewModelScope.launch {
+            fetchAvailableModelsAwait()
+            _modelsLoaded.value = true
+            fetchAvailablePlatformsAwait()
+            _platformsLoaded.value = true
+            fetchHasCustomProviderAwait()
+            _customProviderChecked.value = true
+        }
     }
 
     private fun observeUniqueTrends() {
@@ -454,12 +478,6 @@ class ChatViewModel @Inject constructor(
         _isListening.value = false
         if (uri != null) {
             sendMessage("", listOf(uri), "audio")
-        } else if (_isHandsFreeActive.value) {
-            viewModelScope.launch {
-                voiceManager.speak("I couldn't hear that. Are you still there?") {
-                    viewModelScope.launch { startListeningLoop() }
-                }
-            }
         }
     }
 
@@ -490,63 +508,78 @@ class ChatViewModel @Inject constructor(
         }
     }
 
-    private fun stopSosAudioCapture() {
-        if (!_isSosRecording.value) return
+    // Suspend (not fire-and-forget) so callers can attach the resulting file
+    // to the alert that already fired, once it's actually finished saving —
+    // this used to just log a local filename and go nowhere.
+    private suspend fun stopSosAudioCapture(): File? {
+        if (!_isSosRecording.value) return null
         sosRecordingTimeoutJob?.cancel()
         voiceRecorder.stopRecording()
         _isSosRecording.value = false
         val recorded = sosRecordingFile
         sosRecordingFile = null
-        if (recorded != null && recorded.exists() && recorded.length() > 0) {
-            viewModelScope.launch {
-                val saved = try {
-                    val sosDir = java.io.File(context.filesDir, "sos_recordings").apply { if (!exists()) mkdirs() }
-                    val dest = java.io.File(sosDir, recorded.name)
-                    recorded.copyTo(dest, overwrite = true)
-                    recorded.delete()
-                    dest
-                } catch (e: Exception) {
-                    Timber.e(e, "Failed to persist SOS audio evidence")
-                    null
-                }
-                if (saved != null) {
-                    _errorEvents.emit("SOS audio evidence recorded (${saved.name})")
-                }
-            }
+        if (recorded == null || !recorded.exists() || recorded.length() <= 0) return null
+        return try {
+            val sosDir = java.io.File(context.filesDir, "sos_recordings").apply { if (!exists()) mkdirs() }
+            val dest = java.io.File(sosDir, recorded.name)
+            recorded.copyTo(dest, overwrite = true)
+            recorded.delete()
+            dest
+        } catch (e: Exception) {
+            Timber.e(e, "Failed to persist SOS audio evidence")
+            null
+        }
+    }
+
+    private suspend fun attachSosAudioIfAny(alertId: Int?, deviceId: String, audioFile: File?) {
+        if (alertId == null || audioFile == null) return
+        val base64 = try {
+            android.util.Base64.encodeToString(audioFile.readBytes(), android.util.Base64.NO_WRAP)
+        } catch (e: Exception) {
+            Timber.e(e, "Failed to read SOS audio for upload")
+            return
+        }
+        val result = infoRepository.attachSosAudio(alertId, deviceId, base64, "audio/mp4")
+        if (result is Resource.Error) {
+            Timber.w("attachSosAudio failed for alert %d: %s", alertId, result.message)
         }
     }
 
     fun fetchAvailablePlatforms() {
-        viewModelScope.launch {
-            val deviceId = Settings.Secure.getString(context.contentResolver, Settings.Secure.ANDROID_ID)
-            when (val result = infoRepository.getAvailablePlatforms(deviceId)) {
-                is Resource.Success -> {
-                    _availablePlatforms.clear()
-                    result.data?.let { platforms ->
-                        _availablePlatforms.addAll(platforms)
-                    }
+        viewModelScope.launch { fetchAvailablePlatformsAwait() }
+    }
+
+    private suspend fun fetchAvailablePlatformsAwait() {
+        val deviceId = Settings.Secure.getString(context.contentResolver, Settings.Secure.ANDROID_ID)
+        when (val result = infoRepository.getAvailablePlatforms(deviceId)) {
+            is Resource.Success -> {
+                _availablePlatforms.clear()
+                result.data?.let { platforms ->
+                    _availablePlatforms.addAll(platforms)
                 }
-                else -> {}
             }
+            else -> {}
         }
     }
 
     fun fetchHasCustomProvider() {
-        viewModelScope.launch {
-            val byokStatus = (infoRepository.getByokStatus() as? Resource.Success)?.data
-            val byokVideoStatus = (infoRepository.getByokVideoStatus() as? Resource.Success)?.data
-            val imageConfigs = (infoRepository.getMediaProviderConfigs("image_gen") as? Resource.Success)?.data?.configs.orEmpty()
-            val videoConfigs = (infoRepository.getMediaProviderConfigs("video_gen") as? Resource.Success)?.data?.configs.orEmpty()
+        viewModelScope.launch { fetchHasCustomProviderAwait() }
+    }
 
-            val summary = buildList {
-                if (byokStatus?.configured == true) add("💬 Text — ${byokStatus.providerType}${byokStatus.modelName?.let { " ($it)" } ?: ""}")
-                if (byokVideoStatus?.configured == true) add("🎬 Video Edit — ${byokVideoStatus.providerType}${byokVideoStatus.modelName?.let { " ($it)" } ?: ""}")
-                imageConfigs.forEach { add("🖼️ Image Gen — ${it.label}") }
-                videoConfigs.forEach { add("📹 Video Gen — ${it.label}") }
-            }
-            _customProviderSummary.value = summary
-            _hasCustomProvider.value = summary.isNotEmpty()
+    private suspend fun fetchHasCustomProviderAwait() {
+        val byokStatus = (infoRepository.getByokStatus() as? Resource.Success)?.data
+        val byokVideoStatus = (infoRepository.getByokVideoStatus() as? Resource.Success)?.data
+        val imageConfigs = (infoRepository.getMediaProviderConfigs("image_gen") as? Resource.Success)?.data?.configs.orEmpty()
+        val videoConfigs = (infoRepository.getMediaProviderConfigs("video_gen") as? Resource.Success)?.data?.configs.orEmpty()
+
+        val summary = buildList {
+            if (byokStatus?.configured == true) add("💬 Text — ${byokStatus.providerType}${byokStatus.modelName?.let { " ($it)" } ?: ""}")
+            if (byokVideoStatus?.configured == true) add("🎬 Video Edit — ${byokVideoStatus.providerType}${byokVideoStatus.modelName?.let { " ($it)" } ?: ""}")
+            imageConfigs.forEach { add("🖼️ Image Gen — ${it.label}") }
+            videoConfigs.forEach { add("📹 Video Gen — ${it.label}") }
         }
+        _customProviderSummary.value = summary
+        _hasCustomProvider.value = summary.isNotEmpty()
     }
 
     fun toggleHandsFree(active: Boolean) {
@@ -555,14 +588,19 @@ class ChatViewModel @Inject constructor(
             _isListening.value = false
             voiceManager.stop()
             context.stopService(Intent(context, com.example.mistreal_mini.service.VoiceService::class.java))
-            // A voice note already queued to autoplay must not fire after stop —
-            // its onPlaybackFinished would otherwise resume the listen loop.
+            // A voice note already queued to autoplay must not fire after stop.
             _pendingVoiceNoteAutoplayUri.value = null
+            // Closing Conversation Mode mid-turn discards that turn's recording
+            // rather than sending it — closing means "stop", not "send this last one".
+            if (_isRecording.value) cancelRecording()
         }
     }
 
     fun fetchAvailableModels() {
-        viewModelScope.launch {
+        viewModelScope.launch { fetchAvailableModelsAwait() }
+    }
+
+    private suspend fun fetchAvailableModelsAwait() {
             val deviceId = Settings.Secure.getString(context.contentResolver, Settings.Secure.ANDROID_ID)
             when (val result = repository.getAvailableModels(deviceId)) {
                 is Resource.Success -> {
@@ -597,7 +635,6 @@ class ChatViewModel @Inject constructor(
                 }
                 else -> {}
             }
-        }
     }
 
     private fun groupModels(models: List<AiModelResponse>) {
@@ -991,6 +1028,7 @@ class ChatViewModel @Inject constructor(
     fun removePendingAttachment(uri: Uri) {
         _pendingAttachments.remove(uri)
         _attachmentSegmentNotes.remove(uri)
+        _attachmentSegmentDrawings.remove(uri)
     }
 
     fun replacePendingAttachment(old: Uri, new: Uri) {
@@ -1001,14 +1039,22 @@ class ChatViewModel @Inject constructor(
             _pendingAttachments.add(new)
         }
         _attachmentSegmentNotes.remove(old)?.let { _attachmentSegmentNotes[new] = it }
+        _attachmentSegmentDrawings.remove(old)?.let { _attachmentSegmentDrawings[new] = it }
     }
 
     fun setSegmentNotes(uri: Uri, notes: Map<Int, String>) {
         if (notes.isEmpty()) _attachmentSegmentNotes.remove(uri) else _attachmentSegmentNotes[uri] = notes
     }
 
+    fun setSegmentDrawings(uri: Uri, drawings: Map<Int, List<List<Pair<Float, Float>>>>) {
+        if (drawings.isEmpty()) _attachmentSegmentDrawings.remove(uri) else _attachmentSegmentDrawings[uri] = drawings
+    }
+
     fun clearPendingAttachments() {
-        _pendingAttachments.forEach { _attachmentSegmentNotes.remove(it) }
+        _pendingAttachments.forEach {
+            _attachmentSegmentNotes.remove(it)
+            _attachmentSegmentDrawings.remove(it)
+        }
         _pendingAttachments.clear()
     }
 
@@ -1090,15 +1136,37 @@ class ChatViewModel @Inject constructor(
             viewModelScope.launch {
                 val contact = _activeSocialContact.value!!
                 val deviceId = Settings.Secure.getString(context.contentResolver, Settings.Secure.ANDROID_ID)
+                // This generic send path (used by the text box AND the voice-note
+                // button/Conversation Mode while chatting with a real contact) was
+                // silently dropping any attachment — only `text` ever reached the
+                // backend. performSocialAction only takes one media item, matching
+                // Zernio's single mediaUrl, so only the first attachment goes out;
+                // sendImageToContact's dedicated flow is unaffected by this fix.
+                var mediaBase64: String? = null
+                var mediaMimeType: String? = null
+                attachmentUris.firstOrNull()?.let { uri ->
+                    mediaBase64 = FileUtil.uriToBase64(context, uri)
+                    mediaMimeType = FileUtil.getMimeType(context, uri)
+                }
                 val result = infoRepository.performSocialAction(
                     deviceId = deviceId,
                     type = "Direct Message",
                     platform = contact.platform,
                     content = text,
-                    targetId = contact.id
+                    targetId = contact.id,
+                    mediaBase64 = mediaBase64,
+                    mediaMimeType = mediaMimeType
                 )
                 if (result is Resource.Success) {
-                    _messages.add(ChatMessage(role = "user", content = text, provider = "you"))
+                    _messages.add(
+                        ChatMessage(
+                            role = "user",
+                            content = text,
+                            type = if (attachmentUris.isNotEmpty()) attachmentType else "text",
+                            attachmentPaths = attachmentUris.map { it.toString() },
+                            provider = "you"
+                        )
+                    )
                 } else {
                     _errorEvents.emit("Failed to send message: ${(result as Resource.Error).message}")
                 }
@@ -1320,15 +1388,13 @@ class ChatViewModel @Inject constructor(
                                         trendTitle = trendTitle
                                     )
                                 )
-                                // Hands-free mode only resumes listening after the note is
-                                // actually heard — handled by onVoiceNotePlaybackFinished(),
-                                // called from the bubble once playback completes. If autoplay
-                                // is off, the loop simply pauses until the user taps play.
+                                // Conversation Mode is fully manual (see startHandsFreeLoop) —
+                                // nothing needs to auto-resume once this is heard, the user
+                                // taps to record their next turn whenever they're ready.
                             } else if (_isHandsFreeActive.value) {
-                                // Fallback: speak it directly rather than leave the loop stuck.
-                                voiceManager.speak(speechContent) {
-                                    viewModelScope.launch { startListeningLoop() }
-                                }
+                                // Fallback: synthesis-to-file failed, so just speak it directly
+                                // rather than show nothing for this turn.
+                                voiceManager.speak(speechContent)
                             }
                         }
                     }
@@ -1359,35 +1425,20 @@ class ChatViewModel @Inject constructor(
         }
     }
 
-    private suspend fun startListeningLoop() {
-        // Defense in depth against the TTS-stop race: even if a stale onComplete
-        // callback slips through, never resume the mic once the user has stopped.
-        if (!_isHandsFreeActive.value) return
-        _isListening.value = true
-        val intent = Intent(context, com.example.mistreal_mini.service.VoiceService::class.java).apply {
-            action = com.example.mistreal_mini.service.VoiceService.ACTION_RESUME_LISTENING
-        }
-        context.startForegroundService(intent)
-    }
-
-    private fun onHandsFreeTranscript(transcript: String) {
-        _isListening.value = false
-        if (_isHandsFreeActive.value) {
-            sendMessage(transcript)
-        }
-    }
 
 
     fun onDistressDetected() {
         if (_guardianEnabled.value) {
             startSosAudioCapture()
             viewModelScope.launch {
-                voiceManager.speak("Detecting possible distress. Sending your location to emergency contacts and posting an alert to your connected social accounts.")
+                voiceManager.speak("Detecting possible distress. Sending your location and alerting your confirmed emergency contacts.")
                 val deviceId = android.provider.Settings.Secure.getString(context.contentResolver, android.provider.Settings.Secure.ANDROID_ID)
-                // Also broadcasts publicly now, by explicit choice — accepted tradeoff
-                // is a false-positive audio trigger can post a public SOS.
-                handleDistressUseCase(deviceId, broadcastToSocials = true)
-                stopSosAudioCapture()
+                // Public broadcasting to real social platforms is no longer
+                // decided here — only the server's 30-day escalation sweep
+                // can do that now, and only if no confirmed contact responds.
+                val result = handleDistressUseCase(deviceId, distressSignature = "Audio Spike Detected", triggerType = "manual")
+                val audioFile = stopSosAudioCapture()
+                attachSosAudioIfAny((result as? Resource.Success)?.data?.alert?.id, deviceId, audioFile)
             }
         }
     }
@@ -1395,27 +1446,21 @@ class ChatViewModel @Inject constructor(
     private val _isSendingSos = mutableStateOf(false)
     val isSendingSos: State<Boolean> = _isSendingSos
 
-    /** Manual SOS button in the drawer — always broadcasts (user already confirmed via dialog). */
+    /** Manual SOS button in the drawer — notifies confirmed emergency contacts. */
     fun triggerManualSos() {
         if (_isSendingSos.value) return
         _isSendingSos.value = true
         startSosAudioCapture()
         viewModelScope.launch {
             val deviceId = android.provider.Settings.Secure.getString(context.contentResolver, android.provider.Settings.Secure.ANDROID_ID)
-            val result = handleDistressUseCase(deviceId, distressSignature = "Manual SOS triggered", broadcastToSocials = true)
+            val result = handleDistressUseCase(deviceId, distressSignature = "Manual SOS triggered", triggerType = "manual")
             _isSendingSos.value = false
-            stopSosAudioCapture()
+            val audioFile = stopSosAudioCapture()
+            attachSosAudioIfAny((result as? Resource.Success)?.data?.alert?.id, deviceId, audioFile)
             when (result) {
                 is Resource.Success -> {
                     val data = result.data
-                    val platforms = data?.broadcastPlatforms ?: emptyList()
-                    val summary = buildString {
-                        append("SOS sent — ${data?.emailsSent ?: 0}/${data?.emailContactsTotal ?: 0} contacts emailed")
-                        if (platforms.isNotEmpty()) append(", posted to ${platforms.joinToString(", ")}")
-                        val failures = data?.broadcastFailures ?: emptyList()
-                        if (failures.isNotEmpty()) append(" (failed: ${failures.joinToString(", ")})")
-                    }
-                    _errorEvents.emit(summary)
+                    _errorEvents.emit("SOS sent — notified ${data?.confirmedContactsNotified ?: 0}/${data?.confirmedContactsTotal ?: 0} confirmed emergency contacts.")
                 }
                 is Resource.Error -> _errorEvents.emit("SOS failed: ${result.message}")
                 else -> {}
@@ -1536,6 +1581,86 @@ class ChatViewModel @Inject constructor(
     private val _isEditingVideo = mutableStateOf(false)
     val isEditingVideo: State<Boolean> = _isEditingVideo
 
+    private val _isSynthesizingVoiceOver = mutableStateOf(false)
+    val isSynthesizingVoiceOver: State<Boolean> = _isSynthesizingVoiceOver
+
+    /**
+     * For multi-face video targeting: grabs the video's middle frame and runs
+     * ML Kit face detection on it, so the UI can show tappable boxes over each
+     * detected face — "swap THIS one" instead of a single generic "the main
+     * person." Returns the frame plus each face's bounding box as a 0f..1f
+     * fraction of the frame (so the UI doesn't need to know the frame's pixel
+     * dimensions to draw/hit-test the boxes).
+     */
+    suspend fun detectFacesInVideo(videoUri: Uri): Pair<android.graphics.Bitmap, List<android.graphics.RectF>>? {
+        return try {
+            val retriever = android.media.MediaMetadataRetriever()
+            val frame = try {
+                retriever.setDataSource(context, videoUri)
+                val durationMs = retriever.extractMetadata(android.media.MediaMetadataRetriever.METADATA_KEY_DURATION)?.toLongOrNull() ?: 0L
+                retriever.getFrameAtTime((durationMs * 500), android.media.MediaMetadataRetriever.OPTION_CLOSEST_SYNC) // midpoint, ms->us
+            } finally {
+                retriever.release()
+            }
+            if (frame == null) {
+                Timber.w("detectFacesInVideo: couldn't extract a frame from %s", videoUri)
+                return null
+            }
+
+            val faces = faceGuard.detectFaces(com.google.mlkit.vision.common.InputImage.fromBitmap(frame, 0)).await()
+            Timber.d("detectFacesInVideo: found %d face(s) in %s", faces.size, videoUri)
+            val boxes = faces.map { face ->
+                val box = face.boundingBox
+                android.graphics.RectF(
+                    (box.left.toFloat() / frame.width).coerceIn(0f, 1f),
+                    (box.top.toFloat() / frame.height).coerceIn(0f, 1f),
+                    (box.right.toFloat() / frame.width).coerceIn(0f, 1f),
+                    (box.bottom.toFloat() / frame.height).coerceIn(0f, 1f)
+                )
+            }
+            frame to boxes
+        } catch (e: Exception) {
+            Timber.e(e, "detectFacesInVideo failed for %s", videoUri)
+            null
+        }
+    }
+
+    /** Highlights the tapped face's box on the frame, for use as the face-swap target reference image. */
+    suspend fun markFaceTarget(frame: android.graphics.Bitmap, box: android.graphics.RectF): Uri? =
+        com.example.mistreal_mini.util.MediaEditorUtil.rasterizeFaceTargetMarker(context, frame, box)
+
+    /** TTS-synthesizes [narration] and muxes it onto [videoUri] as its new audio track. */
+    fun addVoiceOverToVideo(videoUri: Uri, narration: String, onResult: (Uri?) -> Unit) {
+        if (narration.isBlank()) {
+            viewModelScope.launch { _errorEvents.emit("Write what the voice-over should say first.") }
+            onResult(null)
+            return
+        }
+        _isSynthesizingVoiceOver.value = true
+        Timber.d("addVoiceOverToVideo: starting — videoUri=%s, narrationLength=%d", videoUri, narration.length)
+        viewModelScope.launch {
+            val audioFile = java.io.File(context.cacheDir, "voiceover_audio_${System.currentTimeMillis()}.wav")
+            val synthesized = voiceManager.synthesizeToFile(narration, audioFile)
+            if (!synthesized) {
+                Timber.w("addVoiceOverToVideo: TTS synthesis failed for videoUri=%s", videoUri)
+                _isSynthesizingVoiceOver.value = false
+                _errorEvents.emit("Couldn't synthesize the voice-over.")
+                onResult(null)
+                return@launch
+            }
+            val audioUri = androidx.core.content.FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", audioFile)
+            val resultUri = com.example.mistreal_mini.util.MediaEditorUtil.addAudioToVideo(context, videoUri, audioUri)
+            _isSynthesizingVoiceOver.value = false
+            if (resultUri == null) {
+                Timber.w("addVoiceOverToVideo: Transformer mux returned null for videoUri=%s", videoUri)
+                _errorEvents.emit("Couldn't add the voice-over to the video.")
+            } else {
+                Timber.d("addVoiceOverToVideo: success — resultUri=%s", resultUri)
+            }
+            onResult(resultUri)
+        }
+    }
+
     /**
      * AI video editing (background/subject change on an EXISTING recorded video,
      * not generation) — only works if the user has configured their own video
@@ -1544,15 +1669,36 @@ class ChatViewModel @Inject constructor(
      * routing deliberately — this is a narrow, isolated media operation, not a
      * normal chat turn with mood/feelings/autosend tag parsing.
      */
-    fun editVideoWithAi(videoUri: Uri, instruction: String, onResult: (Boolean) -> Unit) {
+    fun editVideoWithAi(
+        videoUri: Uri,
+        faceReferenceUri: Uri? = null,
+        // A copy of a video frame with one specific face highlighted — lets
+        // "swap only this one" target a specific person when several are in
+        // shot, instead of always meaning "the main person." See
+        // detectFacesInVideo()/markFaceTarget().
+        faceTargetUri: Uri? = null,
+        instruction: String,
+        onResult: (Boolean) -> Unit
+    ) {
         if (instruction.isBlank()) {
             viewModelScope.launch { _errorEvents.emit("Describe what to change first.") }
             onResult(false)
             return
         }
         _isEditingVideo.value = true
+        Timber.d(
+            "editVideoWithAi: starting — videoUri=%s, faceSwap=%s, multiface=%s, instructionLength=%d",
+            videoUri, faceReferenceUri != null, faceTargetUri != null, instruction.length
+        )
         viewModelScope.launch {
             val deviceId = android.provider.Settings.Secure.getString(context.contentResolver, android.provider.Settings.Secure.ANDROID_ID)
+            // Tagged explicitly (not derived from Scene Mode) so the backend's
+            // BYOK video-edit path picks these up as referenceImageBase64 /
+            // faceTargetImageBase64 — see getAiResponse's role extraction.
+            val faceImages = listOfNotNull(
+                faceReferenceUri?.let { "character" to it },
+                faceTargetUri?.let { "face_target" to it }
+            )
             val result = sendMessageUseCase(
                 context = context,
                 prompt = instruction,
@@ -1560,35 +1706,43 @@ class ChatViewModel @Inject constructor(
                 history = emptyList(),
                 provider = "byok-video-edit",
                 deviceId = deviceId,
-                videoUri = videoUri
+                videoUri = videoUri,
+                imageUris = faceImages.map { it.second }.ifEmpty { null },
+                explicitImageRoles = faceImages.map { it.first }.ifEmpty { null }
             )
             _isEditingVideo.value = false
             when (result) {
                 is Resource.Success -> {
                     val videoUrl = result.data?.generatedVideoUrl
                     if (videoUrl != null) {
+                        Timber.d("editVideoWithAi: success — videoUrl=%s", videoUrl)
                         repository.saveMessage(
                             ChatMessage(
                                 role = "assistant",
                                 content = "",
                                 type = "video",
                                 attachmentPaths = listOf(videoUrl),
-                                provider = "byok-video-edit",
+                                provider = if (faceReferenceUri != null) "byok-video-edit:face-swap" else "byok-video-edit",
                                 isTrend = _currentTrendTitle.value != null,
                                 trendTitle = _currentTrendTitle.value
                             )
                         )
                         onResult(true)
                     } else {
+                        Timber.w("editVideoWithAi: backend returned success with no generatedVideoUrl (provider=%s)", result.data?.provider)
                         _errorEvents.emit("Video editing provider returned no video.")
                         onResult(false)
                     }
                 }
                 is Resource.Error -> {
+                    Timber.e("editVideoWithAi failed: videoUri=%s, faceSwap=%s, error=%s", videoUri, faceReferenceUri != null, result.message)
                     _errorEvents.emit("Video edit failed: ${result.message}")
                     onResult(false)
                 }
-                else -> onResult(false)
+                else -> {
+                    Timber.w("editVideoWithAi: unexpected Resource state (neither Success nor Error) for videoUri=%s", videoUri)
+                    onResult(false)
+                }
             }
         }
     }
@@ -1602,13 +1756,14 @@ class ChatViewModel @Inject constructor(
      * provider, it's always available. Provider id must match the backend's
      * IMAGE_EDIT_MODEL_ID (aiService.ts).
      */
-    fun editImageWithAi(imageUri: Uri, instruction: String, onResult: (Boolean) -> Unit) {
+    fun editImageWithAi(imageUri: Uri, extraReferenceImages: List<Uri> = emptyList(), isFaceSwap: Boolean = false, instruction: String, onResult: (Boolean) -> Unit) {
         if (instruction.isBlank()) {
             viewModelScope.launch { _errorEvents.emit("Describe what to change first.") }
             onResult(false)
             return
         }
         _isEditingImage.value = true
+        Timber.d("editImageWithAi: starting — imageUri=%s, extraRefs=%d, faceSwap=%s", imageUri, extraReferenceImages.size, isFaceSwap)
         viewModelScope.launch {
             val deviceId = android.provider.Settings.Secure.getString(context.contentResolver, android.provider.Settings.Secure.ANDROID_ID)
             val result = sendMessageUseCase(
@@ -1618,7 +1773,10 @@ class ChatViewModel @Inject constructor(
                 history = emptyList(),
                 provider = "gemini-2.5-flash-image",
                 deviceId = deviceId,
-                imageUris = listOf(imageUri)
+                // extraReferenceImages (e.g. a rasterized pencil-markup overlay)
+                // ride alongside the main image — the backend's editImage() now
+                // sends every attached image to Gemini, not just the first.
+                imageUris = listOf(imageUri) + extraReferenceImages
             )
             _isEditingImage.value = false
             when (result) {
@@ -1629,28 +1787,32 @@ class ChatViewModel @Inject constructor(
                             context, base64, result.data?.generatedImageMimeType
                         )
                         if (uri != null) {
+                            Timber.d("editImageWithAi: success — savedUri=%s", uri)
                             repository.saveMessage(
                                 ChatMessage(
                                     role = "assistant",
                                     content = "",
                                     type = "image",
                                     attachmentPaths = listOf(uri.toString()),
-                                    provider = "gemini-2.5-flash-image",
+                                    provider = if (isFaceSwap) "gemini-2.5-flash-image:face-swap" else "gemini-2.5-flash-image",
                                     isTrend = _currentTrendTitle.value != null,
                                     trendTitle = _currentTrendTitle.value
                                 )
                             )
                             onResult(true)
                         } else {
+                            Timber.w("editImageWithAi: saveBase64Image returned null (mime=%s)", result.data?.generatedImageMimeType)
                             _errorEvents.emit("Edited image couldn't be saved.")
                             onResult(false)
                         }
                     } else {
+                        Timber.w("editImageWithAi: backend returned success with no generatedImageBase64 (provider=%s)", result.data?.provider)
                         _errorEvents.emit("Image editing returned no image.")
                         onResult(false)
                     }
                 }
                 is Resource.Error -> {
+                    Timber.e("editImageWithAi failed: imageUri=%s, faceSwap=%s, error=%s", imageUri, isFaceSwap, result.message)
                     _errorEvents.emit("Image edit failed: ${result.message}")
                     onResult(false)
                 }
@@ -1717,16 +1879,33 @@ class ChatViewModel @Inject constructor(
         }
     }
 
+    // Conversation Mode: a fully manual voice-note-to-voice-note loop, not a
+    // continuously-open mic that guesses when the user stopped talking. This
+    // entry point both activates the mode and starts recording the first
+    // turn (speaking `text` first, if given, e.g. when launched from a
+    // specific message's "hands-free" action). Every turn after that is
+    // driven by advanceHandsFreeTurn() — tap to stop+send, tap again to
+    // record the next one.
     fun startHandsFreeLoop(text: String) {
         toggleHandsFree(true)
-        val intent = Intent(context, com.example.mistreal_mini.service.VoiceService::class.java).apply {
-            action = com.example.mistreal_mini.service.VoiceService.ACTION_START_GUARDIAN
+        if (text.isNotBlank()) {
+            val cleanText = TextSanitizer.sanitizeForTts(text)
+            voiceManager.speak(cleanText) { startRecording() }
+        } else {
+            startRecording()
         }
-        context.startForegroundService(intent)
-        
-        val cleanText = TextSanitizer.sanitizeForTts(text)
-        voiceManager.speak(cleanText) {
-            viewModelScope.launch { startListeningLoop() }
+    }
+
+    // Called on every tap of the Conversation button once the mode is
+    // already active: stops and sends the in-progress recording, or starts
+    // the next turn's recording if nothing is currently being recorded.
+    fun advanceHandsFreeTurn() {
+        if (!_isHandsFreeActive.value) return
+        if (_isRecording.value) {
+            stopRecording()
+            sendVoiceMessage()
+        } else {
+            startRecording()
         }
     }
 
@@ -1789,10 +1968,26 @@ class ChatViewModel @Inject constructor(
         saveAsNote(message.content)
     }
 
+    // Keyed by message content rather than id since in-memory social-chat
+    // messages don't always have a persisted id — matches the existing
+    // content-based lookup pattern already used by startRadioMode.
+    private val _currentlyReadingContent = mutableStateOf<String?>(null)
+    val currentlyReadingContent: State<String?> = _currentlyReadingContent
+
     fun readAloud(text: String) {
+        if (_currentlyReadingContent.value == text) {
+            // Tapping the same bubble's read-aloud button again stops it —
+            // this is the on/off toggle, not just a fire-and-forget trigger.
+            voiceManager.stop()
+            _currentlyReadingContent.value = null
+            return
+        }
         if (_isTtsEnabled.value) {
+            _currentlyReadingContent.value = text
             val cleanText = TextSanitizer.sanitizeForTts(text)
-            voiceManager.speak(cleanText)
+            voiceManager.speak(cleanText) {
+                _currentlyReadingContent.value = null
+            }
         }
     }
 }

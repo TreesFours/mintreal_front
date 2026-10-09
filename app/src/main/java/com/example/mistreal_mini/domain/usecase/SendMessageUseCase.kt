@@ -31,6 +31,10 @@ class SendMessageUseCase @Inject constructor(
         audioUri: Uri? = null,
         videoUri: Uri? = null,
         isSceneMode: Boolean = false,
+        // Overrides the isSceneMode-derived start/end/character/extra tagging
+        // below — for narrow flows (face-swap reference image, etc.) that need
+        // a specific role regardless of whether Scene Mode's toggle is on.
+        explicitImageRoles: List<String>? = null,
         isSocialAutosendContext: Boolean = false
     ): Resource<ChatResponse> {
         val currentDate = SimpleDateFormat("EEEE, MMMM dd, yyyy HH:mm", Locale.getDefault()).format(Date())
@@ -151,18 +155,26 @@ class SendMessageUseCase @Inject constructor(
         // 🔄 Update Conversation Counter
         preferenceManager.setConversationCounter(counter + 1)
         
-        // 🎬 Scene Mode Frame Tagging
-        val imageParts = imageUris?.mapIndexedNotNull { index, uri ->
-            val partName = if (isSceneMode) {
-                when(index) {
-                    0 -> "start_frame"
-                    1 -> "end_frame"
-                    else -> "images"
-                }
-            } else "images"
-            FileUtil.uriToMultipart(context, uri, partName)
+        // 🎬 Scene Mode Frame Tagging — every image rides under the single
+        // "images" multipart field (the backend's upload config only allows
+        // that name plus "audio"/"video"; separate "start_frame"/"end_frame"
+        // fields were silently rejected by multer, breaking Scene Mode
+        // whenever an image was attached). Which image is which keyframe role
+        // travels alongside as a parallel imageRoles array instead.
+        val imageParts = imageUris?.mapIndexedNotNull { _, uri ->
+            FileUtil.uriToMultipart(context, uri, "images")
         }
-        
+        val imageRoles = explicitImageRoles ?: imageUris?.mapIndexed { index, _ ->
+            if (isSceneMode) {
+                when (index) {
+                    0 -> "start"
+                    1 -> "end"
+                    2 -> "character"
+                    else -> "extra"
+                }
+            } else "extra"
+        }
+
         val audioPart = audioUri?.let { uri ->
             FileUtil.uriToMultipart(context, uri, "audio")
         }
@@ -177,6 +189,7 @@ class SendMessageUseCase @Inject constructor(
             history = history,
             deviceId = deviceId,
             images = imageParts,
+            imageRoles = imageRoles,
             audio = audioPart,
             video = videoPart
         )

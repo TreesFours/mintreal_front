@@ -61,7 +61,6 @@ fun ChatScreen(
     var textState by rememberSaveable { mutableStateOf("") }
     val messages = viewModel.messages
     val isLoading by viewModel.isLoading
-    val isListening by viewModel.isListening
     val isHandsFree by viewModel.isHandsFreeActive
     val currentChatPartner by viewModel.currentChatPartner
     val pagedMessages = viewModel.pagedMessages.collectAsLazyPagingItems()
@@ -359,7 +358,7 @@ fun ChatScreen(
                     onFileClick = { filePickerLauncher.launch("*/*") },
                     onVoiceClick = { viewModel.startRecording() },
                     onConversationClick = {
-                        if (isHandsFree) viewModel.toggleHandsFree(false) else viewModel.startHandsFreeLoop(textState)
+                        if (isHandsFree) viewModel.advanceHandsFreeTurn() else viewModel.startHandsFreeLoop(textState)
                     },
                     onScribeClick = {
                         if (isScribing) viewModel.stopScribe() else viewModel.startScribe()
@@ -381,10 +380,17 @@ fun ChatScreen(
                     onReplaceAttachment = { old, new -> viewModel.replacePendingAttachment(old, new) },
                     segmentNotes = viewModel.attachmentSegmentNotes,
                     onSegmentNotesChanged = { uri, notes -> viewModel.setSegmentNotes(uri, notes) },
+                    segmentDrawings = viewModel.attachmentSegmentDrawings,
+                    onSegmentDrawingsChanged = { uri, drawings -> viewModel.setSegmentDrawings(uri, drawings) },
+                    verifiedFaces = viewModel.verifiedFaces.collectAsStateWithLifecycle().value,
+                    onDetectFacesInVideo = { uri -> viewModel.detectFacesInVideo(uri) },
+                    onMarkFaceTarget = { frame, box -> viewModel.markFaceTarget(frame, box) },
                     isAiEditingVideo = viewModel.isEditingVideo.value,
-                    onAiEditVideo = { uri, instruction, cb -> viewModel.editVideoWithAi(uri, instruction, cb) },
+                    onAiEditVideo = { uri, faceRef, faceTarget, instruction, cb -> viewModel.editVideoWithAi(uri, faceRef, faceTarget, instruction, cb) },
                     isAiEditingImage = viewModel.isEditingImage.value,
-                    onAiEditImage = { uri, instruction, cb -> viewModel.editImageWithAi(uri, instruction, cb) },
+                    onAiEditImage = { uri, extraImages, isFaceSwap, instruction, cb -> viewModel.editImageWithAi(uri, extraImages, isFaceSwap, instruction, cb) },
+                    isSynthesizingVoiceOver = viewModel.isSynthesizingVoiceOver.value,
+                    onAddVoiceOver = { uri, narration, cb -> viewModel.addVoiceOverToVideo(uri, narration, cb) },
                     isSceneMode = viewModel.isSceneMode.value,
                     onToggleSceneMode = { viewModel.toggleSceneMode(it) },
                     // In a social DM minichat, GHOST controls that specific contact's
@@ -557,7 +563,7 @@ fun ChatScreen(
                         Icon(Icons.Default.Mic, null, modifier = Modifier.size(18.dp))
                         Spacer(modifier = Modifier.width(8.dp))
                         Text(
-                            if (isListening) "Conversation Mode — Listening…" else "Conversation Mode — Active",
+                            if (isRecording) "Conversation Mode — Recording… tap to send" else "Conversation Mode — tap to speak",
                             style = MaterialTheme.typography.labelMedium,
                             fontWeight = FontWeight.Bold
                         )

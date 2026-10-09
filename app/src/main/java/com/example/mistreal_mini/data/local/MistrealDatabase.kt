@@ -10,23 +10,25 @@ import com.example.mistreal_mini.data.local.dao.SocialPostDao
 import com.example.mistreal_mini.data.local.dao.PinnedTrendDao
 import com.example.mistreal_mini.data.local.dao.ScribeDao
 import com.example.mistreal_mini.data.local.dao.BankDao
+import com.example.mistreal_mini.data.local.dao.VerifiedFaceDao
 import com.example.mistreal_mini.data.local.dao.business.BusinessDao
 import com.example.mistreal_mini.data.local.entity.*
 
 @Database(
     entities = [
-        ChatEntity::class, 
-        LocationHistoryEntity::class, 
-        SavedIntelEntity::class, 
+        ChatEntity::class,
+        LocationHistoryEntity::class,
+        SavedIntelEntity::class,
         SocialContactEntity::class,
         SocialPostEntity::class,
         PinnedTrendEntity::class,
         ScribeNoteEntity::class,
         BusinessEntity::class,
         BusinessItemEntity::class,
-        BankLinkEntity::class
+        BankLinkEntity::class,
+        VerifiedFaceEntity::class
     ],
-    version = 12,
+    version = 13,
     exportSchema = false
 )
 abstract class MistrealDatabase : RoomDatabase() {
@@ -39,4 +41,5 @@ abstract class MistrealDatabase : RoomDatabase() {
     abstract fun scribeDao(): ScribeDao
     abstract fun businessDao(): BusinessDao
     abstract fun bankDao(): BankDao
+    abstract fun verifiedFaceDao(): VerifiedFaceDao
 }

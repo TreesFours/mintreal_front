@@ -29,6 +29,7 @@ fun ContactListDrawer(
 ) {
     var selectedCategory by remember { mutableStateOf("ai") }
     var modelTab by remember { mutableStateOf(0) } // 0 = Free, 1 = Premium
+    var expandedModelCategory by remember { mutableStateOf("COMMAND CENTER") }
     var searchPlatformQuery by remember { mutableStateOf("") }
     var showSosConfirm by remember { mutableStateOf(false) }
     val contacts by viewModel.socialContacts
@@ -252,6 +253,10 @@ fun ContactListDrawer(
                                                     models = models,
                                                     selectedModelId = viewModel.selectedProvider.value,
                                                     isPro = viewModel.isPro.value,
+                                                    isExpanded = expandedModelCategory == category,
+                                                    onToggleExpand = {
+                                                        expandedModelCategory = if (expandedModelCategory == category) "" else category
+                                                    },
                                                     onModelSelect = { model ->
                                                         viewModel.setProvider(model.id)
                                                         viewModel.switchChat(model.name, "ai")
@@ -332,13 +337,13 @@ fun ModelCategoryAccordion(
     models: List<com.example.mistreal_mini.data.api.AiModelResponse>,
     selectedModelId: String,
     isPro: Boolean,
+    isExpanded: Boolean,
+    onToggleExpand: () -> Unit,
     onModelSelect: (com.example.mistreal_mini.data.api.AiModelResponse) -> Unit
 ) {
-    var isExpanded by remember { mutableStateOf(title == "COMMAND CENTER") }
-    
     Column(modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
         Surface(
-            onClick = { isExpanded = !isExpanded },
+            onClick = onToggleExpand,
             color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
             shape = RoundedCornerShape(8.dp)
         ) {

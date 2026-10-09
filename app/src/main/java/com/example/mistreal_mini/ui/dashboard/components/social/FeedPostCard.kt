@@ -93,6 +93,8 @@ fun FeedPostCard(
             CommentsSidePanel(
                 visible = showComments,
                 comments = post.comments ?: emptyList(),
+                platformIcon = post.platformIcon,
+                platformDisplayName = post.fetchDisplayName(),
                 onDismiss = { showComments = false },
                 onReply = onSendComment
             )

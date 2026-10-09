@@ -8,6 +8,7 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectDragGestures
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.itemsIndexed
@@ -49,6 +50,14 @@ private enum class EditorMode { VIEW, CROP, TRIM, SEGMENT }
 
 private const val SEGMENT_COUNT = 6
 
+// Pencil-markup colors on a region ("this hand has 5 fingers, fix here") —
+// strokes are stored as region-local 0f..1f fractional points, same
+// convention as crop/region-extraction math elsewhere in this file.
+private val ANNOTATION_COLORS = listOf(
+    android.graphics.Color.RED, android.graphics.Color.YELLOW,
+    android.graphics.Color.CYAN, android.graphics.Color.GREEN, android.graphics.Color.WHITE
+)
+
 /**
  * Full-size attachment preview — replaces the old small 300dp AlertDialog preview.
  * Offers crop (images) and trim + 6-way segmentation (video) directly from the
@@ -65,15 +74,40 @@ fun AttachmentEditorDialog(
     onDiscardAttachment: () -> Unit,
     onSegmentNotesChanged: (Map<Int, String>) -> Unit,
     isAiEditingVideo: Boolean = false,
-    onAiEditVideo: (Uri, String, (Boolean) -> Unit) -> Unit = { _, _, cb -> cb(false) },
+    // First Uri? = optional face-swap reference image (picked from Verified
+    // Faces); second Uri? = optional marked frame pointing at which face to target.
+    onAiEditVideo: (Uri, Uri?, Uri?, String, (Boolean) -> Unit) -> Unit = { _, _, _, _, cb -> cb(false) },
     isAiEditingImage: Boolean = false,
-    onAiEditImage: (Uri, String, (Boolean) -> Unit) -> Unit = { _, _, cb -> cb(false) }
+    // Extra reference images (e.g. a rasterized pencil-annotation overlay, or
+    // a face-swap target) alongside the main uri, so "fix this specific spot"
+    // markup actually reaches the model instead of just a text description.
+    // The Boolean flags whether any of those extras is a face-swap reference
+    // (vs. just an annotation overlay), purely for the resulting message's
+    // "AI FACE-EDITED" badge.
+    onAiEditImage: (Uri, List<Uri>, Boolean, String, (Boolean) -> Unit) -> Unit = { _, _, _, _, cb -> cb(false) },
+    // Region-local (0f..1f) stroke points per region index — only meaningful
+    // for images, not video (per-scene annotation is separate, later work).
+    segmentDrawings: Map<Int, List<List<Pair<Float, Float>>>> = emptyMap(),
+    onSegmentDrawingsChanged: (Map<Int, List<List<Pair<Float, Float>>>>) -> Unit = {},
+    // (label, imageUri) pairs — faces registered via live camera capture only
+    // (see VerifiedFaceRepository); the only identities face-swap can target.
+    verifiedFaces: List<Pair<com.example.mistreal_mini.data.local.entity.VerifiedFaceEntity, Uri>> = emptyList(),
+    // Synthesizes [text] as narration and muxes it onto the video, handing
+    // back the new combined-video Uri (or null on failure).
+    isSynthesizingVoiceOver: Boolean = false,
+    onAddVoiceOver: (Uri, String, (Uri?) -> Unit) -> Unit = { _, _, cb -> cb(null) },
+    // Multi-face video targeting: detect faces on a representative frame, let
+    // the user tap which one to swap instead of a single generic "main person."
+    onDetectFacesInVideo: suspend (Uri) -> Pair<Bitmap, List<RectF>>? = { null },
+    onMarkFaceTarget: suspend (Bitmap, RectF) -> Uri? = { _, _ -> null }
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     var mode by remember { mutableStateOf(EditorMode.VIEW) }
     var showAiEditPrompt by remember { mutableStateOf(false) }
+    var showVoiceOverPrompt by remember { mutableStateOf(false) }
     var isBusy by remember { mutableStateOf(false) }
+    var isRasterizing by remember { mutableStateOf(false) }
 
     Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false)) {
         Surface(modifier = Modifier.fillMaxSize(), color = Color.Black) {
@@ -135,6 +169,8 @@ fun AttachmentEditorDialog(
                             isVideo = isVideo,
                             segmentNotes = segmentNotes,
                             onNotesChanged = onSegmentNotesChanged,
+                            segmentDrawings = segmentDrawings,
+                            onDrawingsChanged = onSegmentDrawingsChanged,
                             onDone = { mode = EditorMode.VIEW }
                         )
                         else -> {
@@ -169,6 +205,9 @@ fun AttachmentEditorDialog(
                             EditorToolButton(Icons.Default.ContentCut, "Trim") { mode = EditorMode.TRIM }
                         }
                         EditorToolButton(Icons.Default.ViewColumn, "Split into 6") { mode = EditorMode.SEGMENT }
+                        if (isVideo) {
+                            EditorToolButton(Icons.Default.Mic, "Voice-Over") { showVoiceOverPrompt = true }
+                        }
                         EditorToolButton(Icons.Default.AutoFixHigh, "AI Edit") { showAiEditPrompt = true }
                         EditorToolButton(Icons.Default.Check, "Done", tint = Color.Green) { onDismiss() }
                     }
@@ -177,8 +216,60 @@ fun AttachmentEditorDialog(
         }
     }
 
+    if (showVoiceOverPrompt) {
+        var narration by remember { mutableStateOf("") }
+        AlertDialog(
+            onDismissRequest = { if (!isSynthesizingVoiceOver) showVoiceOverPrompt = false },
+            title = { Text("Add Voice-Over") },
+            text = {
+                Column {
+                    Text(
+                        "Replaces this video's audio with narration read aloud from your text.",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = Color.Gray
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+                    OutlinedTextField(
+                        value = narration,
+                        onValueChange = { narration = it },
+                        placeholder = { Text("What should the voice-over say?") },
+                        modifier = Modifier.fillMaxWidth(),
+                        enabled = !isSynthesizingVoiceOver
+                    )
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        onAddVoiceOver(uri, narration) { newUri ->
+                            if (newUri != null) {
+                                onReplaceAttachment(newUri)
+                                showVoiceOverPrompt = false
+                            }
+                        }
+                    },
+                    enabled = !isSynthesizingVoiceOver && narration.isNotBlank()
+                ) {
+                    if (isSynthesizingVoiceOver) CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp, color = Color.White)
+                    else Text("Add")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showVoiceOverPrompt = false }, enabled = !isSynthesizingVoiceOver) { Text("Cancel") }
+            }
+        )
+    }
+
     if (showAiEditPrompt) {
         var instruction by remember { mutableStateOf("") }
+        var pickedFace by remember { mutableStateOf<Pair<com.example.mistreal_mini.data.local.entity.VerifiedFaceEntity, Uri>?>(null) }
+        var showFacePicker by remember { mutableStateOf(false) }
+        var isDetectingFaces by remember { mutableStateOf(false) }
+        var faceTargetFrame by remember { mutableStateOf<Bitmap?>(null) }
+        var faceTargetBoxes by remember { mutableStateOf<List<RectF>>(emptyList()) }
+        var selectedFaceBoxIndex by remember { mutableStateOf<Int?>(null) }
+        var faceTargetUri by remember { mutableStateOf<Uri?>(null) }
+        var showFaceTargetPicker by remember { mutableStateOf(false) }
         val isBusyEditing = if (isVideo) isAiEditingVideo else isAiEditingImage
         // Fuse the per-segment/region notes (if any were given) together with the
         // overall instruction into one consolidated request, rather than editing
@@ -187,8 +278,9 @@ fun AttachmentEditorDialog(
         // internally when given the full picture in one call.
         val segmentFusionBlock = segmentNotes.entries.sortedBy { it.key }
             .joinToString("\n") { (i, note) -> "${if (isVideo) "Segment" else "Region"} ${i + 1}: $note" }
+        val hasDrawings = !isVideo && segmentDrawings.values.any { it.isNotEmpty() }
         AlertDialog(
-            onDismissRequest = { if (!isBusyEditing) showAiEditPrompt = false },
+            onDismissRequest = { if (!isBusyEditing && !isRasterizing) showAiEditPrompt = false },
             title = { Text("AI Edit") },
             text = {
                 Column {
@@ -208,39 +300,209 @@ fun AttachmentEditorDialog(
                         )
                         Spacer(modifier = Modifier.height(8.dp))
                     }
+                    if (hasDrawings) {
+                        Text(
+                            "Will also attach your pencil markup as a reference image.",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.primary
+                        )
+                        Spacer(modifier = Modifier.height(8.dp))
+                    }
                     OutlinedTextField(
                         value = instruction,
                         onValueChange = { instruction = it },
                         placeholder = { Text("e.g. change the background to a beach") },
                         modifier = Modifier.fillMaxWidth(),
-                        enabled = !isBusyEditing
+                        enabled = !isBusyEditing && !isRasterizing
                     )
+
+                    if (verifiedFaces.isNotEmpty()) {
+                        Spacer(modifier = Modifier.height(12.dp))
+                        Text("FACE SWAP (OPTIONAL)", style = MaterialTheme.typography.labelSmall, color = Color.Gray)
+                        Spacer(modifier = Modifier.height(4.dp))
+                        OutlinedButton(onClick = { showFacePicker = true }, modifier = Modifier.fillMaxWidth(), enabled = !isBusyEditing) {
+                            Text(pickedFace?.first?.label ?: "Pick a verified face…")
+                        }
+                        if (pickedFace != null) {
+                            TextButton(onClick = { pickedFace = null }) { Text("Clear") }
+                        }
+
+                        if (isVideo && pickedFace != null) {
+                            Spacer(modifier = Modifier.height(8.dp))
+                            OutlinedButton(
+                                onClick = {
+                                    isDetectingFaces = true
+                                    scope.launch {
+                                        val result = onDetectFacesInVideo(uri)
+                                        isDetectingFaces = false
+                                        if (result != null && result.second.isNotEmpty()) {
+                                            faceTargetFrame = result.first
+                                            faceTargetBoxes = result.second
+                                            selectedFaceBoxIndex = null
+                                            showFaceTargetPicker = true
+                                        }
+                                    }
+                                },
+                                modifier = Modifier.fillMaxWidth(),
+                                enabled = !isBusyEditing && !isDetectingFaces
+                            ) {
+                                if (isDetectingFaces) CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
+                                else Text(if (faceTargetUri != null) "Change which face to target" else "Multiple people? Pick which face to swap")
+                            }
+                            if (faceTargetUri != null) {
+                                Text(
+                                    "Targeting one specific face in the video.",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.primary
+                                )
+                            }
+                        }
+                    }
                 }
             },
             confirmButton = {
                 Button(
                     onClick = {
-                        val fused = if (segmentFusionBlock.isNotBlank()) {
-                            "$instruction\n\n[${if (isVideo) "Segment" else "Region"}-specific instructions]\n$segmentFusionBlock"
-                        } else instruction
+                        val faceSwapNote = pickedFace?.let {
+                            if (faceTargetUri != null) {
+                                "\n\nReplace only the face highlighted in the attached marked-up frame with the face shown in the other attached reference image — leave every other person/face in the video unchanged."
+                            } else {
+                                "\n\nReplace the face of the main person with the face shown in the attached reference image, keeping pose, lighting, and everything else unchanged."
+                            }
+                        } ?: ""
+                        val fused = (if (segmentFusionBlock.isNotBlank()) {
+                            "$instruction\n\n[${if (isVideo) "Segment" else "Region"}-specific instructions]\n$segmentFusionBlock" +
+                                (if (hasDrawings) "\n\nA marked-up reference image is attached — regions with visible pencil marks show exactly where to apply the above." else "")
+                        } else instruction) + faceSwapNote
                         val onComplete: (Boolean) -> Unit = { success ->
                             if (success) {
                                 showAiEditPrompt = false
                                 onDismiss()
                             }
                         }
-                        if (isVideo) onAiEditVideo(uri, fused, onComplete) else onAiEditImage(uri, fused, onComplete)
+                        if (isVideo) {
+                            onAiEditVideo(uri, pickedFace?.second, faceTargetUri, fused, onComplete)
+                        } else if (hasDrawings || pickedFace != null) {
+                            isRasterizing = true
+                            scope.launch {
+                                // Region-local strokes -> full-image fractional coordinates
+                                // (2 cols x 3 rows, same grid extractImageRegionThumbnail uses).
+                                val fullImageStrokes = segmentDrawings.entries.flatMap { (index, strokes) ->
+                                    val col = index % 2
+                                    val row = index / 2
+                                    strokes.map { stroke ->
+                                        stroke.map { (x, y) -> Pair((col + x) / 2f, (row + y) / 3f) }
+                                    }
+                                }
+                                val overlayUri = if (fullImageStrokes.isNotEmpty()) {
+                                    MediaEditorUtil.rasterizeAnnotation(context, uri, fullImageStrokes, android.graphics.Color.RED)
+                                } else null
+                                isRasterizing = false
+                                val extras = listOfNotNull(overlayUri, pickedFace?.second)
+                                onAiEditImage(uri, extras, pickedFace != null, fused, onComplete)
+                            }
+                        } else {
+                            onAiEditImage(uri, emptyList(), false, fused, onComplete)
+                        }
                     },
-                    enabled = !isBusyEditing && instruction.isNotBlank()
+                    enabled = !isBusyEditing && !isRasterizing && instruction.isNotBlank()
                 ) {
-                    if (isBusyEditing) CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp, color = Color.White)
+                    if (isBusyEditing || isRasterizing) CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp, color = Color.White)
                     else Text("Edit")
                 }
             },
             dismissButton = {
-                TextButton(onClick = { showAiEditPrompt = false }, enabled = !isBusyEditing) { Text("Cancel") }
+                TextButton(onClick = { showAiEditPrompt = false }, enabled = !isBusyEditing && !isRasterizing) { Text("Cancel") }
             }
         )
+
+        if (showFacePicker) {
+            AlertDialog(
+                onDismissRequest = { showFacePicker = false },
+                title = { Text("Pick a verified face") },
+                text = {
+                    androidx.compose.foundation.lazy.LazyColumn {
+                        itemsIndexed(verifiedFaces) { _, pair ->
+                            Row(
+                                modifier = Modifier.fillMaxWidth()
+                                    .clickable { pickedFace = pair; showFacePicker = false }
+                                    .padding(vertical = 8.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                coil.compose.AsyncImage(
+                                    model = pair.second,
+                                    contentDescription = pair.first.label,
+                                    modifier = Modifier.size(36.dp).clip(CircleShape)
+                                )
+                                Spacer(modifier = Modifier.width(12.dp))
+                                Text(pair.first.label)
+                            }
+                        }
+                    }
+                },
+                confirmButton = {
+                    TextButton(onClick = { showFacePicker = false }) { Text("Close") }
+                }
+            )
+        }
+
+        if (showFaceTargetPicker && faceTargetFrame != null) {
+            AlertDialog(
+                onDismissRequest = { showFaceTargetPicker = false },
+                title = { Text("Tap the face to swap") },
+                text = {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .aspectRatio(faceTargetFrame!!.width.toFloat() / faceTargetFrame!!.height.toFloat())
+                    ) {
+                        Image(
+                            faceTargetFrame!!.asImageBitmap(),
+                            contentDescription = "Video frame",
+                            modifier = Modifier.fillMaxSize(),
+                            contentScale = ContentScale.Fit
+                        )
+                        Canvas(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .pointerInput(faceTargetBoxes) {
+                                    detectTapGestures { tap ->
+                                        val fx = tap.x / size.width
+                                        val fy = tap.y / size.height
+                                        selectedFaceBoxIndex = faceTargetBoxes.indexOfFirst { box ->
+                                            fx in box.left..box.right && fy in box.top..box.bottom
+                                        }.takeIf { it >= 0 }
+                                    }
+                                }
+                        ) {
+                            faceTargetBoxes.forEachIndexed { index, box ->
+                                drawRect(
+                                    color = if (index == selectedFaceBoxIndex) Color.Green else Color.Yellow,
+                                    topLeft = Offset(box.left * size.width, box.top * size.height),
+                                    size = Size(box.width() * size.width, box.height() * size.height),
+                                    style = Stroke(width = if (index == selectedFaceBoxIndex) 4f else 2f)
+                                )
+                            }
+                        }
+                    }
+                },
+                confirmButton = {
+                    Button(
+                        onClick = {
+                            val index = selectedFaceBoxIndex ?: return@Button
+                            scope.launch {
+                                faceTargetUri = onMarkFaceTarget(faceTargetFrame!!, faceTargetBoxes[index])
+                                showFaceTargetPicker = false
+                            }
+                        },
+                        enabled = selectedFaceBoxIndex != null
+                    ) { Text("Use this face") }
+                },
+                dismissButton = {
+                    TextButton(onClick = { showFaceTargetPicker = false }) { Text("Cancel") }
+                }
+            )
+        }
     }
 }
 
@@ -475,6 +737,8 @@ private fun SegmentEditor(
     isVideo: Boolean,
     segmentNotes: Map<Int, String>,
     onNotesChanged: (Map<Int, String>) -> Unit,
+    segmentDrawings: Map<Int, List<List<Pair<Float, Float>>>> = emptyMap(),
+    onDrawingsChanged: (Map<Int, List<List<Pair<Float, Float>>>>) -> Unit = {},
     onDone: () -> Unit
 ) {
     val context = LocalContext.current
@@ -539,6 +803,14 @@ private fun SegmentEditor(
                             modifier = Modifier.align(Alignment.BottomEnd).padding(4.dp).size(16.dp)
                         )
                     }
+                    if (!segmentDrawings[index].isNullOrEmpty()) {
+                        Icon(
+                            Icons.Default.Create,
+                            "Has markup",
+                            tint = Color.Red,
+                            modifier = Modifier.align(Alignment.BottomStart).padding(4.dp).size(16.dp)
+                        )
+                    }
                 }
             }
         }
@@ -553,22 +825,109 @@ private fun SegmentEditor(
     val segmentIndex = activeSegment
     if (segmentIndex != null) {
         var noteText by remember(segmentIndex) { mutableStateOf(segmentNotes[segmentIndex] ?: "") }
+        // Each stroke is a list of (x,y) points, 0f..1f fractions of this
+        // region's own thumbnail — converted to full-image coordinates only
+        // at send-time (see the AI Edit confirm handler above), since a
+        // region can be re-opened and re-drawn independently of the others.
+        val strokes = remember(segmentIndex) { mutableStateListOf<List<Pair<Float, Float>>>().apply { addAll(segmentDrawings[segmentIndex] ?: emptyList()) } }
+        var currentStroke by remember(segmentIndex) { mutableStateOf<List<Pair<Float, Float>>>(emptyList()) }
+        var drawColor by remember { mutableStateOf(ANNOTATION_COLORS[0]) }
+        val thumbnail = thumbnails.getOrNull(segmentIndex)
+
         AlertDialog(
             onDismissRequest = { activeSegment = null },
             title = { Text("${if (isVideo) "Segment" else "Region"} ${segmentIndex + 1} instructions") },
             text = {
-                OutlinedTextField(
-                    value = noteText,
-                    onValueChange = { noteText = it },
-                    placeholder = { Text("e.g. make the background darker here") },
-                    modifier = Modifier.fillMaxWidth()
-                )
+                Column {
+                    if (!isVideo && thumbnail != null) {
+                        Text(
+                            "Draw directly on the image to point out exactly where (optional).",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = Color.Gray
+                        )
+                        Spacer(modifier = Modifier.height(6.dp))
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(180.dp)
+                                .clip(RoundedCornerShape(8.dp))
+                                .background(Color.DarkGray)
+                        ) {
+                            Image(
+                                thumbnail.asImageBitmap(),
+                                contentDescription = "Region ${segmentIndex + 1}",
+                                modifier = Modifier.fillMaxSize(),
+                                contentScale = ContentScale.Fit
+                            )
+                            Canvas(
+                                modifier = Modifier
+                                    .fillMaxSize()
+                                    .pointerInput(segmentIndex) {
+                                        detectDragGestures(
+                                            onDragStart = { offset ->
+                                                currentStroke = listOf(offset.x / size.width to offset.y / size.height)
+                                            },
+                                            onDrag = { change, _ ->
+                                                currentStroke = currentStroke + (change.position.x / size.width to change.position.y / size.height)
+                                            },
+                                            onDragEnd = {
+                                                if (currentStroke.size > 1) strokes.add(currentStroke)
+                                                currentStroke = emptyList()
+                                            }
+                                        )
+                                    }
+                            ) {
+                                val allStrokes = if (currentStroke.size > 1) strokes + listOf(currentStroke) else strokes
+                                allStrokes.forEach { stroke ->
+                                    for (i in 0 until stroke.size - 1) {
+                                        drawLine(
+                                            color = Color(drawColor),
+                                            start = Offset(stroke[i].first * size.width, stroke[i].second * size.height),
+                                            end = Offset(stroke[i + 1].first * size.width, stroke[i + 1].second * size.height),
+                                            strokeWidth = 6f,
+                                            cap = androidx.compose.ui.graphics.StrokeCap.Round
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                        Row(modifier = Modifier.padding(top = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            ANNOTATION_COLORS.forEach { colorInt ->
+                                Box(
+                                    modifier = Modifier
+                                        .size(28.dp)
+                                        .clip(CircleShape)
+                                        .background(if (drawColor == colorInt) Color.Gray else Color.Transparent)
+                                        .padding(3.dp)
+                                        .clip(CircleShape)
+                                        .background(Color(colorInt))
+                                        .clickable { drawColor = colorInt }
+                                )
+                            }
+                            if (strokes.isNotEmpty()) {
+                                TextButton(onClick = { strokes.clear() }) { Text("CLEAR") }
+                            }
+                        }
+                        Spacer(modifier = Modifier.height(8.dp))
+                    }
+                    OutlinedTextField(
+                        value = noteText,
+                        onValueChange = { noteText = it },
+                        placeholder = { Text("e.g. make the background darker here") },
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                }
             },
             confirmButton = {
                 Button(onClick = {
-                    val updated = segmentNotes.toMutableMap()
-                    if (noteText.isBlank()) updated.remove(segmentIndex) else updated[segmentIndex] = noteText
-                    onNotesChanged(updated)
+                    val updatedNotes = segmentNotes.toMutableMap()
+                    if (noteText.isBlank()) updatedNotes.remove(segmentIndex) else updatedNotes[segmentIndex] = noteText
+                    onNotesChanged(updatedNotes)
+
+                    val updatedDrawings = segmentDrawings.toMutableMap()
+                    if (strokes.isEmpty()) updatedDrawings.remove(segmentIndex) else updatedDrawings[segmentIndex] = strokes.toList()
+                    onDrawingsChanged(updatedDrawings)
+
                     activeSegment = null
                 }) { Text("Save") }
             },

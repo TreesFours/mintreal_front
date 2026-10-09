@@ -22,16 +22,16 @@ import androidx.compose.ui.unit.sp
 import com.example.mistreal_mini.data.model.SocialComment
 
 @Composable
-fun IntelligenceTrench(comments: List<SocialComment>) {
+fun IntelligenceTrench(comments: List<SocialComment>, platformIcon: String, platformDisplayName: String) {
     Column(modifier = Modifier.fillMaxWidth()) {
         comments.forEach { comment ->
-            CommentNode(comment = comment, depth = 0)
+            CommentNode(comment = comment, depth = 0, platformIcon = platformIcon, platformDisplayName = platformDisplayName)
         }
     }
 }
 
 @Composable
-fun CommentNode(comment: SocialComment, depth: Int) {
+fun CommentNode(comment: SocialComment, depth: Int, platformIcon: String, platformDisplayName: String) {
     var isExpanded by remember { mutableStateOf(depth < 1) } // Auto-expand top level
     
     Column(
@@ -55,7 +55,11 @@ fun CommentNode(comment: SocialComment, depth: Int) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(comment.author, style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold)
                     Spacer(modifier = Modifier.width(8.dp))
-                    Text("Signal Confirmed", fontSize = 8.sp, color = Color.Green.copy(alpha = 0.6f))
+                    if (comment.isCommunityComment) {
+                        Text("· via Mistreal", fontSize = 8.sp, color = MaterialTheme.colorScheme.secondary)
+                    } else {
+                        Text("$platformIcon $platformDisplayName", fontSize = 8.sp, color = Color.Gray)
+                    }
                 }
                 Text(comment.text, style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(top = 2.dp))
                 
@@ -98,7 +102,7 @@ fun CommentNode(comment: SocialComment, depth: Int) {
         ) {
             Column {
                 comment.replies.forEach { reply ->
-                    CommentNode(comment = reply, depth = depth + 1)
+                    CommentNode(comment = reply, depth = depth + 1, platformIcon = platformIcon, platformDisplayName = platformDisplayName)
                 }
             }
         }

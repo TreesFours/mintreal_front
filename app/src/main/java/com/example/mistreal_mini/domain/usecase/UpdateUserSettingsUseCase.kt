@@ -1,7 +1,6 @@
 package com.example.mistreal_mini.domain.usecase
 
 import com.example.mistreal_mini.data.Resource
-import com.example.mistreal_mini.data.api.EmergencyContact
 import com.example.mistreal_mini.data.local.PreferenceManager
 import com.example.mistreal_mini.data.repository.InfoRepository
 import javax.inject.Inject
@@ -17,7 +16,6 @@ class UpdateUserSettingsUseCase @Inject constructor(
         audience: String,
         delayMinutes: Int,
         guardianEnabled: Boolean? = null,
-        contacts: List<EmergencyContact>? = null,
         aiAutoSendEnabled: Boolean? = null
     ): Resource<Boolean> {
         val result = infoRepository.updateUserSettings(
@@ -27,7 +25,6 @@ class UpdateUserSettingsUseCase @Inject constructor(
             aiAudience = audience,
             autoReplyDelay = delayMinutes,
             guardianEnabled = guardianEnabled,
-            emergencyContacts = contacts,
             aiAutoSendEnabled = aiAutoSendEnabled
         )
 

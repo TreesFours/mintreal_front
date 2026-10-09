@@ -3,6 +3,7 @@ package com.example.mistreal_mini.data.api
 import okhttp3.MultipartBody
 import okhttp3.RequestBody
 import retrofit2.http.Body
+import retrofit2.http.DELETE
 import retrofit2.http.GET
 import retrofit2.http.Multipart
 import retrofit2.http.PATCH
@@ -84,8 +85,26 @@ interface InfoApiService {
     @POST("api/user/location")
     suspend fun updateLocation(@Body request: LocationRequest): SocialActionResponse
 
-    @POST("api/emergency/alert")
-    suspend fun sendEmergencyAlert(@Body request: EmergencyAlertRequest): EmergencyAlertResponse
+    @POST("api/emergency/alerts")
+    suspend fun fireEmergencyAlert(@Body request: FireEmergencyAlertRequest): EmergencyAlertFireResponse
+
+    @GET("api/emergency/alerts")
+    suspend fun getEmergencyAlerts(@Query("deviceId") deviceId: String): EmergencyAlertsListResponse
+
+    @POST("api/emergency/alerts/{id}/resolve")
+    suspend fun resolveEmergencyAlert(@Path("id") id: Int, @Body body: Map<String, String>): EmergencyActionResponse
+
+    @PATCH("api/emergency/alerts/{id}/audio")
+    suspend fun attachSosAudio(@Path("id") id: Int, @Body request: AttachSosAudioRequest): EmergencyActionResponse
+
+    @GET("api/emergency/contacts")
+    suspend fun getEmergencyContacts(@Query("deviceId") deviceId: String): EmergencyContactsListResponse
+
+    @POST("api/emergency/contacts")
+    suspend fun addEmergencyContact(@Body request: AddEmergencyContactRequest): EmergencyContactResponse
+
+    @DELETE("api/emergency/contacts/{id}")
+    suspend fun deleteEmergencyContact(@Path("id") id: Int, @Query("deviceId") deviceId: String): EmergencyActionResponse
 
     @POST("api/email/send")
     suspend fun sendEmail(@Body request: SendEmailRequest): SendEmailResponse
@@ -150,6 +169,9 @@ interface InfoApiService {
         @Query("lon") lon: Double?
     ): CelestialVectorResponse
 
+    @GET("api/banks/channels")
+    suspend fun getBankChannels(@Query("deviceId") deviceId: String): BankChannelsResponse
+
     @GET("api/discovery/nearby")
     suspend fun getNearbyPlaces(
         @Query("lat") lat: Double,
@@ -157,11 +179,54 @@ interface InfoApiService {
         @Query("radius") radius: Double,
         @Query("category") category: String
     ): DiscoveryNearbyResponse
+
+    @Multipart
+    @POST("api/social/youtube/upload")
+    suspend fun uploadYoutubeVideo(
+        @Part("deviceId") deviceId: RequestBody,
+        @Part("title") title: RequestBody,
+        @Part("description") description: RequestBody?,
+        @Part("privacyStatus") privacyStatus: RequestBody,
+        @Part video: MultipartBody.Part
+    ): YoutubeUploadResponse
+
+    @GET("api/social/youtube/status")
+    suspend fun getYoutubeConnectStatus(@Query("deviceId") deviceId: String): YoutubeStatusResponse
 }
+
+data class YoutubeUploadResponse(
+    val success: Boolean,
+    val videoId: String? = null,
+    val url: String? = null,
+    val error: String? = null
+)
+
+data class YoutubeStatusResponse(
+    val success: Boolean,
+    val connected: Boolean = false,
+    val error: String? = null
+)
 
 data class DiscoveryNearbyResponse(
     val results: List<com.example.mistreal_mini.data.model.DiscoveryResult>,
     val succeeded: Boolean = true
+)
+
+data class BankWhatsapp(val number: String, val prefilledMessage: String? = null)
+data class BankFacebook(val pageId: String)
+
+data class BankChannel(
+    val id: String,
+    val displayName: String,
+    val country: String,
+    val whatsapp: BankWhatsapp? = null,
+    val facebook: BankFacebook? = null
+)
+
+data class BankChannelsResponse(
+    val success: Boolean,
+    val banks: List<BankChannel> = emptyList(),
+    val error: String? = null
 )
 
 data class CelestialVectorResponse(
@@ -175,8 +240,7 @@ data class CelestialVectorResponse(
     val distSun: String? = null,
     val description: String? = null,
     val relativeToMoon: String? = null,
-    val status: String? = null,
-    val simulated: Boolean? = null
+    val status: String? = null
 )
 
 data class LocationRequest(
@@ -252,28 +316,58 @@ data class RegisterBusinessRequest(
     val category: String
 )
 
-data class EmergencyAlertRequest(
+// Public auto-escalation to real connected platforms is no longer a client
+// choice (see the Guardian plan) — it only ever happens server-side, once,
+// after 30 days with zero confirmed-contact response. The client just fires
+// the alert; everything after that is backend-owned.
+data class FireEmergencyAlertRequest(
     val deviceId: String,
     val firebaseUid: String? = null,
     val latitude: Double,
     val longitude: Double,
     val distressSignature: String,
-    // Opt-in, defaults false: the automatic audio-spike-detection trigger must
-    // never silently post a public SOS to real social media on a false
-    // positive. Only the manual SOS button (after user confirmation) sets this.
-    val broadcastToSocials: Boolean = false
+    val triggerType: String = "manual", // "manual" | "meetup_panic"
+    val sosAudioBase64: String? = null,
+    val sosAudioMimeType: String? = null
 )
 
-data class EmergencyAlertResponse(
+data class EmergencyAlertFireResponse(
     val success: Boolean,
     val error: String? = null,
-    val emailsSent: Int = 0,
-    val emailContactsTotal: Int = 0,
-    // Nullable: Gson bypasses the constructor on deserialization, so a missing
-    // JSON field lands as null here regardless of the Kotlin default — callers
-    // must use `broadcastPlatforms ?: emptyList()`.
-    val broadcastPlatforms: List<String>? = null,
-    val broadcastFailures: List<String>? = null
+    val alert: EmergencyAlert? = null,
+    val confirmedContactsNotified: Int = 0,
+    val confirmedContactsTotal: Int = 0
+)
+
+data class EmergencyAlert(
+    val id: Int,
+    val ownerDeviceId: String,
+    val triggerType: String,
+    val latitude: Double,
+    val longitude: Double,
+    val sosAudioUrl: String? = null,
+    val distressSignature: String? = null,
+    val status: String, // "active" | "resolved_safe" | "escalated_public"
+    val createdAt: String,
+    val escalateAt: String? = null,
+    val resolvedAt: String? = null
+)
+
+data class AttachSosAudioRequest(
+    val deviceId: String,
+    val sosAudioBase64: String,
+    val sosAudioMimeType: String
+)
+
+data class EmergencyAlertsListResponse(
+    val success: Boolean,
+    val alerts: List<EmergencyAlert>? = null,
+    val error: String? = null
+)
+
+data class EmergencyActionResponse(
+    val success: Boolean,
+    val error: String? = null
 )
 
 data class SendEmailRequest(
@@ -317,10 +411,41 @@ data class EmailContactSummary(
 )
 
 data class ContactsResponse(val success: Boolean, val contacts: List<SocialContact>)
+
+// Replaces the old one-directional {name, type, value} shape — a contact
+// must now explicitly confirm/decline via the emailed/DM'd link before
+// `status` ever leaves "pending", and only a "confirmed" contact receives
+// real alert content (see emergencyRoutes.ts).
 data class EmergencyContact(
+    val id: Int = 0,
     val name: String,
-    val type: String, // "phone", "email", "social"
-    val value: String
+    val channel: String, // "platform" | "email"
+    val platform: String? = null,
+    val platformContactId: String? = null,
+    val email: String? = null,
+    val status: String = "pending" // "pending" | "confirmed" | "declined"
+)
+
+data class AddEmergencyContactRequest(
+    val deviceId: String,
+    val firebaseUid: String? = null,
+    val name: String,
+    val channel: String,
+    val platform: String? = null,
+    val platformContactId: String? = null,
+    val email: String? = null
+)
+
+data class EmergencyContactResponse(
+    val success: Boolean,
+    val contact: EmergencyContact? = null,
+    val error: String? = null
+)
+
+data class EmergencyContactsListResponse(
+    val success: Boolean,
+    val contacts: List<EmergencyContact>? = null,
+    val error: String? = null
 )
 
 data class SocialContact(
@@ -378,7 +503,6 @@ data class UserSettingsRequest(
     val aiAudience: String?,
     val autoReplyDelay: Int?,
     val guardianEnabled: Boolean? = null,
-    val emergencyContacts: List<EmergencyContact>? = null,
     val aiAutoSendEnabled: Boolean? = null
 )
 

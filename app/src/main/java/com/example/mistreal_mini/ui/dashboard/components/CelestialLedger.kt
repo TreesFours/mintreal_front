@@ -16,10 +16,28 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.browser.customtabs.CustomTabsIntent
 import com.example.mistreal_mini.ui.chat.ChatViewModel
 import com.example.mistreal_mini.ui.dashboard.CelestialObject
+
+// NASA's own Solar System Exploration pages — real imagery/video/facts per
+// body, a direct "dig deeper" destination instead of a generic search link.
+private val CELESTIAL_LEARN_MORE_URL = mapOf(
+    "10" to "https://science.nasa.gov/sun/",
+    "199" to "https://science.nasa.gov/mercury/",
+    "299" to "https://science.nasa.gov/venus/",
+    "399" to "https://science.nasa.gov/earth/",
+    "301" to "https://science.nasa.gov/moon/",
+    "499" to "https://science.nasa.gov/mars/",
+    "599" to "https://science.nasa.gov/jupiter/",
+    "699" to "https://science.nasa.gov/saturn/",
+    "799" to "https://science.nasa.gov/uranus/",
+    "899" to "https://science.nasa.gov/neptune/",
+    "999" to "https://science.nasa.gov/dwarf-planets/pluto/"
+)
 
 @Composable
 fun CelestialLedger(
@@ -100,26 +118,34 @@ fun CelestialObjectCard(
                 Column(modifier = Modifier.weight(1f)) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Text(obj.name.uppercase(), fontWeight = FontWeight.Black, style = MaterialTheme.typography.bodyLarge)
-                        if (obj.simulated) {
+                        if (!obj.isLive) {
                             Spacer(modifier = Modifier.width(8.dp))
                             Surface(
-                                color = Color(0xFFB8860B).copy(alpha = 0.25f),
+                                color = Color.Gray.copy(alpha = 0.25f),
                                 shape = RoundedCornerShape(4.dp)
                             ) {
                                 Text(
-                                    "SIMULATED",
+                                    "UNAVAILABLE",
                                     modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
                                     style = MaterialTheme.typography.labelSmall,
                                     fontWeight = FontWeight.Black,
                                     fontSize = 9.sp,
-                                    color = Color(0xFFB8860B)
+                                    color = Color.Gray
                                 )
                             }
                         }
                     }
                     Text(
-                        text = if (obj.status == "Visible") "VISIBLE IN NIGHT SKY" else "BELOW HORIZON",
-                        color = if (obj.status == "Visible") Color.Green else Color.Gray,
+                        text = when {
+                            !obj.isLive -> "LIVE TRACKING DOWN — RETRY ON NEXT REFRESH"
+                            obj.status == "Visible" -> "VISIBLE IN NIGHT SKY"
+                            else -> "BELOW HORIZON"
+                        },
+                        color = when {
+                            !obj.isLive -> Color.Gray
+                            obj.status == "Visible" -> Color.Green
+                            else -> Color.Gray
+                        },
                         style = MaterialTheme.typography.labelSmall,
                         fontWeight = FontWeight.Bold
                     )
@@ -182,6 +208,22 @@ fun CelestialObjectCard(
                         modifier = Modifier.padding(top = 4.dp),
                         lineHeight = 18.sp
                     )
+
+                    CELESTIAL_LEARN_MORE_URL[obj.id]?.let { url ->
+                        val context = LocalContext.current
+                        Spacer(modifier = Modifier.height(12.dp))
+                        TextButton(
+                            onClick = {
+                                CustomTabsIntent.Builder().build()
+                                    .launchUrl(context, android.net.Uri.parse(url))
+                            },
+                            contentPadding = PaddingValues(0.dp)
+                        ) {
+                            Icon(Icons.Default.Public, null, modifier = Modifier.size(16.dp))
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text("DIG DEEPER — NASA imagery & facts", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold)
+                        }
+                    }
                 }
             }
         }
