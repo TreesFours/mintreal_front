@@ -110,8 +110,7 @@ class DashboardViewModel @Inject constructor(
                         aiPersona = null,
                         aiAudience = null,
                         autoReplyDelay = null,
-                        guardianEnabled = null,
-                        emergencyContacts = null
+                        guardianEnabled = null
                     )
                     
                     when (val result = getIntelligenceFeedUseCase.getWeather()) {

@@ -1821,33 +1821,6 @@ class ChatViewModel @Inject constructor(
         }
     }
 
-    fun saveSettings(name: String, persona: String, delayMinutes: Int, guardianEnabled: Boolean? = null, contacts: List<EmergencyContact>? = null) {
-        viewModelScope.launch {
-            _isLoading.value = true
-            val deviceId = android.provider.Settings.Secure.getString(context.contentResolver, Settings.Secure.ANDROID_ID)
-            
-            val result = infoRepository.updateUserSettings(
-                deviceId = deviceId, 
-                userName = name, 
-                aiPersona = persona, 
-                aiAudience = null,
-                autoReplyDelay = delayMinutes,
-                guardianEnabled = guardianEnabled,
-                emergencyContacts = contacts
-            )
-            
-            if (result is Resource.Success) {
-                preferenceManager.setUserName(name)
-                preferenceManager.setAiPersona(persona)
-                preferenceManager.setAutoReplyDelay(delayMinutes)
-                guardianEnabled?.let { preferenceManager.setGuardianEnabled(it) }
-            } else {
-                _errorEvents.emit("Failed to secure changes: ${(result as Resource.Error).message}")
-            }
-            _isLoading.value = false
-        }
-    }
-
     fun secureAsScribe(sourcePost: com.example.mistreal_mini.data.model.SocialPost?, analysis: String) {
         viewModelScope.launch {
             scribeRepository.saveNote(
