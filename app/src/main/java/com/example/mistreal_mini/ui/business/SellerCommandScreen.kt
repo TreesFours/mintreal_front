@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -59,8 +60,8 @@ fun SellerCommandScreen(
         if (myBusiness == null) {
             BusinessRegistrationForm(
                 isVerifying = isVerifying,
-                onRegister = { name, desc, cat, addr, lat, lon, platforms ->
-                    viewModel.registerBusiness(name, desc, cat, addr, lat, lon, platforms)
+                onRegister = { name, desc, cat, addr, lat, lon, platforms, ownerName ->
+                    viewModel.registerBusiness(name, desc, cat, addr, lat, lon, platforms, ownerName)
                 },
                 onVerifyLocation = { viewModel.verifyCurrentLocation() },
                 modifier = Modifier.padding(padding)
@@ -80,7 +81,7 @@ fun SellerCommandScreen(
 @Composable
 fun BusinessRegistrationForm(
     isVerifying: Boolean,
-    onRegister: (String, String, String, String, Double, Double, List<com.example.mistreal_mini.data.api.BusinessPlatformHandle>) -> Unit,
+    onRegister: (String, String, String, String, Double, Double, List<com.example.mistreal_mini.data.api.BusinessPlatformHandle>, String) -> Unit,
     onVerifyLocation: suspend () -> Location?,
     modifier: Modifier = Modifier
 ) {
@@ -88,6 +89,7 @@ fun BusinessRegistrationForm(
     var desc by remember { mutableStateOf("") }
     var category by remember { mutableStateOf(BusinessCategories[0]) }
     var address by remember { mutableStateOf("") }
+    var ownerName by remember { mutableStateOf("") }
     var verifiedLoc by remember { mutableStateOf<Location?>(null) }
     var platforms by remember { mutableStateOf(listOf<com.example.mistreal_mini.data.api.BusinessPlatformHandle>()) }
     val scope = rememberCoroutineScope()
@@ -100,8 +102,9 @@ fun BusinessRegistrationForm(
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
         Text("Deploy Your Business", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Black)
-        
+
         OutlinedTextField(value = name, onValueChange = { name = it }, label = { Text("Business Name") }, modifier = Modifier.fillMaxWidth())
+        OutlinedTextField(value = ownerName, onValueChange = { ownerName = it }, label = { Text("Your Name (shown as the owner)") }, modifier = Modifier.fillMaxWidth())
         OutlinedTextField(value = desc, onValueChange = { desc = it }, label = { Text("What do you offer?") }, modifier = Modifier.fillMaxWidth(), minLines = 3)
         
         // Category Dropdown Simplified
@@ -146,7 +149,7 @@ fun BusinessRegistrationForm(
         Spacer(modifier = Modifier.weight(1f))
 
         Button(
-            onClick = { onRegister(name, desc, category, address, verifiedLoc?.latitude ?: 0.0, verifiedLoc?.longitude ?: 0.0, platforms) },
+            onClick = { onRegister(name, desc, category, address, verifiedLoc?.latitude ?: 0.0, verifiedLoc?.longitude ?: 0.0, platforms, ownerName) },
             modifier = Modifier.fillMaxWidth().height(56.dp),
             enabled = name.isNotBlank() && verifiedLoc != null,
             shape = RoundedCornerShape(12.dp)
@@ -214,6 +217,7 @@ fun InventoryManager(
     var showAddItem by remember { mutableStateOf(false) }
     var showCreateAd by remember { mutableStateOf(false) }
     var showEditPlatforms by remember { mutableStateOf(false) }
+    var showEditOwnerPhoto by remember { mutableStateOf(false) }
     val isCreatingAd by viewModel.isCreatingAd.collectAsStateWithLifecycle()
     val snackbarHostState = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
@@ -239,6 +243,9 @@ fun InventoryManager(
                 Column(modifier = Modifier.weight(1f)) {
                     Text(business.name.uppercase(), style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Black)
                     Text("Verified: ${java.text.SimpleDateFormat("HH:mm").format(business.verifiedTimestamp)} Today", color = Color(0xFF4CAF50), fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                }
+                IconButton(onClick = { showEditOwnerPhoto = true }) {
+                    Icon(Icons.Default.Face, "Edit Owner Photo", tint = MaterialTheme.colorScheme.tertiary, modifier = Modifier.size(24.dp))
                 }
                 IconButton(onClick = { showEditPlatforms = true }) {
                     Icon(Icons.Default.Link, "Edit Contact Platforms", tint = MaterialTheme.colorScheme.tertiary, modifier = Modifier.size(24.dp))
@@ -267,6 +274,49 @@ fun InventoryManager(
             }
         }
         SnackbarHost(hostState = snackbarHostState, modifier = Modifier.align(Alignment.BottomCenter))
+    }
+
+    if (showEditOwnerPhoto) {
+        val context = androidx.compose.ui.platform.LocalContext.current
+        val verifiedFaces by viewModel.verifiedFaceUris.collectAsStateWithLifecycle()
+        val galleryLauncher = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri: android.net.Uri? ->
+            if (uri != null) {
+                viewModel.uploadOwnerPhoto(business, uri, context)
+                showEditOwnerPhoto = false
+            }
+        }
+        AlertDialog(
+            onDismissRequest = { showEditOwnerPhoto = false },
+            title = { Text("Owner Photo") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Text("Use a live-captured Verified Face, or upload a separate photo.", style = MaterialTheme.typography.labelSmall, color = Color.Gray)
+                    if (verifiedFaces.isNotEmpty()) {
+                        Text("Verified Faces", style = MaterialTheme.typography.labelMedium)
+                        Row(
+                            modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            verifiedFaces.forEach { (_, uri) ->
+                                AsyncImage(
+                                    model = uri,
+                                    contentDescription = null,
+                                    contentScale = ContentScale.Crop,
+                                    modifier = Modifier.size(64.dp).clip(CircleShape).clickable {
+                                        viewModel.uploadOwnerPhoto(business, uri, context)
+                                        showEditOwnerPhoto = false
+                                    }
+                                )
+                            }
+                        }
+                    }
+                    Button(onClick = { galleryLauncher.launch("image/*") }, modifier = Modifier.fillMaxWidth()) {
+                        Text("Upload a Photo")
+                    }
+                }
+            },
+            confirmButton = { TextButton(onClick = { showEditOwnerPhoto = false }) { Text("Close") } }
+        )
     }
 
     if (showEditPlatforms) {

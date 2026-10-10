@@ -31,6 +31,7 @@ import com.example.mistreal_mini.ui.chat.ChatViewModel
 fun DiscoverySearchScreen(
     onBack: () -> Unit,
     onContactBusiness: (RemoteBusiness) -> Unit,
+    onViewBusinessDetail: (RemoteBusiness) -> Unit = {},
     viewModel: BusinessViewModel = hiltViewModel()
 ) {
     val selectedCategory by viewModel.selectedCategory.collectAsStateWithLifecycle()
@@ -108,7 +109,11 @@ fun DiscoverySearchScreen(
                     verticalArrangement = Arrangement.spacedBy(16.dp)
                 ) {
                     items(results) { business ->
-                        BusinessResultCard(business, onContact = { onContactBusiness(business) })
+                        BusinessResultCard(
+                            business,
+                            onContact = { onContactBusiness(business) },
+                            onClick = { onViewBusinessDetail(business) }
+                        )
                     }
                 }
             }
@@ -117,9 +122,9 @@ fun DiscoverySearchScreen(
 }
 
 @Composable
-fun BusinessResultCard(business: RemoteBusiness, onContact: () -> Unit) {
+fun BusinessResultCard(business: RemoteBusiness, onContact: () -> Unit, onClick: () -> Unit = {}) {
     Card(
-        modifier = Modifier.fillMaxWidth(),
+        modifier = Modifier.fillMaxWidth().clickable(onClick = onClick),
         shape = RoundedCornerShape(16.dp),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
     ) {

@@ -603,7 +603,7 @@ fun SettingsScreen(
                                     headlineContent = { Text(contact.name) },
                                     supportingContent = {
                                         Text(
-                                            "${if (contact.channel == "email") contact.email else contact.platform} · ${contact.status.uppercase()}",
+                                            "${when (contact.channel) { "email" -> contact.email; "sms" -> contact.phoneNumber; else -> contact.platform }} · ${contact.status.uppercase()}",
                                             fontSize = 10.sp,
                                             color = statusColor,
                                             fontWeight = FontWeight.Bold

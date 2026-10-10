@@ -189,6 +189,7 @@ private fun ConfirmMeetupDialog(meetup: Meetup, onDismiss: () -> Unit, viewModel
     var outcome by remember { mutableStateOf("success") }
     var reason by remember { mutableStateOf("") }
     var review by remember { mutableStateOf("") }
+    var buyerVote by remember { mutableStateOf<String?>(null) }
     var photoUri by remember { mutableStateOf<Uri?>(null) }
     var pendingCameraUri by remember { mutableStateOf<Uri?>(null) }
 
@@ -213,6 +214,21 @@ private fun ConfirmMeetupDialog(meetup: Meetup, onDismiss: () -> Unit, viewModel
                     OutlinedTextField(value = reason, onValueChange = { reason = it }, label = { Text("What happened?") }, modifier = Modifier.fillMaxWidth())
                 } else {
                     OutlinedTextField(value = review, onValueChange = { review = it }, label = { Text("Leave a review (optional)") }, modifier = Modifier.fillMaxWidth())
+                    // Only meaningful for a business transaction, and only
+                    // actually recorded server-side if this device turns
+                    // out to be the buyer's side — harmless no-op otherwise.
+                    if (meetup.businessId != null) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text("Rate this sale:", style = MaterialTheme.typography.labelMedium)
+                            Spacer(modifier = Modifier.width(8.dp))
+                            IconButton(onClick = { buyerVote = if (buyerVote == "up") null else "up" }) {
+                                Icon(Icons.Default.ThumbUp, "Good sale", tint = if (buyerVote == "up") Color(0xFF4CAF50) else Color.Gray)
+                            }
+                            IconButton(onClick = { buyerVote = if (buyerVote == "down") null else "down" }) {
+                                Icon(Icons.Default.ThumbDown, "Bad sale", tint = if (buyerVote == "down") Color.Red else Color.Gray)
+                            }
+                        }
+                    }
                 }
                 Button(
                     onClick = {
@@ -238,7 +254,7 @@ private fun ConfirmMeetupDialog(meetup: Meetup, onDismiss: () -> Unit, viewModel
                         if (loc == null) return@launch
                         viewModel.confirmMeetup(
                             meetup.id, loc.latitude, loc.longitude, outcome,
-                            reason.ifBlank { null }, review.ifBlank { null }, photoUri
+                            reason.ifBlank { null }, review.ifBlank { null }, buyerVote, photoUri
                         ) { onDismiss() }
                     }
                 },

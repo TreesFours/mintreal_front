@@ -158,6 +158,7 @@ class SettingsViewModel @Inject constructor(
 
     init {
         fetchEmergencyContacts()
+        fetchAddonStatus()
         viewModelScope.launch {
             preferenceManager.guardianEnabled.collect { _guardianEnabled.value = it }
         }
@@ -864,6 +865,19 @@ class SettingsViewModel @Inject constructor(
         }
     }
 
+    private val _hasSmsAddon = MutableStateFlow(false)
+    val hasSmsAddon: StateFlow<Boolean> = _hasSmsAddon.asStateFlow()
+
+    fun fetchAddonStatus() {
+        viewModelScope.launch {
+            val deviceId = android.provider.Settings.Secure.getString(context.contentResolver, android.provider.Settings.Secure.ANDROID_ID)
+            when (val result = infoRepository.getMyAddons(deviceId)) {
+                is Resource.Success -> _hasSmsAddon.value = result.data?.contains("sms_notifications") == true
+                else -> {}
+            }
+        }
+    }
+
     fun fetchEmergencyContacts() {
         viewModelScope.launch {
             val deviceId = android.provider.Settings.Secure.getString(context.contentResolver, android.provider.Settings.Secure.ANDROID_ID)
@@ -875,11 +889,11 @@ class SettingsViewModel @Inject constructor(
     }
 
     /** Sends the confirm/decline invite — the contact must accept before any real alert ever reaches them. */
-    fun addEmergencyContact(name: String, channel: String, platform: String? = null, platformContactId: String? = null, email: String? = null) {
+    fun addEmergencyContact(name: String, channel: String, platform: String? = null, platformContactId: String? = null, email: String? = null, phoneNumber: String? = null) {
         viewModelScope.launch {
             _isSavingEmergencyContact.value = true
             val deviceId = android.provider.Settings.Secure.getString(context.contentResolver, android.provider.Settings.Secure.ANDROID_ID)
-            val result = infoRepository.addEmergencyContact(deviceId, name, channel, platform, platformContactId, email)
+            val result = infoRepository.addEmergencyContact(deviceId, name, channel, platform, platformContactId, email, phoneNumber)
             _isSavingEmergencyContact.value = false
             if (result is Resource.Success) {
                 fetchEmergencyContacts()

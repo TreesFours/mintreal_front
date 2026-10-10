@@ -110,7 +110,7 @@ fun AdSplitScreenHost(
 }
 
 @Composable
-private fun AdMediaView(ad: AdPayload, modifier: Modifier = Modifier) {
+fun AdMediaView(ad: AdPayload, modifier: Modifier = Modifier) {
     if (ad.mediaType == "video" && !ad.videoUrl.isNullOrBlank()) {
         VideoPlayer(videoUrl = ad.videoUrl, modifier = modifier)
     } else {

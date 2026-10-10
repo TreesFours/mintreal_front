@@ -3,6 +3,8 @@ package com.example.mistreal_mini.ui.subscription
 import android.app.Activity
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
@@ -14,12 +16,16 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
+import com.example.mistreal_mini.data.api.AddonDefinition
 import kotlinx.coroutines.flow.collectLatest
 
+/**
+ * Checklist of independent add-ons, replacing the old single-tier paywall —
+ * each row's switch reflects whether that specific add-on is active on this
+ * device (from /api/payment/my-addons), not one fixed "Pro" flag.
+ */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SubscriptionScreen(
@@ -27,13 +33,14 @@ fun SubscriptionScreen(
     viewModel: SubscriptionViewModel = hiltViewModel()
 ) {
     val context = LocalContext.current
-    val config by viewModel.config
+    val addons by viewModel.addons
+    val activeAddonIds by viewModel.activeAddonIds
     val isLoading by viewModel.isLoading
     val snackbarHostState = remember { SnackbarHostState() }
 
     LaunchedEffect(Unit) {
         viewModel.purchaseSuccess.collectLatest {
-            onDismiss()
+            snackbarHostState.showSnackbar("Add-on activated.")
         }
     }
 
@@ -47,7 +54,7 @@ fun SubscriptionScreen(
         snackbarHost = { SnackbarHost(snackbarHostState) },
         topBar = {
             TopAppBar(
-                title = { Text("Agent Upgrade", fontWeight = FontWeight.Bold) },
+                title = { Text("Add-ons", fontWeight = FontWeight.Bold) },
                 navigationIcon = {
                     IconButton(onClick = onDismiss) {
                         Icon(Icons.Default.Close, contentDescription = "Close")
@@ -70,84 +77,49 @@ fun SubscriptionScreen(
                 )
                 .padding(padding)
         ) {
-            Column(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(24.dp),
-                horizontalAlignment = Alignment.CenterHorizontally
-            ) {
+            Column(modifier = Modifier.fillMaxSize().padding(24.dp)) {
                 Icon(
                     imageVector = Icons.Default.Diamond,
                     contentDescription = null,
-                    modifier = Modifier.size(80.dp),
-                    tint = Color(0xFFFFD700) // Gold
+                    modifier = Modifier.size(64.dp).align(Alignment.CenterHorizontally),
+                    tint = Color(0xFFFFD700)
                 )
-                
-                Spacer(modifier = Modifier.height(16.dp))
-                
+                Spacer(modifier = Modifier.height(12.dp))
                 Text(
-                    text = "Unlock the Big Intelligence",
-                    style = MaterialTheme.typography.headlineMedium,
+                    text = "Pick exactly what you want",
+                    style = MaterialTheme.typography.headlineSmall,
                     fontWeight = FontWeight.Bold,
-                    textAlign = TextAlign.Center
+                    modifier = Modifier.align(Alignment.CenterHorizontally)
                 )
-                
-                Spacer(modifier = Modifier.height(32.dp))
+                Text(
+                    text = "Each add-on is its own monthly subscription — turn on only what you need.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = Color.Gray,
+                    modifier = Modifier.align(Alignment.CenterHorizontally)
+                )
 
-                BenefitRow(Icons.Default.Psychology, "Pro Models", "Access GPT-4, Claude-3, and Gemini Ultra.")
-                BenefitRow(Icons.Default.Share, "15+ Platforms", "Full sync for Instagram, LinkedIn, Telegram, etc.")
-                BenefitRow(Icons.Default.Shield, "Guardian Plus", "Advanced distress sensing and emergency routing.")
-                BenefitRow(Icons.Default.CloudUpload, "Cloud Memory", "Unlimited chat history persistence.")
+                Spacer(modifier = Modifier.height(24.dp))
 
-                Spacer(modifier = Modifier.weight(1f))
-
-                Card(
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(24.dp),
-                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
-                ) {
-                    Column(
-                        modifier = Modifier.padding(24.dp),
-                        horizontalAlignment = Alignment.CenterHorizontally
-                    ) {
-                        val priceText = if (config != null) "$${config!!.proPrice}/month" else "Loading..."
-                        
-                        Text(
-                            text = priceText,
-                            style = MaterialTheme.typography.displaySmall,
-                            fontWeight = FontWeight.Bold,
-                            color = MaterialTheme.colorScheme.primary
-                        )
-                        
-                        if (config?.freeTrialDays != "0") {
-                            Text(
-                                text = "Include ${config?.freeTrialDays}-day free trial",
-                                style = MaterialTheme.typography.labelMedium,
-                                color = Color.Gray
+                if (isLoading && addons.isEmpty()) {
+                    Box(modifier = Modifier.fillMaxWidth().weight(1f), contentAlignment = Alignment.Center) {
+                        CircularProgressIndicator()
+                    }
+                } else {
+                    LazyColumn(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                        items(addons) { addon ->
+                            AddonRow(
+                                addon = addon,
+                                isActive = activeAddonIds.contains(addon.id),
+                                onToggleOn = { viewModel.purchaseAddon(context as Activity, addon) },
+                                onToggleOff = { viewModel.openCancelSubscription(addon) }
                             )
-                        }
-
-                        Spacer(modifier = Modifier.height(24.dp))
-
-                        Button(
-                            onClick = { viewModel.subscribe(context as Activity) },
-                            modifier = Modifier.fillMaxWidth().height(56.dp),
-                            shape = RoundedCornerShape(16.dp),
-                            enabled = config != null && !isLoading
-                        ) {
-                            if (isLoading) {
-                                CircularProgressIndicator(modifier = Modifier.size(24.dp), color = Color.White)
-                            } else {
-                                Text("Upgrade Now", fontSize = 18.sp, fontWeight = FontWeight.Bold)
-                            }
                         }
                     }
                 }
-                
-                Spacer(modifier = Modifier.height(16.dp))
-                
+
+                Spacer(modifier = Modifier.height(8.dp))
                 Text(
-                    text = "Cancel anytime in Google Play Store.",
+                    text = "Turning an add-on off opens Google Play's subscription management — cancellation always happens there, never silently in-app.",
                     style = MaterialTheme.typography.labelSmall,
                     color = Color.Gray
                 )
@@ -157,21 +129,30 @@ fun SubscriptionScreen(
 }
 
 @Composable
-fun BenefitRow(icon: androidx.compose.ui.graphics.vector.ImageVector, title: String, desc: String) {
-    Row(
-        modifier = Modifier.fillMaxWidth().padding(vertical = 12.dp),
-        verticalAlignment = Alignment.Top
+private fun AddonRow(
+    addon: AddonDefinition,
+    isActive: Boolean,
+    onToggleOn: () -> Unit,
+    onToggleOff: () -> Unit
+) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(16.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
     ) {
-        Icon(
-            imageVector = icon,
-            contentDescription = null,
-            modifier = Modifier.size(28.dp),
-            tint = MaterialTheme.colorScheme.primary
-        )
-        Spacer(modifier = Modifier.width(16.dp))
-        Column {
-            Text(text = title, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.bodyLarge)
-            Text(text = desc, style = MaterialTheme.typography.bodySmall, color = Color.Gray)
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(16.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text(addon.label, fontWeight = FontWeight.Bold)
+                Text(addon.description, style = MaterialTheme.typography.bodySmall, color = Color.Gray)
+                Text("$${addon.priceUsd}/month", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold)
+            }
+            Switch(
+                checked = isActive,
+                onCheckedChange = { checked -> if (checked) onToggleOn() else onToggleOff() }
+            )
         }
     }
 }

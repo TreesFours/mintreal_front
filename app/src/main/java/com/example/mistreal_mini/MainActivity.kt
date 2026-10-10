@@ -316,6 +316,25 @@ class MainActivity : FragmentActivity() {
                                             Toast.makeText(this@MainActivity, error ?: "Couldn't contact this business.", Toast.LENGTH_LONG).show()
                                         }
                                     }
+                                },
+                                onViewBusinessDetail = { business ->
+                                    navController.navigate("business_detail/${business.businessId}")
+                                }
+                            )
+                        }
+                        composable("business_detail/{businessId}") { backStackEntry ->
+                            val businessId = backStackEntry.arguments?.getString("businessId") ?: ""
+                            com.example.mistreal_mini.ui.business.BusinessDetailScreen(
+                                businessId = businessId,
+                                onBack = { navController.popBackStack() },
+                                onContactBusiness = { business ->
+                                    chatViewModel.contactBusiness(business) { success, error ->
+                                        if (success) {
+                                            navController.navigate("chat")
+                                        } else {
+                                            Toast.makeText(this@MainActivity, error ?: "Couldn't contact this business.", Toast.LENGTH_LONG).show()
+                                        }
+                                    }
                                 }
                             )
                         }

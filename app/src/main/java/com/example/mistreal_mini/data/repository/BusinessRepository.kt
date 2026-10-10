@@ -1,15 +1,19 @@
 package com.example.mistreal_mini.data.repository
 
 import android.content.Context
+import android.net.Uri
 import android.provider.Settings
 import com.example.mistreal_mini.data.Resource
+import com.example.mistreal_mini.data.api.BusinessAdResponse
 import com.example.mistreal_mini.data.api.BusinessPlatformHandle
 import com.example.mistreal_mini.data.api.InfoApiService
 import com.example.mistreal_mini.data.api.RegisterBusinessRequest
 import com.example.mistreal_mini.data.api.RemoteBusiness
+import com.example.mistreal_mini.data.api.UploadOwnerPhotoRequest
 import com.example.mistreal_mini.data.local.dao.business.BusinessDao
 import com.example.mistreal_mini.data.local.entity.BusinessEntity
 import com.example.mistreal_mini.data.local.entity.BusinessItemEntity
+import com.example.mistreal_mini.util.FileUtil
 import com.google.gson.Gson
 import com.google.gson.reflect.TypeToken
 import dagger.hilt.android.qualifiers.ApplicationContext
@@ -67,11 +71,55 @@ class BusinessRepository @Inject constructor(
                     address = business.address,
                     latitude = business.latitude,
                     longitude = business.longitude,
-                    connectedPlatforms = parseConnectedPlatforms(business.connectedPlatforms)
+                    connectedPlatforms = parseConnectedPlatforms(business.connectedPlatforms),
+                    ownerName = business.ownerName,
+                    ownerPhotoUrl = business.ownerImageUrl
                 )
             )
         } catch (e: Exception) {
             Timber.w(e, "BusinessRepository: server mirror sync failed, local save still succeeded")
+        }
+    }
+
+    /**
+     * One-time upload — either the owner's live-captured Verified Face file
+     * or a separate gallery pick (caller resolves which Uri to pass; both
+     * are just local files from this repository's point of view). Updates
+     * the local cache's ownerImageUrl too, so saveBusiness carries the new
+     * URL forward on its next routine re-save instead of needing a second
+     * round-trip.
+     */
+    suspend fun uploadOwnerPhoto(business: BusinessEntity, photoUri: Uri, context: Context): Resource<String> {
+        return try {
+            val base64 = FileUtil.uriToBase64(context, photoUri) ?: return Resource.Error("Couldn't read the selected photo.")
+            val mimeType = FileUtil.getMimeType(context, photoUri) ?: "image/jpeg"
+            val response = api.uploadOwnerPhoto(business.businessId, UploadOwnerPhotoRequest(deviceId, base64, mimeType))
+            if (response.success && response.ownerPhotoUrl != null) {
+                businessDao.upsertBusiness(business.copy(ownerImageUrl = response.ownerPhotoUrl))
+                Resource.Success(response.ownerPhotoUrl)
+            } else {
+                Resource.Error(response.error ?: "Failed to upload owner photo")
+            }
+        } catch (e: Exception) {
+            Resource.Error(e.message ?: "Failed to upload owner photo")
+        }
+    }
+
+    suspend fun canShareBusiness(businessId: String): Resource<Boolean> {
+        return try {
+            val response = api.canShareBusiness(businessId, deviceId)
+            if (response.success) Resource.Success(response.canShare) else Resource.Error(response.error ?: "Failed to check share eligibility")
+        } catch (e: Exception) {
+            Resource.Error(e.message ?: "Failed to check share eligibility")
+        }
+    }
+
+    suspend fun getAdForBusiness(businessId: String): Resource<BusinessAdResponse> {
+        return try {
+            val response = api.getAdForBusiness(businessId)
+            if (response.success) Resource.Success(response) else Resource.Error(response.error ?: "No ad found")
+        } catch (e: Exception) {
+            Resource.Error(e.message ?: "Failed to load ad")
         }
     }
 

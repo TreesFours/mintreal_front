@@ -72,12 +72,13 @@ class MeetupViewModel @Inject constructor(
         outcome: String,
         reasonIfFailed: String?,
         reviewText: String?,
+        buyerVote: String? = null,
         photoUri: Uri?,
         onDone: (Boolean) -> Unit
     ) {
         viewModelScope.launch {
             _isSubmitting.value = true
-            val result = repository.confirmMeetup(meetupId, latitude, longitude, outcome, reasonIfFailed, reviewText, photoUri)
+            val result = repository.confirmMeetup(meetupId, latitude, longitude, outcome, reasonIfFailed, reviewText, buyerVote, photoUri)
             _isSubmitting.value = false
             if (result is Resource.Success) fetchMeetups()
             onDone(result is Resource.Success)

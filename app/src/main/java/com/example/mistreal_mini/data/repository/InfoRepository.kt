@@ -154,13 +154,26 @@ class InfoRepository @Inject constructor(
         }
     }
 
-    suspend fun verifyPayment(purchaseToken: String, productId: String): Resource<Boolean> {
+    suspend fun verifyPayment(deviceId: String, purchaseToken: String, productId: String): Resource<com.example.mistreal_mini.data.api.PaymentVerifyResponse> {
         return try {
-            val response = api.verifyPayment(com.example.mistreal_mini.data.api.PaymentVerifyRequest(purchaseToken, productId))
-            if (response.success) Resource.Success(true)
+            // deviceId previously wasn't sent at all here — the backend had
+            // nothing to grant the purchase against, so a real Play
+            // purchase never actually upgraded the user. See addonService.ts.
+            val response = api.verifyPayment(com.example.mistreal_mini.data.api.PaymentVerifyRequest(deviceId, purchaseToken, productId))
+            if (response.success) Resource.Success(response)
             else Resource.Error(response.message ?: "Verification failed")
         } catch (e: Exception) {
             Resource.Error("Payment verification error")
+        }
+    }
+
+    suspend fun getMyAddons(deviceId: String): Resource<List<String>> {
+        return try {
+            val response = api.getMyAddons(deviceId)
+            if (response.success) Resource.Success(response.addons ?: emptyList())
+            else Resource.Error(response.error ?: "Failed to load add-ons")
+        } catch (e: Exception) {
+            Resource.Error(e.message ?: "Failed to load add-ons")
         }
     }
 
@@ -537,12 +550,13 @@ class InfoRepository @Inject constructor(
         channel: String,
         platform: String? = null,
         platformContactId: String? = null,
-        email: String? = null
+        email: String? = null,
+        phoneNumber: String? = null
     ): Resource<com.example.mistreal_mini.data.api.EmergencyContact> {
         return try {
             val response = api.addEmergencyContact(
                 com.example.mistreal_mini.data.api.AddEmergencyContactRequest(
-                    deviceId, authRepository.currentUser?.uid, name, channel, platform, platformContactId, email
+                    deviceId, authRepository.currentUser?.uid, name, channel, platform, platformContactId, email, phoneNumber
                 )
             )
             if (response.success && response.contact != null) Resource.Success(response.contact)

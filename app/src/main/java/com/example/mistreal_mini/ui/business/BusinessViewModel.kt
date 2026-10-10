@@ -12,6 +12,7 @@ import com.example.mistreal_mini.data.local.entity.BusinessItemEntity
 import com.example.mistreal_mini.data.local.PreferenceManager
 import com.example.mistreal_mini.data.repository.AdRepository
 import com.example.mistreal_mini.data.repository.BusinessRepository
+import com.example.mistreal_mini.data.repository.VerifiedFaceRepository
 import com.example.mistreal_mini.util.LocationHelper
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.*
@@ -23,8 +24,13 @@ class BusinessViewModel @Inject constructor(
     private val repository: BusinessRepository,
     private val locationHelper: LocationHelper,
     private val adRepository: AdRepository,
-    private val preferenceManager: PreferenceManager
+    private val preferenceManager: PreferenceManager,
+    verifiedFaceRepository: VerifiedFaceRepository
 ) : ViewModel() {
+
+    // For the owner-photo picker's "use my Verified Face" option.
+    val verifiedFaceUris = verifiedFaceRepository.allFaceUris
+        .stateIn(viewModelScope, SharingStarted.Lazily, emptyList())
 
     val isPro: StateFlow<Boolean> = preferenceManager.isPro
         .stateIn(viewModelScope, SharingStarted.Lazily, false)
@@ -97,6 +103,34 @@ class BusinessViewModel @Inject constructor(
             val result = repository.getBusinessDetail(businessId)
             _businessDetail.value = (result as? Resource.Success)?.data
         }
+        fetchCanShare(businessId)
+        fetchBusinessAd(businessId)
+    }
+
+    private val _canShare = MutableStateFlow(false)
+    val canShare = _canShare.asStateFlow()
+
+    private fun fetchCanShare(businessId: String) {
+        viewModelScope.launch {
+            val result = repository.canShareBusiness(businessId)
+            _canShare.value = (result as? Resource.Success)?.data ?: false
+        }
+    }
+
+    private val _businessAd = MutableStateFlow<com.example.mistreal_mini.data.api.AdPayload?>(null)
+    val businessAd = _businessAd.asStateFlow()
+
+    private fun fetchBusinessAd(businessId: String) {
+        viewModelScope.launch {
+            val result = repository.getAdForBusiness(businessId)
+            _businessAd.value = (result as? Resource.Success)?.data?.ad
+        }
+    }
+
+    fun uploadOwnerPhoto(business: BusinessEntity, photoUri: Uri, context: android.content.Context) {
+        viewModelScope.launch {
+            repository.uploadOwnerPhoto(business, photoUri, context)
+        }
     }
 
     fun registerBusiness(
@@ -106,7 +140,8 @@ class BusinessViewModel @Inject constructor(
         address: String,
         lat: Double,
         lon: Double,
-        connectedPlatforms: List<BusinessPlatformHandle> = emptyList()
+        connectedPlatforms: List<BusinessPlatformHandle> = emptyList(),
+        ownerName: String? = null
     ) {
         viewModelScope.launch {
             val business = BusinessEntity(
@@ -120,6 +155,7 @@ class BusinessViewModel @Inject constructor(
                 longitude = lon,
                 logoUrl = null,
                 ownerImageUrl = null,
+                ownerName = ownerName?.takeIf { it.isNotBlank() },
                 verifiedTimestamp = System.currentTimeMillis(),
                 connectedPlatforms = repository.serializeConnectedPlatforms(connectedPlatforms)
             )

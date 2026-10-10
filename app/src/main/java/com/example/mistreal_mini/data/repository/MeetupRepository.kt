@@ -78,6 +78,7 @@ class MeetupRepository @Inject constructor(
         outcome: String,
         reasonIfFailed: String?,
         reviewText: String?,
+        buyerVote: String? = null,
         photoUri: Uri?
     ): Resource<Boolean> {
         return try {
@@ -92,6 +93,7 @@ class MeetupRepository @Inject constructor(
                     outcome = outcome,
                     reasonIfFailed = reasonIfFailed,
                     reviewText = reviewText,
+                    buyerVote = buyerVote,
                     photoBase64 = photoBase64,
                     photoMimeType = photoMimeType
                 )

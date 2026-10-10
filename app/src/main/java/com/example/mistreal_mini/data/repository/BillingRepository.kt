@@ -2,6 +2,7 @@ package com.example.mistreal_mini.data.repository
 
 import android.app.Activity
 import android.content.Context
+import android.provider.Settings
 import com.android.billingclient.api.*
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.CoroutineScope
@@ -19,12 +20,18 @@ class BillingRepository @Inject constructor(
     private val infoRepository: InfoRepository
 ) : PurchasesUpdatedListener {
 
+    private val deviceId: String
+        get() = Settings.Secure.getString(context.contentResolver, Settings.Secure.ANDROID_ID)
+
     private val billingClient = BillingClient.newBuilder(context)
         .setListener(this)
         .enablePendingPurchases()
         .build()
 
-    private val _purchaseSuccess = MutableSharedFlow<Unit>()
+    // Carries which add-on was actually granted (from the backend's
+    // resolved addonId), so the Subscription screen's checklist can update
+    // the right row rather than just "something succeeded."
+    private val _purchaseSuccess = MutableSharedFlow<String?>()
     val purchaseSuccess = _purchaseSuccess.asSharedFlow()
 
     private val _errorEvent = MutableSharedFlow<String>()
@@ -94,9 +101,9 @@ class BillingRepository @Inject constructor(
 
     private fun verifyPurchaseWithBackend(purchase: Purchase) {
         CoroutineScope(Dispatchers.IO).launch {
-            val result = infoRepository.verifyPayment(purchase.purchaseToken, purchase.products[0])
+            val result = infoRepository.verifyPayment(deviceId, purchase.purchaseToken, purchase.products[0])
             if (result is Resource.Success) {
-                _purchaseSuccess.emit(Unit)
+                _purchaseSuccess.emit(result.data?.addonId)
                 acknowledgePurchase(purchase)
             } else {
                 _errorEvent.emit("Verification failed: ${result.message}")

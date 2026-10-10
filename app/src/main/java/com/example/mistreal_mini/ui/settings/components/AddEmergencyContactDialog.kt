@@ -20,10 +20,11 @@ import com.example.mistreal_mini.ui.settings.SettingsViewModel
 /**
  * Only sends an invite now — the contact must confirm/decline via the
  * link before ever becoming a real, alert-receiving emergency contact (see
- * emergencyRoutes.ts). "Phone" was dropped as a channel: no SMS provider
- * exists anywhere in this app, so those contacts were previously stored but
- * never actually reachable. Email replaces it — a channel the backend can
- * genuinely deliver on via the existing Gmail SMTP sender.
+ * emergencyRoutes.ts). "Phone" was dropped as a free channel: no SMS
+ * provider existed at all, so those contacts were previously stored but
+ * never actually reachable. Real SMS is back now as its own tab, gated on
+ * the sms_notifications add-on (a real Telnyx send costs money, so it's
+ * only offered once that add-on is active — see SubscriptionScreen.kt).
  */
 @Composable
 fun AddEmergencyContactDialog(
@@ -34,9 +35,11 @@ fun AddEmergencyContactDialog(
     var searchQuery by remember { mutableStateOf("") }
     var manualName by remember { mutableStateOf("") }
     var manualEmail by remember { mutableStateOf("") }
+    var manualPhone by remember { mutableStateOf("") }
 
     val socialContacts by viewModel.recentSocialContacts.collectAsState(initial = emptyList())
     val isSaving by viewModel.isSavingEmergencyContact.collectAsStateWithLifecycle()
+    val hasSmsAddon by viewModel.hasSmsAddon.collectAsStateWithLifecycle()
 
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -55,6 +58,9 @@ fun AddEmergencyContactDialog(
                     }
                     Tab(selected = selectedTab == 1, onClick = { selectedTab = 1 }) {
                         Text("Email", modifier = Modifier.padding(8.dp))
+                    }
+                    Tab(selected = selectedTab == 2, onClick = { selectedTab = 2 }) {
+                        Text("SMS", modifier = Modifier.padding(8.dp))
                     }
                 }
 
@@ -94,7 +100,7 @@ fun AddEmergencyContactDialog(
                             }
                         }
                     }
-                } else {
+                } else if (selectedTab == 1) {
                     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         OutlinedTextField(
                             value = manualName,
@@ -125,6 +131,47 @@ fun AddEmergencyContactDialog(
                         ) {
                             if (isSaving) CircularProgressIndicator(modifier = Modifier.size(18.dp), color = Color.White)
                             else Text("Send Confirmation Request")
+                        }
+                    }
+                } else {
+                    if (!hasSmsAddon) {
+                        Text(
+                            "SMS requires the SMS Notifications add-on (real texts cost money to send). Enable it from Settings > Subscription.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = Color.Gray
+                        )
+                    } else {
+                        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            OutlinedTextField(
+                                value = manualName,
+                                onValueChange = { manualName = it },
+                                label = { Text("Contact Name") },
+                                modifier = Modifier.fillMaxWidth()
+                            )
+                            OutlinedTextField(
+                                value = manualPhone,
+                                onValueChange = { manualPhone = it },
+                                label = { Text("Phone Number (+1...)") },
+                                modifier = Modifier.fillMaxWidth(),
+                                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Phone)
+                            )
+                            Button(
+                                onClick = {
+                                    if (manualName.isNotBlank() && manualPhone.isNotBlank()) {
+                                        viewModel.addEmergencyContact(
+                                            name = manualName,
+                                            channel = "sms",
+                                            phoneNumber = manualPhone
+                                        )
+                                        onDismiss()
+                                    }
+                                },
+                                modifier = Modifier.fillMaxWidth(),
+                                enabled = !isSaving && manualName.isNotBlank() && manualPhone.isNotBlank()
+                            ) {
+                                if (isSaving) CircularProgressIndicator(modifier = Modifier.size(18.dp), color = Color.White)
+                                else Text("Send Confirmation Request")
+                            }
                         }
                     }
                 }

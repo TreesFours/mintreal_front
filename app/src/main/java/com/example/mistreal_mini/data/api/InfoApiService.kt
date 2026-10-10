@@ -73,14 +73,14 @@ interface InfoApiService {
     @GET("api/user/settings")
     suspend fun getUserSettings(@Query("deviceId") deviceId: String?): UserSettingsResponse
 
-    @POST("api/subscribe")
-    suspend fun createStripeSession(@Body request: SubscriptionRequest): SubscriptionResponse
-
     @GET("api/config")
     suspend fun getAppConfig(): AppConfigResponse
 
     @POST("api/payment/verify")
     suspend fun verifyPayment(@Body request: PaymentVerifyRequest): PaymentVerifyResponse
+
+    @GET("api/payment/my-addons")
+    suspend fun getMyAddons(@Query("deviceId") deviceId: String): MyAddonsResponse
 
     @POST("api/user/location")
     suspend fun updateLocation(@Body request: LocationRequest): SocialActionResponse
@@ -120,6 +120,15 @@ interface InfoApiService {
 
     @GET("api/business/{businessId}")
     suspend fun getBusinessDetail(@Path("businessId") businessId: String): BusinessDetailResponse
+
+    @POST("api/business/{businessId}/owner-photo")
+    suspend fun uploadOwnerPhoto(@Path("businessId") businessId: String, @Body request: UploadOwnerPhotoRequest): UploadOwnerPhotoResponse
+
+    @GET("api/business/{businessId}/can-share")
+    suspend fun canShareBusiness(@Path("businessId") businessId: String, @Query("deviceId") deviceId: String): CanShareResponse
+
+    @GET("api/ads/business/{businessId}")
+    suspend fun getAdForBusiness(@Path("businessId") businessId: String): BusinessAdResponse
 
     @POST("api/meetups")
     suspend fun proposeMeetup(@Body request: ProposeMeetupRequest): MeetupResponse
@@ -338,7 +347,12 @@ data class RegisterBusinessRequest(
     val address: String? = null,
     val latitude: Double? = null,
     val longitude: Double? = null,
-    val connectedPlatforms: List<BusinessPlatformHandle> = emptyList()
+    val connectedPlatforms: List<BusinessPlatformHandle> = emptyList(),
+    val ownerName: String? = null,
+    // Already-hosted URL carried forward from a prior uploadOwnerPhoto call
+    // — register itself never uploads bytes, so a routine re-save can never
+    // accidentally clobber this with null.
+    val ownerPhotoUrl: String? = null
 )
 
 // Server-side mirror of a business — distinct from the local Room
@@ -354,7 +368,9 @@ data class RemoteBusiness(
     val longitude: Double? = null,
     val logoUrl: String? = null,
     val connectedPlatforms: List<BusinessPlatformHandle> = emptyList(),
-    val confirmedMeetupsCount: Int = 0
+    val confirmedMeetupsCount: Int = 0,
+    val ownerName: String? = null,
+    val ownerPhotoUrl: String? = null
 )
 
 data class BusinessSearchResponse(
@@ -363,12 +379,21 @@ data class BusinessSearchResponse(
     val error: String? = null
 )
 
+data class BusinessTestimonial(val reviewText: String?, val confirmedAt: String)
+
 data class BusinessDetailResponse(
     val success: Boolean,
     val business: RemoteBusiness? = null,
     val confirmedMeetupsCount: Int = 0,
+    val upvotes: Int = 0,
+    val downvotes: Int = 0,
+    val testimonials: List<BusinessTestimonial>? = null,
     val error: String? = null
 )
+
+data class UploadOwnerPhotoRequest(val deviceId: String, val photoBase64: String, val photoMimeType: String)
+data class UploadOwnerPhotoResponse(val success: Boolean, val ownerPhotoUrl: String? = null, val error: String? = null)
+data class CanShareResponse(val success: Boolean, val canShare: Boolean = false, val error: String? = null)
 
 data class ProposeMeetupRequest(
     val deviceId: String,
@@ -415,9 +440,14 @@ data class ConfirmMeetupRequest(
     val outcome: String, // "success" | "failed"
     val reasonIfFailed: String? = null,
     val reviewText: String? = null,
+    // Only honored server-side when this device is the buyer (the
+    // proposer) of a businessId-tagged, outcome='success' confirmation.
+    val buyerVote: String? = null, // "up" | "down"
     val photoBase64: String? = null,
     val photoMimeType: String? = null
 )
+
+data class BusinessAdResponse(val success: Boolean, val ad: AdPayload? = null, val error: String? = null)
 
 data class MeetupConfirmResponse(
     val success: Boolean,
@@ -527,10 +557,11 @@ data class ContactsResponse(val success: Boolean, val contacts: List<SocialConta
 data class EmergencyContact(
     val id: Int = 0,
     val name: String,
-    val channel: String, // "platform" | "email"
+    val channel: String, // "platform" | "email" | "sms"
     val platform: String? = null,
     val platformContactId: String? = null,
     val email: String? = null,
+    val phoneNumber: String? = null,
     val status: String = "pending" // "pending" | "confirmed" | "declined"
 )
 
@@ -541,7 +572,8 @@ data class AddEmergencyContactRequest(
     val channel: String,
     val platform: String? = null,
     val platformContactId: String? = null,
-    val email: String? = null
+    val email: String? = null,
+    val phoneNumber: String? = null
 )
 
 data class EmergencyContactResponse(
@@ -586,21 +618,41 @@ data class UnreadItem(
     val lastSeen: String? = null
 )
 
+data class AddonDefinition(
+    val id: String,
+    val label: String,
+    val description: String,
+    val priceUsd: String,
+    val playProductId: String
+)
+
 data class AppConfigResponse(
     val proPrice: String,
     val productId: String,
     val freeTrialDays: String,
-    val freePlatformLimit: Int
+    val freePlatformLimit: Int,
+    // Nullable: Gson bypasses the constructor on deserialization, so a
+    // missing JSON field lands as null regardless of the Kotlin default.
+    val addons: List<AddonDefinition>? = null
 )
 
 data class PaymentVerifyRequest(
+    val deviceId: String,
     val purchaseToken: String,
     val productId: String
 )
 
 data class PaymentVerifyResponse(
     val success: Boolean,
-    val message: String?
+    val message: String?,
+    val addonId: String? = null,
+    val isPro: Boolean = false
+)
+
+data class MyAddonsResponse(
+    val success: Boolean,
+    val addons: List<String>? = null,
+    val error: String? = null
 )
 
 data class UserSettingsRequest(
@@ -622,9 +674,6 @@ data class UserSettingsResponse(
     val guardianEnabled: Boolean? = null,
     val aiAutoSendEnabled: Boolean? = null
 )
-
-data class SubscriptionRequest(val tier: String)
-data class SubscriptionResponse(val success: Boolean, val url: String?, val error: String?)
 
 data class WeatherResponse(
     val summary: String,

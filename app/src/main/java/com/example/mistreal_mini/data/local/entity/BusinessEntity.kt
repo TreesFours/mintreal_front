@@ -15,6 +15,7 @@ data class BusinessEntity(
     val longitude: Double,
     val logoUrl: String?,
     val ownerImageUrl: String?,
+    val ownerName: String? = null,
     val verifiedTimestamp: Long,
     val connectedPlatforms: String? // JSON list of {platform, value}
 )
