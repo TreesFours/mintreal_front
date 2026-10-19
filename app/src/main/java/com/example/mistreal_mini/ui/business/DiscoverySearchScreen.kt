@@ -137,6 +137,9 @@ fun BusinessResultCard(business: RemoteBusiness, onContact: () -> Unit, onClick:
                 Column(modifier = Modifier.weight(1f)) {
                     Text(business.name, fontWeight = FontWeight.Bold)
                     Text(business.address ?: "", style = MaterialTheme.typography.bodySmall, color = Color.Gray)
+                    business.distanceKm?.let {
+                        Text("%.1f km away".format(it), style = MaterialTheme.typography.labelSmall, color = Color.Gray)
+                    }
                     if (business.confirmedMeetupsCount > 0) {
                         Text(
                             "${business.confirmedMeetupsCount} confirmed meetup${if (business.confirmedMeetupsCount == 1) "" else "s"}",

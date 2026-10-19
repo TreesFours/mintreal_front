@@ -1,16 +1,18 @@
 package com.example.mistreal_mini.data.repository
 
 import android.content.Context
-import android.provider.Settings
 import com.example.mistreal_mini.data.Resource
 import com.example.mistreal_mini.data.api.AiApiService
 import com.example.mistreal_mini.data.api.AiModelResponse
 import com.example.mistreal_mini.data.local.dao.ChatDao
 import com.example.mistreal_mini.data.local.dao.PinnedTrendDao
+import com.example.mistreal_mini.data.local.dao.DelayedTrendDao
 import com.example.mistreal_mini.data.local.entity.ChatEntity
+import com.example.mistreal_mini.data.local.entity.DelayedTrendEntity
 import com.example.mistreal_mini.data.local.entity.PinnedTrendEntity
 import com.example.mistreal_mini.data.model.ChatMessage
 import com.example.mistreal_mini.data.model.ChatResponse
+import com.example.mistreal_mini.util.DeviceIdProvider
 import com.google.gson.Gson
 import androidx.paging.Pager
 import androidx.paging.PagingConfig
@@ -32,11 +34,13 @@ class AiRepository @Inject constructor(
     private val api: AiApiService,
     private val chatDao: ChatDao,
     private val pinnedTrendDao: PinnedTrendDao,
+    private val delayedTrendDao: DelayedTrendDao,
     private val authRepository: AuthRepository,
-    @ApplicationContext private val context: Context
+    @ApplicationContext private val context: Context,
+    private val deviceIdProvider: DeviceIdProvider
 ) {
     private val deviceId: String
-        get() = Settings.Secure.getString(context.contentResolver, Settings.Secure.ANDROID_ID)
+        get() = deviceIdProvider.deviceId
     @OptIn(ExperimentalCoroutinesApi::class)
     fun getAllMessages(): Flow<List<ChatMessage>> {
         return authRepository.userState.flatMapLatest { user ->
@@ -60,12 +64,25 @@ class AiRepository @Inject constructor(
     val currentUserId: String
         get() = authRepository.currentUser?.uid ?: "guest"
 
-    suspend fun saveMessage(message: ChatMessage) {
-        chatDao.insertMessage(ChatEntity.fromChatMessage(currentUserId, message))
+    // Returns the generated row id — needed when revealAt is set, so the
+    // caller can schedule RevealDelayedReplyWorker against this exact row.
+    // Existing callers that don't need the id simply ignore the return value.
+    suspend fun saveMessage(message: ChatMessage, revealAt: Long? = null): Long {
+        return chatDao.insertMessage(ChatEntity.fromChatMessage(currentUserId, message, revealAt))
     }
 
-    suspend fun saveEntity(entity: ChatEntity) {
-        chatDao.insertMessage(entity)
+    suspend fun saveEntity(entity: ChatEntity): Long {
+        return chatDao.insertMessage(entity)
+    }
+
+    suspend fun clearRevealAt(messageId: Long) {
+        chatDao.clearRevealAt(messageId)
+    }
+
+    fun getDelayEnabledTrendTitles(): Flow<List<String>> = delayedTrendDao.getEnabledTitles()
+
+    suspend fun setTrendDelayEnabled(trendTitle: String, enabled: Boolean) {
+        if (enabled) delayedTrendDao.enable(DelayedTrendEntity(trendTitle)) else delayedTrendDao.disable(trendTitle)
     }
 
     suspend fun clearHistory() {
@@ -142,6 +159,10 @@ class AiRepository @Inject constructor(
         // multipart fields per role (those require a backend allowlist change
         // every time a new role is added; this doesn't).
         imageRoles: List<String>? = null,
+        // Architectural Render's confirm step — set only when the user tapped
+        // "Looks Right" on the understanding card (see ChatViewModel.confirmArchUnderstanding).
+        confirmArchRender: Boolean = false,
+        archUnderstanding: String? = null,
         retryCount: Int = 0
     ): Resource<ChatResponse> {
         return try {
@@ -159,7 +180,9 @@ class AiRepository @Inject constructor(
                 images = images,
                 imageRoles = imageRolesJson?.toRequestBody("application/json".toMediaTypeOrNull()),
                 audio = audio,
-                video = video
+                video = video,
+                confirmArchRender = confirmArchRender.toString().toRequestBody("text/plain".toMediaTypeOrNull()),
+                archUnderstanding = archUnderstanding?.toRequestBody("application/json".toMediaTypeOrNull())
             )
 
             if (response.success) {
@@ -171,12 +194,12 @@ class AiRepository @Inject constructor(
                 if (isRateLimit && retryCount < 3) {
                     val waitTime = 2000L * (retryCount + 1)
                     kotlinx.coroutines.delay(waitTime)
-                    return sendMessage(prompt, provider, history, deviceId, images, audio, video, imageRoles, retryCount + 1)
+                    return sendMessage(prompt, provider, history, deviceId, images, audio, video, imageRoles, confirmArchRender, archUnderstanding, retryCount + 1)
                 }
 
                 if (retryCount < 2 && (response.error?.contains("Timeout") == true || response.error?.contains("503") == true)) {
                     kotlinx.coroutines.delay(2000L * (retryCount + 1))
-                    return sendMessage(prompt, provider, history, deviceId, images, audio, video, imageRoles, retryCount + 1)
+                    return sendMessage(prompt, provider, history, deviceId, images, audio, video, imageRoles, confirmArchRender, archUnderstanding, retryCount + 1)
                 }
                 
                 // Final error message for the user if all retries fail

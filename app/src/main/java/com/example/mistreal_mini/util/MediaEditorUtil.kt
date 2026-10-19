@@ -8,11 +8,15 @@ import android.media.MediaMetadataRetriever
 import android.net.Uri
 import androidx.core.content.FileProvider
 import androidx.media3.common.MediaItem
+import androidx.media3.effect.Presentation
 import androidx.media3.transformer.Composition
+import androidx.media3.transformer.DefaultEncoderFactory
 import androidx.media3.transformer.EditedMediaItem
+import androidx.media3.transformer.Effects
 import androidx.media3.transformer.ExportException
 import androidx.media3.transformer.ExportResult
 import androidx.media3.transformer.Transformer
+import androidx.media3.transformer.VideoEncoderSettings
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
@@ -29,24 +33,76 @@ import kotlin.coroutines.resume
  */
 object MediaEditorUtil {
 
-    /** Decodes a base64-encoded image (as returned by Gemini/Imagen generation) into a cached file. */
-    suspend fun saveBase64Image(context: Context, base64: String, mimeType: String?): Uri? =
+    /**
+     * Decodes a base64-encoded image (as returned by Gemini/Imagen generation)
+     * into a cached file, stamping an "AI" tag onto the pixels at [tagPosition]
+     * ("center"/"top"/"bottom"/"left"/"right", a Settings preference) first —
+     * baked in rather than an in-app overlay, so it survives the image being
+     * saved to the gallery or shared to any other app.
+     */
+    suspend fun saveBase64Image(context: Context, base64: String, mimeType: String?, tagPosition: String = "bottom"): Uri? =
         withContext(Dispatchers.IO) {
             try {
                 val bytes = android.util.Base64.decode(base64, android.util.Base64.DEFAULT)
+                val decoded = BitmapFactory.decodeByteArray(bytes, 0, bytes.size) ?: return@withContext null
+                val tagged = stampAiTag(decoded, tagPosition)
+
                 val extension = when {
                     mimeType?.contains("png") == true -> "png"
                     mimeType?.contains("webp") == true -> "webp"
                     else -> "jpg"
                 }
+                val format = if (extension == "png") Bitmap.CompressFormat.PNG else Bitmap.CompressFormat.JPEG
                 val file = File(context.cacheDir, "ai_generated_${System.currentTimeMillis()}.$extension")
-                FileOutputStream(file).use { it.write(bytes) }
+                FileOutputStream(file).use { out -> tagged.compress(format, 92, out) }
                 FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", file)
             } catch (e: Exception) {
                 Timber.e(e, "Failed to save AI-generated image")
                 null
             }
         }
+
+    /**
+     * Draws a small rounded "AI" badge onto a copy of [source] at [position].
+     * Deliberately small/unobtrusive (proportional to image width) rather
+     * than a watermark covering the whole image.
+     */
+    private fun stampAiTag(source: Bitmap, position: String): Bitmap {
+        val tagged = source.copy(Bitmap.Config.ARGB_8888, true)
+        val canvas = android.graphics.Canvas(tagged)
+
+        val textSize = tagged.width * 0.035f
+        val padding = tagged.width * 0.02f
+        val textPaint = android.graphics.Paint().apply {
+            color = android.graphics.Color.WHITE
+            this.textSize = textSize
+            isAntiAlias = true
+            typeface = android.graphics.Typeface.DEFAULT_BOLD
+            textAlign = android.graphics.Paint.Align.CENTER
+        }
+        val bgPaint = android.graphics.Paint().apply {
+            color = android.graphics.Color.argb(160, 0, 0, 0)
+            isAntiAlias = true
+        }
+
+        val label = "AI"
+        val boxWidth = textPaint.measureText(label) + padding * 2.5f
+        val boxHeight = textSize + padding * 1.4f
+
+        val (boxLeft, boxTop) = when (position) {
+            "top" -> (tagged.width - boxWidth) / 2f to padding
+            "left" -> padding to (tagged.height - boxHeight) / 2f
+            "right" -> (tagged.width - boxWidth - padding) to (tagged.height - boxHeight) / 2f
+            "center" -> (tagged.width - boxWidth) / 2f to (tagged.height - boxHeight) / 2f
+            else -> (tagged.width - boxWidth) / 2f to (tagged.height - boxHeight - padding) // "bottom"
+        }
+
+        val rect = RectF(boxLeft, boxTop, boxLeft + boxWidth, boxTop + boxHeight)
+        canvas.drawRoundRect(rect, boxHeight / 2f, boxHeight / 2f, bgPaint)
+        canvas.drawText(label, rect.centerX(), rect.centerY() + textSize * 0.35f, textPaint)
+
+        return tagged
+    }
 
     private fun saveBitmapAndGetUri(context: Context, bitmap: Bitmap, prefix: String): Uri? {
         return try {
@@ -267,6 +323,107 @@ object MediaEditorUtil {
                 transformer.start(editedMediaItem, outputFile.absolutePath)
 
                 continuation.invokeOnCancellation { transformer.cancel() }
+            }
+        }
+
+    /** Same Media3 Transformer/ClippingConfiguration approach as trimVideo, just on an audio-only MediaItem. Re-encodes [sourceUri] to a new .m4a file containing only [startMs, endMs]. */
+    suspend fun trimAudio(context: Context, sourceUri: Uri, startMs: Long, endMs: Long): Uri? =
+        withContext(Dispatchers.Main) {
+            suspendCancellableCoroutine { continuation ->
+                val outputFile = File(context.cacheDir, "trim_audio_${System.currentTimeMillis()}.m4a")
+
+                val clippingConfiguration = MediaItem.ClippingConfiguration.Builder()
+                    .setStartPositionMs(startMs)
+                    .setEndPositionMs(endMs)
+                    .build()
+
+                val mediaItem = MediaItem.Builder()
+                    .setUri(sourceUri)
+                    .setClippingConfiguration(clippingConfiguration)
+                    .build()
+
+                val editedMediaItem = EditedMediaItem.Builder(mediaItem).build()
+
+                val transformer = Transformer.Builder(context)
+                    .addListener(object : Transformer.Listener {
+                        override fun onCompleted(composition: Composition, exportResult: ExportResult) {
+                            if (continuation.isActive) {
+                                continuation.resume(
+                                    FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", outputFile)
+                                )
+                            }
+                        }
+
+                        override fun onError(composition: Composition, exportResult: ExportResult, exportException: ExportException) {
+                            Timber.e(exportException, "Audio trim failed")
+                            if (continuation.isActive) continuation.resume(null)
+                        }
+                    })
+                    .build()
+
+                transformer.start(editedMediaItem, outputFile.absolutePath)
+
+                continuation.invokeOnCancellation { transformer.cancel() }
+            }
+        }
+
+    // 720p/2.2Mbps H.264 — deliberately below typical feed-video delivery
+    // bitrates (Instagram's own feed encode is commonly cited around
+    // 3.5-5Mbps at 720p/1080p) while staying visually comparable, so a
+    // compressed upload costs noticeably less mobile data to watch than
+    // the equivalent raw camera footage would. Nothing this app sends out
+    // (ad videos, review voice/video, business media) was ever compressed
+    // before upload until now — they went out at whatever bitrate the
+    // phone's camera recorded, often 4-5x this.
+    private const val COMPRESSED_VIDEO_HEIGHT = 720
+    private const val COMPRESSED_VIDEO_BITRATE = 2_200_000
+
+    /**
+     * Re-encodes [sourceUri] at a capped resolution/bitrate before upload —
+     * call this right before any video leaves the device (ad creation,
+     * review attachments, business media), not as a user-facing edit step.
+     * Falls back to returning the original [sourceUri] unchanged if
+     * compression fails for any reason, so a transient encoder issue never
+     * blocks the user's actual upload.
+     */
+    suspend fun compressVideo(context: Context, sourceUri: Uri): Uri =
+        withContext(Dispatchers.Main) {
+            suspendCancellableCoroutine { continuation ->
+                try {
+                    val outputFile = File(context.cacheDir, "compressed_${System.currentTimeMillis()}.mp4")
+
+                    val effects = Effects(emptyList(), listOf(Presentation.createForHeight(COMPRESSED_VIDEO_HEIGHT)))
+                    val editedMediaItem = EditedMediaItem.Builder(MediaItem.fromUri(sourceUri))
+                        .setEffects(effects)
+                        .build()
+
+                    val encoderFactory = DefaultEncoderFactory.Builder(context)
+                        .setRequestedVideoEncoderSettings(VideoEncoderSettings.Builder().setBitrate(COMPRESSED_VIDEO_BITRATE).build())
+                        .setEnableFallback(true) // device lacks the exact requested encoder config — degrade gracefully, don't fail the upload
+                        .build()
+
+                    val transformer = Transformer.Builder(context)
+                        .setEncoderFactory(encoderFactory)
+                        .addListener(object : Transformer.Listener {
+                            override fun onCompleted(composition: Composition, exportResult: ExportResult) {
+                                if (continuation.isActive) {
+                                    continuation.resume(FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", outputFile))
+                                }
+                            }
+
+                            override fun onError(composition: Composition, exportResult: ExportResult, exportException: ExportException) {
+                                Timber.e(exportException, "Video compression failed — falling back to the uncompressed original")
+                                if (continuation.isActive) continuation.resume(sourceUri)
+                            }
+                        })
+                        .build()
+
+                    transformer.start(editedMediaItem, outputFile.absolutePath)
+                    continuation.invokeOnCancellation { transformer.cancel() }
+                } catch (e: Exception) {
+                    Timber.e(e, "Video compression setup failed — falling back to the uncompressed original")
+                    if (continuation.isActive) continuation.resume(sourceUri)
+                }
             }
         }
 

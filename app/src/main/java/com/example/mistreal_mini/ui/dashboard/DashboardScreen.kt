@@ -46,6 +46,9 @@ import kotlinx.coroutines.launch
 fun DashboardScreen(
     onBack: () -> Unit,
     onDmClick: () -> Unit = {},
+    onMyProfileClick: () -> Unit = {},
+    onAuthorProfileClick: (String) -> Unit = {},
+    onOpenAiRender: () -> Unit = {},
     viewModel: DashboardViewModel = hiltViewModel(),
     feedViewModel: FeedViewModel = hiltViewModel(),
     mapViewModel: TacticalMapViewModel = hiltViewModel(),
@@ -53,12 +56,26 @@ fun DashboardScreen(
     chatViewModel: ChatViewModel = hiltViewModel()
 ) {
     val context = LocalContext.current
-    val deviceId = android.provider.Settings.Secure.getString(context.contentResolver, android.provider.Settings.Secure.ANDROID_ID)
+    val deviceId = com.example.mistreal_mini.util.DeviceIdProvider(context).deviceId
     
     var selectedArticle by remember { mutableStateOf<Article?>(null) }
     var insightContext by remember { mutableStateOf<String?>(null) }
     var insightSourcePost by remember { mutableStateOf<com.example.mistreal_mini.data.model.SocialPost?>(null) }
     var showInsightPopup by remember { mutableStateOf(false) }
+
+    // Quick voice-ask — lighter alternative to AiInsightPopup's full sheet,
+    // see ui/util/QuickVoiceAskDialog.kt + AiReplyBubble.kt.
+    var showQuickVoiceAsk by remember { mutableStateOf(false) }
+    var showVoiceReplyBubble by remember { mutableStateOf(false) }
+    var voiceReplyText by remember { mutableStateOf<String?>(null) }
+    var isAwaitingVoiceReply by remember { mutableStateOf(false) }
+
+    LaunchedEffect(chatViewModel.isLoading.value, isAwaitingVoiceReply) {
+        if (isAwaitingVoiceReply && !chatViewModel.isLoading.value) {
+            voiceReplyText = chatViewModel.messages.lastOrNull { it.role == "assistant" }?.content
+            isAwaitingVoiceReply = false
+        }
+    }
     var selectedTab by remember { mutableIntStateOf(0) }
     var showMapPopup by remember { mutableStateOf(false) }
     var showFullSolarSystem by remember { mutableStateOf(false) }
@@ -109,6 +126,9 @@ fun DashboardScreen(
             TopAppBar(
                 title = { Text(if (isArchitectMode) "MISTREAL ARCHITECT" else "MISTREAL TACTICAL", fontWeight = FontWeight.Black) },
                 actions = {
+                    IconButton(onClick = onMyProfileClick) {
+                        Icon(Icons.Default.Person, "My Profile")
+                    }
                     IconButton(onClick = onDmClick) {
                         BadgedBox(badge = { 
                             if (unreadCount > 0) {
@@ -181,10 +201,11 @@ fun DashboardScreen(
                         bearing = bearing,
                         articles = feedViewModel.newsArticles,
                         onArticleClick = { selectedArticle = it },
-                        onAskAi = { 
+                        onAskAi = {
                             insightContext = it
-                            showInsightPopup = true 
+                            showInsightPopup = true
                         },
+                        onVoiceAsk = { showQuickVoiceAsk = true },
                         onPinClick = { feedViewModel.togglePin(it) },
                         onReadAloud = { text, _ -> chatViewModel.readAloud(text) },
                         chatViewModel = chatViewModel,
@@ -196,6 +217,7 @@ fun DashboardScreen(
                     selectedTab == 1 -> InteractiveMapView(
                         location = weather?.location ?: "Sector Unknown",
                         onClose = { selectedTab = 0 },
+                        onOpenAiRender = onOpenAiRender,
                         viewModel = chatViewModel,
                         dashboardViewModel = viewModel,
                         mapViewModel = mapViewModel,
@@ -221,14 +243,16 @@ fun DashboardScreen(
                             chatViewModel = chatViewModel,
                             feedViewModel = feedViewModel,
                             deviceId = deviceId,
-                            isLoading = feedViewModel.isLoading.value
+                            isLoading = feedViewModel.isLoading.value,
+                            onAuthorClick = onAuthorProfileClick,
+                            onVoiceAsk = { showQuickVoiceAsk = true }
                         )
                     }
                     (isArchitectMode && selectedTab == 4) || (!isArchitectMode && selectedTab == 3) -> DispatchCenterView(
                         deviceId = deviceId,
                         connectedSocials = chatViewModel.availablePlatforms.filter { it.isConnected }.map { it.id.lowercase() },
-                        onPostToSocial = { _, platform, type, content ->
-                            feedViewModel.postToSocial(deviceId, platform, type, content)
+                        onPostToSocial = { _, platform, type, content, mistrealOnly ->
+                            feedViewModel.postToSocial(deviceId, platform, type, content, mistrealOnly = mistrealOnly)
                         },
                         snackbarHostState = snackbarHostState
                     )
@@ -236,6 +260,16 @@ fun DashboardScreen(
 
                 if (isLoading) {
                     LinearProgressIndicator(modifier = Modifier.fillMaxWidth().align(Alignment.TopCenter))
+                }
+
+                if (showVoiceReplyBubble) {
+                    com.example.mistreal_mini.ui.util.AiReplyBubble(
+                        isLoading = isAwaitingVoiceReply,
+                        replyText = voiceReplyText,
+                        onReadAloud = { voiceReplyText?.let { chatViewModel.readAloud(it) } },
+                        onDismiss = { showVoiceReplyBubble = false; voiceReplyText = null },
+                        modifier = Modifier.align(Alignment.BottomEnd).padding(16.dp)
+                    )
                 }
             }
         }
@@ -276,6 +310,19 @@ fun DashboardScreen(
             onClose = { showInsightPopup = false; insightSourcePost = null },
             viewModel = chatViewModel,
             sourcePost = insightSourcePost
+        )
+    }
+
+    if (showQuickVoiceAsk) {
+        com.example.mistreal_mini.ui.util.QuickVoiceAskDialog(
+            viewModel = chatViewModel,
+            onDismiss = { showQuickVoiceAsk = false },
+            onSent = {
+                showQuickVoiceAsk = false
+                voiceReplyText = null
+                isAwaitingVoiceReply = true
+                showVoiceReplyBubble = true
+            }
         )
     }
 }

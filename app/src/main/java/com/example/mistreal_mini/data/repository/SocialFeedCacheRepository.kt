@@ -17,11 +17,18 @@ import javax.inject.Singleton
 class SocialFeedCacheRepository @Inject constructor(
     private val dao: SocialPostDao
 ) {
+    // Reads already cap at 200 rows (getCachedPosts' LIMIT), but nothing was
+    // ever pruning the underlying table, so it grew unbounded. 7 days is
+    // generous for a "feed" cache that's meant to survive offline/process
+    // death, not be a permanent archive.
+    private val maxCacheAgeMillis = 7L * 24 * 60 * 60 * 1000
+
     fun getCachedPosts(): Flow<List<SocialPost>> =
         dao.getCachedPosts().map { entities -> entities.map { it.toSocialPost() } }
 
     suspend fun cachePosts(posts: List<SocialPost>) {
         dao.upsertAll(posts.map { it.toEntity(fetchedAt = System.currentTimeMillis()) })
+        dao.deleteOlderThan(System.currentTimeMillis() - maxCacheAgeMillis)
     }
 
     suspend fun setLiked(id: String, liked: Boolean, likes: Int) {
@@ -51,6 +58,7 @@ private fun SocialPost.toEntity(fetchedAt: Long, isLikedByUser: Boolean = false,
     isLikedByUser = isLikedByUser,
     isBookmarked = isBookmarked,
     isCommunityPost = isCommunityPost,
+    authorDeviceId = authorDeviceId,
     fetchedAt = fetchedAt
 )
 
@@ -71,5 +79,6 @@ private fun SocialPostEntity.toSocialPost() = SocialPost(
     platformDisplayName = platformDisplayName,
     isLikedByUser = isLikedByUser,
     isBookmarked = isBookmarked,
-    isCommunityPost = isCommunityPost
+    isCommunityPost = isCommunityPost,
+    authorDeviceId = authorDeviceId
 )

@@ -26,6 +26,7 @@ import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
 import com.example.mistreal_mini.data.api.Article
 import com.example.mistreal_mini.data.api.WeatherResponse
+import com.example.mistreal_mini.data.model.PlatformIcons
 import com.example.mistreal_mini.data.model.PlatformUpdate
 import com.example.mistreal_mini.ui.chat.components.InteractionMode
 import com.example.mistreal_mini.ui.dashboard.DashboardViewModel
@@ -47,13 +48,7 @@ fun SocialUpdateItem(update: PlatformUpdate, onAiClick: () -> Unit, onReadAloud:
                     Text(update.platformIcon, fontSize = 24.sp, modifier = Modifier.size(24.dp))
                 } else {
                     Icon(
-                        imageVector = when(update.platform.lowercase()) {
-                            "twitter" -> Icons.Default.Public
-                            "whatsapp" -> Icons.Default.Chat
-                            "facebook" -> Icons.Default.Public
-                            "instagram" -> Icons.Default.CameraAlt
-                            else -> Icons.Default.Notifications
-                        },
+                        imageVector = PlatformIcons.forPlatform(update.platform) ?: Icons.Default.Notifications,
                         contentDescription = null,
                         tint = platformColor ?: MaterialTheme.colorScheme.primary
                     )

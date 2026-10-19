@@ -4,6 +4,9 @@ import android.content.Context
 import androidx.room.Room
 import com.example.mistreal_mini.data.local.MistrealDatabase
 import com.example.mistreal_mini.data.local.dao.ChatDao
+import com.example.mistreal_mini.data.local.migrations.MIGRATION_16_17
+import com.example.mistreal_mini.data.local.migrations.MIGRATION_18_19
+import com.example.mistreal_mini.data.local.migrations.MIGRATION_19_20
 import com.example.mistreal_mini.util.SecurityManager
 import dagger.Module
 import dagger.Provides
@@ -64,6 +67,10 @@ object AppModule {
             dbName
         )
         .openHelperFactory(factory)
+        .addMigrations(MIGRATION_16_17, MIGRATION_18_19, MIGRATION_19_20)
+        // Final catch-all — Room only falls back to this if no explicit
+        // Migration above handles the jump, so MIGRATION_16_17 (index-only,
+        // no data loss) now takes priority over wiping existing installs.
         .fallbackToDestructiveMigration()
         .build()
     }
@@ -116,5 +123,15 @@ object AppModule {
     @Provides
     fun provideVerifiedFaceDao(db: MistrealDatabase): com.example.mistreal_mini.data.local.dao.VerifiedFaceDao {
         return db.verifiedFaceDao()
+    }
+
+    @Provides
+    fun providePinnedGameDao(db: MistrealDatabase): com.example.mistreal_mini.data.local.dao.PinnedGameDao {
+        return db.pinnedGameDao()
+    }
+
+    @Provides
+    fun provideDelayedTrendDao(db: MistrealDatabase): com.example.mistreal_mini.data.local.dao.DelayedTrendDao {
+        return db.delayedTrendDao()
     }
 }

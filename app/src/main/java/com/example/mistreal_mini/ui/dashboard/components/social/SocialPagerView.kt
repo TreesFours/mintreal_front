@@ -25,7 +25,9 @@ fun SocialPagerView(
     chatViewModel: ChatViewModel,
     feedViewModel: FeedViewModel,
     deviceId: String,
-    isLoading: Boolean = false
+    isLoading: Boolean = false,
+    onAuthorClick: (String) -> Unit = {},
+    onVoiceAsk: () -> Unit = {}
 ) {
     if (isLoading) {
         Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
@@ -64,7 +66,9 @@ fun SocialPagerView(
                     onSendComment = { text ->
                         coroutineScope.launch { feedViewModel.postToSocial(deviceId, post.platform, "comment", text, post.id) }
                     },
-                    onShareClick = { /* share intent dispatched by caller via onPostClick hook if needed */ onPostClick(post) }
+                    onShareClick = { /* share intent dispatched by caller via onPostClick hook if needed */ onPostClick(post) },
+                    onAuthorClick = { post.authorDeviceId?.let { onAuthorClick(it) } },
+                    onVoiceAsk = onVoiceAsk
                 )
             }
 

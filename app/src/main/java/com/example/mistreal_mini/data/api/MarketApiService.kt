@@ -34,6 +34,10 @@ interface MarketApiService {
 data class MarketQuote(
     val symbol: String,
     val assetClass: String? = null,
+    // "crypto" | "forex" | "tickers" — groups this quote into one of the
+    // Market screen's three scrolling ticker rows; absent only for quotes
+    // from code paths outside the shared watchlist (there are none today).
+    val band: String? = null,
     val price: Double? = null,
     val currency: String? = null,
     val changePercent: Double? = null

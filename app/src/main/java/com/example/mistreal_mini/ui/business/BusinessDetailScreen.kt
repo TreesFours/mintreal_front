@@ -2,6 +2,7 @@ package com.example.mistreal_mini.ui.business
 
 import android.content.Intent
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -41,12 +42,15 @@ fun BusinessDetailScreen(
     businessId: String,
     onBack: () -> Unit,
     onContactBusiness: (RemoteBusiness) -> Unit,
+    onWatchLiveView: (sessionId: String) -> Unit = {},
+    onViewOwnerProfile: (RemoteBusiness) -> Unit = {},
     viewModel: BusinessViewModel = hiltViewModel()
 ) {
     val context = LocalContext.current
     val detail by viewModel.businessDetail.collectAsStateWithLifecycle()
     val canShare by viewModel.canShare.collectAsStateWithLifecycle()
     val ad by viewModel.businessAd.collectAsStateWithLifecycle()
+    val liveWatchSessionId by viewModel.liveWatchSessionId.collectAsStateWithLifecycle()
 
     LaunchedEffect(businessId) { viewModel.fetchBusinessDetail(businessId) }
 
@@ -98,7 +102,10 @@ fun BusinessDetailScreen(
                     // Face or a separate upload (ownerPhotoUrl either way,
                     // resolved at the point the owner set it).
                     if (business.ownerName != null || business.ownerPhotoUrl != null) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier.clickable(enabled = business.ownerDeviceId != null) { onViewOwnerProfile(business) }
+                        ) {
                             Box(modifier = Modifier.size(36.dp).clip(CircleShape).background(Color.DarkGray)) {
                                 business.ownerPhotoUrl?.let {
                                     AsyncImage(model = it, contentDescription = null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
@@ -143,6 +150,18 @@ fun BusinessDetailScreen(
                             Icon(Icons.Default.Share, null, modifier = Modifier.size(16.dp))
                             Spacer(modifier = Modifier.width(6.dp))
                             Text("Share")
+                        }
+                    }
+                    liveWatchSessionId?.let { sessionId ->
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Button(
+                            onClick = { onWatchLiveView(sessionId) },
+                            modifier = Modifier.fillMaxWidth(),
+                            colors = ButtonDefaults.buttonColors(containerColor = Color.Red)
+                        ) {
+                            Icon(Icons.Default.ScreenShare, null, modifier = Modifier.size(16.dp))
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text("WATCH LIVE NOW")
                         }
                     }
                     if (!canShare) {

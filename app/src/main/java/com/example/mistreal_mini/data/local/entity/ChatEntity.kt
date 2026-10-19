@@ -1,10 +1,20 @@
 package com.example.mistreal_mini.data.local.entity
 
 import androidx.room.Entity
+import androidx.room.Index
 import androidx.room.PrimaryKey
 import com.example.mistreal_mini.data.model.ChatMessage
 
-@Entity(tableName = "chats")
+// Covers every ChatDao query's WHERE clause (all filter on a prefix of
+// userId/isTrend/trendTitle, see Migration 16->17) — previously a full
+// table scan on every message send/receive as history grows.
+@Entity(
+    tableName = "chats",
+    indices = [Index(
+        value = ["userId", "isTrend", "trendTitle", "timestamp"],
+        name = "index_chats_userId_isTrend_trendTitle_timestamp"
+    )]
+)
 data class ChatEntity(
     @PrimaryKey(autoGenerate = true) val id: Long = 0,
     val userId: String, // Patch: Lock to Firebase UID
@@ -16,7 +26,14 @@ data class ChatEntity(
     val trendTitle: String? = null,
     val trueFeelings: String? = null,
     val mood: String? = null,
-    val timestamp: Long = System.currentTimeMillis()
+    val archUnderstandingJson: String? = null,
+    val timestamp: Long = System.currentTimeMillis(),
+    // Null = visible immediately. A future epoch-millis timestamp hides this
+    // row from every message query until RevealDelayedReplyWorker clears it
+    // back to null — not a live time comparison, so nothing needs to poll.
+    val revealAt: Long? = null,
+    // Only ever set in real user-to-user (social) chats — see ChatMessage.replyToId.
+    val replyToId: Long? = null
 ) {
     fun toChatMessage() = ChatMessage(
         id = id,
@@ -27,11 +44,13 @@ data class ChatEntity(
         isTrend = isTrend,
         trendTitle = trendTitle,
         trueFeelings = trueFeelings,
-        mood = mood
+        mood = mood,
+        archUnderstandingJson = archUnderstandingJson,
+        replyToId = replyToId
     )
 
     companion object {
-        fun fromChatMessage(userId: String, msg: ChatMessage) = ChatEntity(
+        fun fromChatMessage(userId: String, msg: ChatMessage, revealAt: Long? = null) = ChatEntity(
             id = msg.id ?: 0,
             userId = userId,
             role = msg.role,
@@ -41,7 +60,10 @@ data class ChatEntity(
             isTrend = msg.isTrend,
             trendTitle = msg.trendTitle,
             trueFeelings = msg.trueFeelings,
-            mood = msg.mood
+            mood = msg.mood,
+            archUnderstandingJson = msg.archUnderstandingJson,
+            revealAt = revealAt,
+            replyToId = msg.replyToId
         )
     }
 }

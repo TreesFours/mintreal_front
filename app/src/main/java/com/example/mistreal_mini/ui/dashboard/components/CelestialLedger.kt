@@ -73,7 +73,7 @@ fun CelestialLedger(
                 contentPadding = PaddingValues(16.dp),
                 verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
-                items(trackedObjects) { obj ->
+                items(trackedObjects, key = { it.id }) { obj ->
                     CelestialObjectCard(
                         obj = obj,
                         onAskAi = { 

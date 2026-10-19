@@ -2,7 +2,6 @@ package com.example.mistreal_mini.data.repository
 
 import android.content.Context
 import android.net.Uri
-import android.provider.Settings
 import com.example.mistreal_mini.data.Resource
 import com.example.mistreal_mini.data.api.AiProviderApiService
 import com.example.mistreal_mini.data.api.ByokStatusResponse
@@ -15,6 +14,7 @@ import com.example.mistreal_mini.data.model.SocialSyncResponse
 import com.example.mistreal_mini.data.api.SocialPlatformResponse
 import com.example.mistreal_mini.data.api.CelestialVectorResponse
 import com.example.mistreal_mini.data.repository.AuthRepository
+import com.example.mistreal_mini.util.DeviceIdProvider
 import com.example.mistreal_mini.util.FileUtil
 import dagger.hilt.android.qualifiers.ApplicationContext
 import okhttp3.MediaType.Companion.toMediaTypeOrNull
@@ -27,10 +27,11 @@ class InfoRepository @Inject constructor(
     private val api: InfoApiService,
     private val aiProviderApi: AiProviderApiService,
     private val authRepository: AuthRepository,
-    @ApplicationContext private val context: Context
+    @ApplicationContext private val context: Context,
+    private val deviceIdProvider: DeviceIdProvider
 ) {
     private val deviceId: String
-        get() = Settings.Secure.getString(context.contentResolver, Settings.Secure.ANDROID_ID)
+        get() = deviceIdProvider.deviceId
 
     suspend fun getWeather(lat: Double, lon: Double): Resource<WeatherResponse> {
         return try {
@@ -59,15 +60,19 @@ class InfoRepository @Inject constructor(
     suspend fun getYoutubeVideos(): List<com.example.mistreal_mini.data.model.SocialPost> {
         return try {
             api.getYoutubeVideos().videos.map { v ->
+                val durationTag = v.durationSeconds?.let { secs ->
+                    " [${secs / 60}:${(secs % 60).toString().padStart(2, '0')}]"
+                } ?: ""
                 com.example.mistreal_mini.data.model.SocialPost(
                     id = "youtube_${v.videoId}",
                     platform = "youtube",
                     author = v.channelTitle ?: "YouTube",
-                    content = v.title,
+                    content = "${v.title}$durationTag",
                     timestamp = v.publishedAt ?: java.time.Instant.now().toString(),
                     type = "post",
                     imageUrl = v.thumbnailUrl,
                     likes = v.likeCount?.toInt(),
+                    commentsCount = v.commentCount?.toInt(),
                     sourceUrl = "youtube://${v.videoId}",
                     platformIcon = "▶️",
                     platformColor = "#FF0000",
@@ -174,6 +179,26 @@ class InfoRepository @Inject constructor(
             else Resource.Error(response.error ?: "Failed to load add-ons")
         } catch (e: Exception) {
             Resource.Error(e.message ?: "Failed to load add-ons")
+        }
+    }
+
+    suspend fun createStripeCheckout(deviceId: String, addonId: String): Resource<String> {
+        return try {
+            val response = api.createStripeCheckout(com.example.mistreal_mini.data.api.StripeCheckoutRequest(deviceId, addonId))
+            if (response.success && response.url != null) Resource.Success(response.url)
+            else Resource.Error(response.error ?: "Failed to start checkout")
+        } catch (e: Exception) {
+            Resource.Error(e.message ?: "Failed to start checkout")
+        }
+    }
+
+    suspend fun createStripePortalSession(deviceId: String): Resource<String> {
+        return try {
+            val response = api.createStripePortalSession(mapOf("deviceId" to deviceId))
+            if (response.success && response.url != null) Resource.Success(response.url)
+            else Resource.Error(response.error ?: "Failed to open subscription management")
+        } catch (e: Exception) {
+            Resource.Error(e.message ?: "Failed to open subscription management")
         }
     }
 
@@ -349,7 +374,8 @@ class InfoRepository @Inject constructor(
         targetId: String,
         mediaBase64: String? = null,
         mediaMimeType: String? = null,
-        shareToCommunity: Boolean = false
+        shareToCommunity: Boolean = false,
+        mistrealOnly: Boolean = false
     ): Resource<Boolean> {
         return try {
             val response = api.performSocialAction(
@@ -361,7 +387,8 @@ class InfoRepository @Inject constructor(
                     targetId = targetId,
                     mediaBase64 = mediaBase64,
                     mediaMimeType = mediaMimeType,
-                    shareToCommunity = shareToCommunity
+                    shareToCommunity = shareToCommunity,
+                    mistrealOnly = mistrealOnly
                 )
             )
             if (response.success) Resource.Success(true)
@@ -487,13 +514,15 @@ class InfoRepository @Inject constructor(
         distressSignature: String,
         triggerType: String = "manual",
         sosAudioBase64: String? = null,
-        sosAudioMimeType: String? = null
+        sosAudioMimeType: String? = null,
+        sosImageBase64: String? = null,
+        sosImageMimeType: String? = null
     ): Resource<com.example.mistreal_mini.data.api.EmergencyAlertFireResponse> {
         return try {
             val response = api.fireEmergencyAlert(
                 com.example.mistreal_mini.data.api.FireEmergencyAlertRequest(
                     deviceId, authRepository.currentUser?.uid, latitude, longitude, distressSignature,
-                    triggerType, sosAudioBase64, sosAudioMimeType
+                    triggerType, sosAudioBase64, sosAudioMimeType, sosImageBase64, sosImageMimeType
                 )
             )
             if (response.success) Resource.Success(response)
@@ -525,12 +554,91 @@ class InfoRepository @Inject constructor(
         }
     }
 
-    suspend fun resolveEmergencyAlert(alertId: Int, deviceId: String): Resource<Boolean> {
+    /** Requires a live location — the server checks it against the owner's own pre-configured safe zone (anti-coercion). */
+    suspend fun resolveEmergencyAlert(alertId: Int, deviceId: String, latitude: Double, longitude: Double): Resource<Boolean> {
         return try {
-            val response = api.resolveEmergencyAlert(alertId, mapOf("deviceId" to deviceId))
+            val response = api.resolveEmergencyAlert(
+                alertId,
+                com.example.mistreal_mini.data.api.ResolveEmergencyAlertRequest(deviceId, latitude, longitude)
+            )
             if (response.success) Resource.Success(true) else Resource.Error(response.error ?: "Failed to resolve alert")
         } catch (e: Exception) {
             Resource.Error(e.message ?: "Failed to resolve alert")
+        }
+    }
+
+    suspend fun attachSosImage(alertId: Int, deviceId: String, sosImageBase64: String, sosImageMimeType: String): Resource<Boolean> {
+        return try {
+            val response = api.attachSosImage(
+                alertId,
+                com.example.mistreal_mini.data.api.AttachSosImageRequest(deviceId, sosImageBase64, sosImageMimeType)
+            )
+            if (response.success) Resource.Success(true) else Resource.Error(response.error ?: "Failed to attach SOS image")
+        } catch (e: Exception) {
+            Resource.Error(e.message ?: "Failed to attach SOS image")
+        }
+    }
+
+    suspend fun getSafeZone(deviceId: String): Resource<com.example.mistreal_mini.data.api.SafeZone?> {
+        return try {
+            val response = api.getSafeZone(deviceId)
+            if (response.success) Resource.Success(response.safeZone) else Resource.Error(response.error ?: "Failed to load safe zone")
+        } catch (e: Exception) {
+            Resource.Error(e.message ?: "Failed to load safe zone")
+        }
+    }
+
+    /** [latitude]/[longitude] must always be the device's own live location fix — never a manually-entered value, so a safe zone can't be configured remotely. */
+    suspend fun setSafeZone(deviceId: String, latitude: Double, longitude: Double): Resource<com.example.mistreal_mini.data.api.SafeZone?> {
+        return try {
+            val response = api.setSafeZone(com.example.mistreal_mini.data.api.SafeZoneRequest(deviceId, latitude, longitude))
+            if (response.success) Resource.Success(response.safeZone) else Resource.Error(response.error ?: "Failed to save safe zone")
+        } catch (e: Exception) {
+            Resource.Error(e.message ?: "Failed to save safe zone")
+        }
+    }
+
+    suspend fun getSosPreferences(deviceId: String): Resource<com.example.mistreal_mini.data.api.SosPreferences> {
+        return try {
+            val response = api.getSosPreferences(deviceId)
+            if (response.success) Resource.Success(response.preferences ?: com.example.mistreal_mini.data.api.SosPreferences())
+            else Resource.Error(response.error ?: "Failed to load SOS preferences")
+        } catch (e: Exception) {
+            Resource.Error(e.message ?: "Failed to load SOS preferences")
+        }
+    }
+
+    suspend fun setSosPreferences(
+        deviceId: String,
+        camera: Boolean? = null,
+        microphone: Boolean? = null,
+        image: Boolean? = null,
+        fullDetailEscalation: Boolean? = null,
+        silentMeetupWindowDays: Int? = null,
+        communityBroadcastDelayDays: Int? = null,
+        fullDetailWindowDays: Int? = null
+    ): Resource<com.example.mistreal_mini.data.api.SosPreferences> {
+        return try {
+            val response = api.setSosPreferences(
+                com.example.mistreal_mini.data.api.SosPreferencesRequest(
+                    deviceId, camera, microphone, image, fullDetailEscalation,
+                    silentMeetupWindowDays, communityBroadcastDelayDays, fullDetailWindowDays
+                )
+            )
+            if (response.success) Resource.Success(response.preferences ?: com.example.mistreal_mini.data.api.SosPreferences())
+            else Resource.Error(response.error ?: "Failed to save SOS preferences")
+        } catch (e: Exception) {
+            Resource.Error(e.message ?: "Failed to save SOS preferences")
+        }
+    }
+
+    suspend fun getNearbySosAlerts(deviceId: String): Resource<List<com.example.mistreal_mini.data.api.NearbySosAlert>> {
+        return try {
+            val response = api.getNearbySosAlerts(deviceId)
+            if (response.success) Resource.Success(response.alerts ?: emptyList())
+            else Resource.Error(response.error ?: "Failed to load nearby SOS alerts")
+        } catch (e: Exception) {
+            Resource.Error(e.message ?: "Failed to load nearby SOS alerts")
         }
     }
 

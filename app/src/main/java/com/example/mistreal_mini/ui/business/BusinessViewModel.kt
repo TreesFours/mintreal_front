@@ -78,11 +78,23 @@ class BusinessViewModel @Inject constructor(
     // Previously this only ever queried the local Room cache — meaning a
     // user could only ever see businesses THEY registered on THIS device.
     // Now a real cross-device directory (businessRoutes.ts's /search).
+    // Fetched once and reused across searches/category changes rather than
+    // on every keystroke — a GPS fix is comparatively slow, and the user's
+    // position doesn't meaningfully change mid-search.
+    private var cachedSearchLocation: android.location.Location? = null
+
     val searchResults: StateFlow<List<RemoteBusiness>> = _selectedCategory
         .combine(_searchQuery) { cat, query -> cat to query }
         .mapLatest { (cat, query) ->
             _isSearching.value = true
-            val result = repository.searchBusinessesRemote(cat, query)
+            if (cachedSearchLocation == null) {
+                cachedSearchLocation = locationHelper.getCurrentLocation()
+            }
+            val loc = cachedSearchLocation
+            // Results rank by proximity + locally-confirmed-meetup trust
+            // when we have the searcher's own location — see
+            // businessRoutes.ts's /search ranking.
+            val result = repository.searchBusinessesRemote(cat, query, loc?.latitude, loc?.longitude)
             _isSearching.value = false
             (result as? Resource.Success)?.data ?: emptyList()
         }.stateIn(viewModelScope, SharingStarted.Lazily, emptyList())
@@ -105,6 +117,19 @@ class BusinessViewModel @Inject constructor(
         }
         fetchCanShare(businessId)
         fetchBusinessAd(businessId)
+        fetchLiveWatchSession(businessId)
+    }
+
+    // Null means "nothing live right now" — checked once when the profile
+    // opens, not polled continuously; a buyer who wants to catch a live
+    // view just needs to reopen/refresh the profile.
+    private val _liveWatchSessionId = MutableStateFlow<String?>(null)
+    val liveWatchSessionId = _liveWatchSessionId.asStateFlow()
+
+    private fun fetchLiveWatchSession(businessId: String) {
+        viewModelScope.launch {
+            _liveWatchSessionId.value = repository.getLiveWatchSession(businessId)
+        }
     }
 
     private val _canShare = MutableStateFlow(false)

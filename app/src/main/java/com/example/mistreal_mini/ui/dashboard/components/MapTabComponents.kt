@@ -31,7 +31,7 @@ fun ExploreTabView(viewModel: TacticalMapViewModel) {
         }
     } else {
         LazyColumn(modifier = Modifier.fillMaxSize()) {
-            items(results) { res ->
+            items(results, key = { "${it.name}_${it.latitude}_${it.longitude}" }) { res ->
                 ListItem(
                     headlineContent = { Text(res.name, fontWeight = FontWeight.Bold, fontSize = 14.sp) },
                     supportingContent = { Text(res.category.uppercase(), fontSize = 10.sp, color = MaterialTheme.colorScheme.primary) },
@@ -56,7 +56,7 @@ fun HistoryTabView(viewModel: TacticalMapViewModel) {
         }
     } else {
         LazyColumn(modifier = Modifier.fillMaxSize()) {
-            items(history) { entry ->
+            items(history, key = { it.id }) { entry ->
                 ListItem(
                     headlineContent = { Text(entry.cityName.uppercase(), fontWeight = FontWeight.Black, fontSize = 13.sp) },
                     supportingContent = { Text("DEPLOYED: ${java.text.SimpleDateFormat("MMM dd, HH:mm").format(java.util.Date(entry.timestamp))}", fontSize = 9.sp) },
@@ -83,7 +83,7 @@ fun IntelTabView(
             item {
                 Text("SAVED INTEL ASSETS", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary, modifier = Modifier.padding(8.dp))
             }
-            items(savedIntel) { intel ->
+            items(savedIntel, key = { it.id }) { intel ->
                 ListItem(
                     leadingContent = {
                         if (intel.thumbnailPath != null) {
@@ -118,7 +118,7 @@ fun IntelTabView(
             item {
                 Text("RECENT TACTICAL LOG", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.secondary, modifier = Modifier.padding(8.dp))
             }
-            items(log) { entry ->
+            items(log, key = { "${it.label}_${it.timestamp}" }) { entry ->
                 ListItem(
                     headlineContent = { Text(entry.label, fontSize = 12.sp) },
                     supportingContent = { Text(entry.type, fontSize = 9.sp, color = Color.Gray) },

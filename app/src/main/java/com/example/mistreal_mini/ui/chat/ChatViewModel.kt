@@ -4,11 +4,13 @@ import android.content.Context
 import android.content.Intent
 import android.net.Uri
 import android.provider.Settings
+import androidx.compose.runtime.MutableState
 import androidx.compose.runtime.State
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.snapshots.Snapshot
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
@@ -34,11 +36,19 @@ import com.example.mistreal_mini.util.FileUtil
 import com.example.mistreal_mini.util.VoiceManager
 import com.example.mistreal_mini.util.VoiceRecorder
 import com.example.mistreal_mini.util.TextSanitizer
+import com.example.mistreal_mini.worker.RevealDelayedReplyWorker
+import androidx.work.ExistingWorkPolicy
+import androidx.work.OneTimeWorkRequestBuilder
+import androidx.work.WorkManager
+import androidx.work.workDataOf
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.async
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
+import java.util.concurrent.TimeUnit
 import kotlinx.coroutines.tasks.await
 import timber.log.Timber
 import java.io.File
@@ -59,10 +69,14 @@ class ChatViewModel @Inject constructor(
     private val scribeRepository: com.example.mistreal_mini.data.repository.ScribeRepository,
     private val scribeManager: com.example.mistreal_mini.util.ScribeManager,
     private val voiceRecorder: com.example.mistreal_mini.util.VoiceRecorder,
+    private val sosCameraCapture: com.example.mistreal_mini.util.SosCameraCapture,
+    private val sfxHapticPlayer: com.example.mistreal_mini.util.SfxHapticPlayer,
     private val verifiedFaceRepository: com.example.mistreal_mini.data.repository.VerifiedFaceRepository,
     private val faceGuard: com.example.mistreal_mini.util.FaceGuard,
+    private val faceVideoEditor: com.example.mistreal_mini.util.FaceVideoEditor,
     private val savedStateHandle: SavedStateHandle,
-    @ApplicationContext private val context: Context
+    @ApplicationContext private val context: Context,
+    private val deviceIdProvider: com.example.mistreal_mini.util.DeviceIdProvider
 ) : ViewModel() {
 
     companion object {
@@ -72,6 +86,11 @@ class ChatViewModel @Inject constructor(
         private val feelingsRegex = Regex("\\[TRUE_FEELINGS: (.*?)\\]", RegexOption.DOT_MATCHES_ALL)
         private val moodRegex = Regex("\\[MOOD:\\s*(\\w+)\\]", RegexOption.IGNORE_CASE)
         private val socialAutosendRegex = Regex("\\[SOCIAL_AUTOSEND:\\s*true\\]", RegexOption.IGNORE_CASE)
+        // One tag, generic across every current and future describe-clarify-
+        // generate domain — the server's DOMAIN_CONFIGS map (aiService.ts)
+        // is what actually varies per domain, not this regex.
+        private val archUnderstandingRegex = Regex("\\[DOMAIN_UNDERSTANDING: (.*?)\\]", RegexOption.DOT_MATCHES_ALL)
+        const val ARCH_IMAGE_PROVIDER_ID = "mistreal-architect"
     }
 
     private val _messages = mutableStateListOf<ChatMessage>()
@@ -86,26 +105,28 @@ class ChatViewModel @Inject constructor(
     private val _selectedProvider = mutableStateOf(savedStateHandle.get<String>("selectedProvider") ?: "dynamic")
     val selectedProvider: State<String> = _selectedProvider
 
-    private val _availableProviders = mutableStateListOf<AiModelResponse>()
-    val availableProviders: List<AiModelResponse> = _availableProviders
-
-    // 🛡️ Categorized Models for Tactical Drawer
-    private val _categorizedModels = mutableStateOf<Map<String, List<AiModelResponse>>>(emptyMap())
-    val categorizedModels: State<Map<String, List<AiModelResponse>>> = _categorizedModels
-
-    // Drives the drawer's 3rd "Custom" tab — only shown once the user has
-    // actually configured at least one BYOK text/video/image/video-gen provider.
-    private val _hasCustomProvider = mutableStateOf(false)
-    val hasCustomProvider: State<Boolean> = _hasCustomProvider
-
-    private val _customProviderSummary = mutableStateOf<List<String>>(emptyList())
-    val customProviderSummary: State<List<String>> = _customProviderSummary
+    private val aiProviderSelector = AiProviderSelector(
+        repository, infoRepository, context, viewModelScope,
+        isPro = { _isPro.value },
+        getSelectedProvider = { _selectedProvider.value },
+        setSelectedProvider = { _selectedProvider.value = it },
+        emitEvent = { _errorEvents.emit(it) }
+    )
+    val availableProviders: List<AiModelResponse> get() = aiProviderSelector.availableProviders
+    val categorizedModels: State<Map<String, List<AiModelResponse>>> get() = aiProviderSelector.categorizedModels
+    val hasCustomProvider: State<Boolean> get() = aiProviderSelector.hasCustomProvider
+    val customProviderSummary: State<List<String>> get() = aiProviderSelector.customProviderSummary
 
     private val _currentPersona = mutableStateOf(savedStateHandle.get<String>("currentPersona") ?: "Shadow")
     val currentPersona: State<String> = _currentPersona
 
     private val _aiCustomName = mutableStateOf("Shadow AI")
     val aiCustomName: State<String> = _aiCustomName
+
+    // Where the "AI" tag gets stamped on AI-generated images before saving —
+    // baked into the pixels (see MediaEditorUtil.saveBase64Image) so it
+    // survives the image being shared outside the app.
+    private val _aiTagPosition = mutableStateOf("bottom")
 
     private val _currentChatPartner = mutableStateOf(savedStateHandle.get<String>("currentChatPartner") ?: "AI")
     val currentChatPartner: State<String> = _currentChatPartner
@@ -134,6 +155,13 @@ class ChatViewModel @Inject constructor(
     private val _voiceNoteAutoplay = mutableStateOf(true)
     val voiceNoteAutoplay: State<Boolean> = _voiceNoteAutoplay
 
+    // Manual mic-button path only — hands-free/Conversation Mode already
+    // always auto-sends regardless of this (see advanceHandsFreeTurn/
+    // startHandsFreeLoop, which call sendVoiceMessage() directly and never
+    // go through this flag).
+    private val _voiceAutoSendOnRelease = mutableStateOf(false)
+    val voiceAutoSendOnRelease: State<Boolean> = _voiceAutoSendOnRelease
+
     // Set right after an AI voice-note file is created (when autoplay is on) so the
     // bubble that owns that exact Uri knows to play itself once, then clears it —
     // avoids replaying old voice notes whenever the list recomposes/scrolls.
@@ -155,14 +183,31 @@ class ChatViewModel @Inject constructor(
     private val _isSttEnabled = mutableStateOf(true)
     val isSttEnabled: State<Boolean> = _isSttEnabled
 
-    private val _socialContacts = mutableStateOf<List<SocialContact>>(emptyList())
-    val socialContacts: State<List<SocialContact>> = _socialContacts
+    private val socialContactsController = SocialContactsController(
+        infoRepository, socialContactDao, syncSocialsUseCase, context, viewModelScope,
+        emitEvent = { _errorEvents.emit(it) }
+    )
+    val socialContacts: State<List<SocialContact>> get() = socialContactsController.socialContacts
+    val unreadMessages: State<List<UnreadItem>> get() = socialContactsController.unreadMessages
+    val availablePlatforms: List<SocialPlatformResponse> get() = socialContactsController.availablePlatforms
+    val totalUnreadCount: State<Int> get() = socialContactsController.totalUnreadCount
+    val isSendingToContact: State<Boolean> get() = socialContactsController.isSendingToContact
 
-    private val _unreadMessages = mutableStateOf<List<UnreadItem>>(emptyList())
-    val unreadMessages: State<List<UnreadItem>> = _unreadMessages
+    fun fetchContacts(platform: String) = socialContactsController.fetchContacts(platform)
+    fun evictFromHotSlot(contactId: String) = socialContactsController.evictFromHotSlot(contactId)
+    fun searchContacts(platform: String, query: String) = socialContactsController.searchContacts(platform, query)
+    fun fetchUnread() = socialContactsController.fetchUnread()
+    fun refreshSocialContacts() = socialContactsController.refreshSocialContacts()
 
-    private val _availablePlatforms = mutableStateListOf<SocialPlatformResponse>()
-    val availablePlatforms: List<SocialPlatformResponse> = _availablePlatforms
+    /**
+     * Delivers an image message (e.g. an AI-edited picture) as a real DM on a
+     * connected platform — e.g. WhatsApp/Facebook — via Zernio. The image only
+     * exists locally as a Uri, so it's base64-encoded and handed to the backend,
+     * which briefly hosts it at a public URL for Zernio to fetch (see
+     * mediaStore.ts) since DM APIs take a media URL, not inline bytes.
+     */
+    fun sendImageToContact(imageUri: Uri, platform: String, targetId: String, caption: String, onResult: (Boolean) -> Unit) =
+        socialContactsController.sendImageToContact(imageUri, platform, targetId, caption, onResult)
 
     private val _bearing = mutableStateOf(0f)
     val bearing: State<Float> = _bearing
@@ -221,6 +266,53 @@ class ChatViewModel @Inject constructor(
         }
     }
 
+    // Minichats where the AI's reply is deliberately held back and revealed
+    // later, paced by the same minutes value as Settings' Mission Delay
+    // (Ghost Mode) — opt-in per thread, off by default.
+    private val _delayEnabledTrendTitles = mutableStateListOf<String>()
+    val delayEnabledTrendTitles: List<String> = _delayEnabledTrendTitles
+
+    fun toggleTrendDelay(trendTitle: String) {
+        viewModelScope.launch {
+            val nowEnabled = !_delayEnabledTrendTitles.contains(trendTitle)
+            repository.setTrendDelayEnabled(trendTitle, nowEnabled)
+        }
+    }
+
+    // Cosmetic only — just lets the UI show "reply arriving soon" while a
+    // delayed reply is pending. The actual reveal is WorkManager-scheduled
+    // and doesn't depend on this surviving process death.
+    private val _pendingReplyEtaMillis = mutableStateOf<Long?>(null)
+    val pendingReplyEtaMillis: State<Long?> = _pendingReplyEtaMillis
+
+    /**
+     * Saves an assistant reply hidden (revealAt in the future) and schedules
+     * RevealDelayedReplyWorker to un-hide it once the configured Mission
+     * Delay (Ghost Mode) minutes elapse — the same minutes value Settings
+     * already uses for the social auto-reply feature, just applied here to
+     * one open minichat instead.
+     */
+    private suspend fun scheduleDelayedReveal(assistantMsg: ChatMessage) {
+        val delayMinutes = preferenceManager.autoReplyDelay.first().coerceAtLeast(0)
+        val revealAt = System.currentTimeMillis() + delayMinutes * 60_000L
+        val messageId = repository.saveMessage(assistantMsg, revealAt)
+
+        WorkManager.getInstance(context).enqueueUniqueWork(
+            "reveal_$messageId",
+            ExistingWorkPolicy.KEEP,
+            OneTimeWorkRequestBuilder<RevealDelayedReplyWorker>()
+                .setInitialDelay(delayMinutes.toLong(), TimeUnit.MINUTES)
+                .setInputData(workDataOf(RevealDelayedReplyWorker.KEY_MESSAGE_ID to messageId))
+                .build()
+        )
+
+        _pendingReplyEtaMillis.value = revealAt
+        viewModelScope.launch {
+            delay(delayMinutes * 60_000L)
+            if (_pendingReplyEtaMillis.value == revealAt) _pendingReplyEtaMillis.value = null
+        }
+    }
+
     private val _isSceneMode = mutableStateOf(false)
     val isSceneMode: State<Boolean> = _isSceneMode
 
@@ -263,25 +355,26 @@ class ChatViewModel @Inject constructor(
         return repository.getTrendMessages(title)
     }
 
+    /** Mirrors a PreferenceManager Flow straight into a MutableState, collapsing what used to be ~10 near-identical viewModelScope.launch { flow.collect {...} } blocks in init. */
+    private fun <T> observeInto(flow: Flow<T>, target: MutableState<T>, onEach: (T) -> Unit = {}) {
+        viewModelScope.launch {
+            flow.collect { target.value = it; onEach(it) }
+        }
+    }
+
     init {
-        viewModelScope.launch {
-            preferenceManager.aiPersona.collect { _currentPersona.value = it }
-        }
-        viewModelScope.launch {
-            preferenceManager.aiCustomName.collect { _aiCustomName.value = it }
-        }
-        viewModelScope.launch {
-            preferenceManager.isPro.collect { _isPro.value = it }
-        }
-        viewModelScope.launch {
-            preferenceManager.guardianEnabled.collect { _guardianEnabled.value = it }
-        }
-        viewModelScope.launch {
-            preferenceManager.isTtsEnabled.collect { _isTtsEnabled.value = it }
-        }
-        viewModelScope.launch {
-            preferenceManager.voiceNoteAutoplay.collect { _voiceNoteAutoplay.value = it }
-        }
+        observeInto(preferenceManager.aiPersona, _currentPersona)
+        observeInto(preferenceManager.aiCustomName, _aiCustomName)
+        observeInto(preferenceManager.aiTagPosition, _aiTagPosition)
+        observeInto(preferenceManager.isPro, _isPro)
+        observeInto(preferenceManager.guardianEnabled, _guardianEnabled)
+        observeInto(preferenceManager.isTtsEnabled, _isTtsEnabled)
+        observeInto(preferenceManager.voiceNoteAutoplay, _voiceNoteAutoplay)
+        observeInto(preferenceManager.isSttEnabled, _isSttEnabled)
+        observeInto(preferenceManager.isPersistentSceneModeEnabled, _persistentSceneMode) { updateSceneMode() }
+        observeInto(preferenceManager.defaultTranslationLang, _defaultTranslationLang)
+        observeInto(preferenceManager.isVoiceAutoSendOnRelease, _voiceAutoSendOnRelease)
+
         viewModelScope.launch {
             repository.getPinnedTrendTitles().collect {
                 _pinnedTrendTitles.clear()
@@ -289,16 +382,10 @@ class ChatViewModel @Inject constructor(
             }
         }
         viewModelScope.launch {
-            preferenceManager.isSttEnabled.collect { _isSttEnabled.value = it }
-        }
-        viewModelScope.launch {
-            preferenceManager.isPersistentSceneModeEnabled.collect { 
-                _persistentSceneMode.value = it
-                updateSceneMode()
+            repository.getDelayEnabledTrendTitles().collect {
+                _delayEnabledTrendTitles.clear()
+                _delayEnabledTrendTitles.addAll(it)
             }
-        }
-        viewModelScope.launch {
-            preferenceManager.defaultTranslationLang.collect { _defaultTranslationLang.value = it }
         }
         viewModelScope.launch {
             scribeManager.results.collect { transcript ->
@@ -334,11 +421,11 @@ class ChatViewModel @Inject constructor(
     // succeeds, and renders a status line per step as each flag flips.
     fun onAuthenticated() {
         viewModelScope.launch {
-            fetchAvailableModelsAwait()
+            aiProviderSelector.fetchAvailableModelsAwait()
             _modelsLoaded.value = true
-            fetchAvailablePlatformsAwait()
+            socialContactsController.fetchAvailablePlatformsAwait()
             _platformsLoaded.value = true
-            fetchHasCustomProviderAwait()
+            aiProviderSelector.fetchHasCustomProviderAwait()
             _customProviderChecked.value = true
         }
     }
@@ -370,8 +457,13 @@ class ChatViewModel @Inject constructor(
                     allMsgs.filter { it.isTrend && it.trendTitle == currentTitle }
                 }
 
-                _messages.clear()
-                _messages.addAll(filtered)
+                // Both mutations as one atomic snapshot write, so Compose sees
+                // a single "list changed" event instead of an empty-then-
+                // repopulate flicker across two separate recompositions.
+                Snapshot.withMutableSnapshot {
+                    _messages.clear()
+                    _messages.addAll(filtered)
+                }
 
                 Timber.d("📬 Chat Update: ${filtered.size} messages synced (Trend: $currentTitle)")
             }
@@ -420,7 +512,7 @@ class ChatViewModel @Inject constructor(
         val newValue = !contact.autoReplyEnabled
         _activeSocialContact.value = contact.copy(autoReplyEnabled = newValue)
         viewModelScope.launch {
-            val deviceId = Settings.Secure.getString(context.contentResolver, Settings.Secure.ANDROID_ID)
+            val deviceId = deviceIdProvider.deviceId
             val result = infoRepository.setContactAutoReply(deviceId, contact.platform, contact.id, newValue)
             if (result is Resource.Error) {
                 _activeSocialContact.value = contact // roll back
@@ -440,6 +532,14 @@ class ChatViewModel @Inject constructor(
             viewModelScope.launch { _errorEvents.emit("Voice input disabled in settings") }
             return
         }
+        if (_isSosRecording.value) {
+            // Ownership rule: SOS ambient capture always owns the mic once
+            // active — a casual voice note must never interrupt it. See
+            // startSosAudioCapture() for the reverse case (SOS preempts a
+            // chat recording already in progress).
+            viewModelScope.launch { _errorEvents.emit("Can't record a voice note while an SOS capture is active.") }
+            return
+        }
         _isRecording.value = true
         _recordedFile.value = voiceRecorder.startRecording()
         
@@ -457,6 +557,9 @@ class ChatViewModel @Inject constructor(
         _isRecording.value = false
         voiceRecorder.stopRecording()
         recordingTimerJob?.cancel()
+        if (_voiceAutoSendOnRelease.value) {
+            sendVoiceMessage()
+        }
     }
 
     fun deleteRecording() {
@@ -491,6 +594,29 @@ class ChatViewModel @Inject constructor(
         deleteRecording()
     }
 
+    fun trimRecording(startMs: Long, endMs: Long) {
+        val source = _recordedFile.value ?: return
+        viewModelScope.launch {
+            val trimmedUri = com.example.mistreal_mini.util.MediaEditorUtil.trimAudio(
+                context, android.net.Uri.fromFile(source), startMs, endMs
+            )
+            if (trimmedUri == null) {
+                _errorEvents.emit("Couldn't trim the recording.")
+                return@launch
+            }
+            // Copy the trimmed content-Uri's bytes back into a real file so
+            // the rest of the voice-note flow (play/send, all of which take
+            // a File) keeps working unchanged.
+            val trimmedFile = File(context.cacheDir, "voice_trimmed_${System.currentTimeMillis()}.m4a")
+            context.contentResolver.openInputStream(trimmedUri)?.use { input ->
+                trimmedFile.outputStream().use { output -> input.copyTo(output) }
+            }
+            voiceRecorder.deleteRecording(source)
+            _recordedFile.value = trimmedFile
+            _recordingDuration.value = ((endMs - startMs) / 1000).toInt()
+        }
+    }
+
     // --- SOS ambient audio capture ---
     // Pressing SOS (manual or auto-triggered) starts recording ambient audio as
     // evidence of the situation, independent of the chat voice-note recorder's
@@ -503,7 +629,17 @@ class ChatViewModel @Inject constructor(
     private val SOS_RECORDING_MAX_DURATION_MS = 120_000L
 
     private fun startSosAudioCapture() {
-        if (_isSosRecording.value || _isRecording.value) return // don't fight the chat recorder for the mic
+        if (_isSosRecording.value) return // already capturing
+        if (_isRecording.value) {
+            // Ownership rule: SOS always preempts an in-progress chat voice
+            // note — stop (not cancelRecording(), which only deletes the
+            // file and leaves the native MediaRecorder running/unreleased)
+            // and discard it rather than silently skipping SOS capture,
+            // which is what the old combined guard here used to do.
+            stopRecording()
+            _recordedFile.value?.let { voiceRecorder.deleteRecording(it) }
+            _recordedFile.value = null
+        }
         val file = voiceRecorder.startRecording() ?: return
         sosRecordingFile = file
         _isSosRecording.value = true
@@ -551,42 +687,37 @@ class ChatViewModel @Inject constructor(
         }
     }
 
-    fun fetchAvailablePlatforms() {
-        viewModelScope.launch { fetchAvailablePlatformsAwait() }
-    }
-
-    private suspend fun fetchAvailablePlatformsAwait() {
-        val deviceId = Settings.Secure.getString(context.contentResolver, Settings.Secure.ANDROID_ID)
-        when (val result = infoRepository.getAvailablePlatforms(deviceId)) {
-            is Resource.Success -> {
-                _availablePlatforms.clear()
-                result.data?.let { platforms ->
-                    _availablePlatforms.addAll(platforms)
-                }
-            }
-            else -> {}
+    private suspend fun attachSosImageIfAny(alertId: Int?, deviceId: String, photoFile: File?) {
+        if (alertId == null || photoFile == null) return
+        val base64 = try {
+            android.util.Base64.encodeToString(photoFile.readBytes(), android.util.Base64.NO_WRAP)
+        } catch (e: Exception) {
+            Timber.e(e, "Failed to read SOS photo for upload")
+            return
+        }
+        val result = infoRepository.attachSosImage(alertId, deviceId, base64, "image/jpeg")
+        if (result is Resource.Error) {
+            Timber.w("attachSosImage failed for alert %d: %s", alertId, result.message)
         }
     }
 
-    fun fetchHasCustomProvider() {
-        viewModelScope.launch { fetchHasCustomProviderAwait() }
+    /**
+     * What this device is actually allowed to auto-capture for an SOS,
+     * per the user's own Settings → SOS Data Collection toggles
+     * (default-on — the entire point of this feature is helping in an
+     * emergency, so a fetch failure here fails open to "capture", not
+     * closed). Fetched fresh each time rather than cached, since the user
+     * could have changed it since the app last loaded.
+     */
+    private suspend fun fetchSosCapturePrefs(deviceId: String): Pair<Boolean, Boolean> {
+        val result = infoRepository.getSosPreferences(deviceId)
+        val prefs = (result as? Resource.Success)?.data
+        return Pair(prefs?.camera ?: true, prefs?.microphone ?: true)
     }
 
-    private suspend fun fetchHasCustomProviderAwait() {
-        val byokStatus = (infoRepository.getByokStatus() as? Resource.Success)?.data
-        val byokVideoStatus = (infoRepository.getByokVideoStatus() as? Resource.Success)?.data
-        val imageConfigs = (infoRepository.getMediaProviderConfigs("image_gen") as? Resource.Success)?.data?.configs.orEmpty()
-        val videoConfigs = (infoRepository.getMediaProviderConfigs("video_gen") as? Resource.Success)?.data?.configs.orEmpty()
+    fun fetchAvailablePlatforms() = socialContactsController.fetchAvailablePlatforms()
 
-        val summary = buildList {
-            if (byokStatus?.configured == true) add("💬 Text — ${byokStatus.providerType}${byokStatus.modelName?.let { " ($it)" } ?: ""}")
-            if (byokVideoStatus?.configured == true) add("🎬 Video Edit — ${byokVideoStatus.providerType}${byokVideoStatus.modelName?.let { " ($it)" } ?: ""}")
-            imageConfigs.forEach { add("🖼️ Image Gen — ${it.label}") }
-            videoConfigs.forEach { add("📹 Video Gen — ${it.label}") }
-        }
-        _customProviderSummary.value = summary
-        _hasCustomProvider.value = summary.isNotEmpty()
-    }
+    fun fetchHasCustomProvider() = aiProviderSelector.fetchHasCustomProvider()
 
     fun toggleHandsFree(active: Boolean) {
         _isHandsFreeActive.value = active
@@ -602,82 +733,7 @@ class ChatViewModel @Inject constructor(
         }
     }
 
-    fun fetchAvailableModels() {
-        viewModelScope.launch { fetchAvailableModelsAwait() }
-    }
-
-    private suspend fun fetchAvailableModelsAwait() {
-            val deviceId = Settings.Secure.getString(context.contentResolver, Settings.Secure.ANDROID_ID)
-            when (val result = repository.getAvailableModels(deviceId)) {
-                is Resource.Success -> {
-                    val providers = result.data.orEmpty()
-                    _availableProviders.clear()
-                    
-                    _availableProviders.add(AiModelResponse("dynamic", "Dynamic (Best Fit)", "mistreal", false, "Free"))
-                    
-                    val filteredProviders = if (_isPro.value) {
-                        providers 
-                    } else {
-                        providers.filter { it.price == "Free" || it.price.lowercase() == "free" }
-                    }
-                    _availableProviders.addAll(filteredProviders)
-
-                    if (filteredProviders.isEmpty() && !_isPro.value) {
-                        _errorEvents.emit("Free tier has limited AI access. Upgrade to Premium for all models.")
-                    }
-
-                    if (filteredProviders.none { it.id == _selectedProvider.value } && _selectedProvider.value != "dynamic") {
-                        _selectedProvider.value = "dynamic"
-                    }
-
-                    // 🛡️ Trigger Tactical Categorization
-                    groupModels(filteredProviders)
-                }
-                is Resource.Error -> {
-                    _availableProviders.clear()
-                    _availableProviders.add(AiModelResponse("dynamic", "Dynamic (Best Fit)", "mistreal", false, "Free"))
-                    _selectedProvider.value = "dynamic"
-                    _errorEvents.emit(result.message ?: "Could not reach the AI backend.")
-                }
-                else -> {}
-            }
-    }
-
-    private fun groupModels(models: List<AiModelResponse>) {
-        val groups = mutableMapOf<String, MutableList<AiModelResponse>>()
-        
-        // 1. COMMAND CENTER (Always at top)
-        groups["COMMAND CENTER"] = mutableListOf(
-            AiModelResponse("dynamic", "Mistreal Dynamic", "mistreal", false, "Free", "Optimized", 100)
-        )
-
-        models.forEach { model ->
-            val id = model.id.toLowerCase()
-            val category = when {
-                // GLOBAL OVERLORD: Large models
-                id.contains("gpt-4") || id.contains("claude-3") || id.contains("llama-3.1-405b") || 
-                id.contains("grok") || id.contains("deepseek") || id.contains("llama-3.1-70b") ||
-                (id.contains("gemini") && id.contains("pro") && !id.contains("flash")) -> "GLOBAL OVERLORD"
-
-                // OPTIC INTEL: Vision/Video/Flash. Prefer real backend capability
-                // metadata over id-substring guessing; fall back to the old
-                // heuristic only when capabilities weren't provided (rollout safety).
-                model.capabilities?.let { it.videoGen || it.voice || it.imageGen } == true -> "OPTIC INTEL"
-                model.capabilities == null &&
-                    (id.contains("vision") || id.contains("flash") || id.contains("video") || id.contains("kling")) -> "OPTIC INTEL"
-
-                // GHOST PROTOCOL: Fast/Mini
-                id.contains("mini") || id.contains("haiku") || id.contains("8b") || id.contains("instant") -> "GHOST PROTOCOL"
-
-                // OPEN INTELLIGENCE: Everything else (Llama, Mistral, etc.)
-                else -> "OPEN INTELLIGENCE"
-            }
-            
-            groups.getOrPut(category) { mutableListOf() }.add(model)
-        }
-        
-        _categorizedModels.value = groups
-    }
+    fun fetchAvailableModels() = aiProviderSelector.fetchAvailableModels()
 
     fun switchChat(partner: String, platform: String = "ai") {
         _currentChatPartner.value = partner
@@ -693,7 +749,7 @@ class ChatViewModel @Inject constructor(
         } else {
             _isSocialChat.value = true
             viewModelScope.launch {
-                val contact = _socialContacts.value.find { it.name == partner && it.platform == platform }
+                val contact = socialContactsController.socialContacts.value.find { it.name == partner && it.platform == platform }
                 contact?.let {
                     socialContactDao.upsert(
                         SocialContactEntity(
@@ -709,7 +765,7 @@ class ChatViewModel @Inject constructor(
                 }
             }
             
-            val contact = _socialContacts.value.find { it.name == partner && it.platform == platform }
+            val contact = socialContactsController.socialContacts.value.find { it.name == partner && it.platform == platform }
             _activeSocialContact.value = contact
             _currentChatPartnerStatus.value = if (contact?.unreadCount ?: 0 > 0) "New Message" else "Active"
             fetchSocialHistory(partner, platform)
@@ -719,7 +775,7 @@ class ChatViewModel @Inject constructor(
     /**
      * Opens a chat with a contact resolved directly (e.g. from a business's
      * declared platform+handle via searchBusinessContact below) rather than
-     * looked up from the already-synced `_socialContacts` list — switchChat
+     * looked up from the already-synced `socialContactsController.socialContacts` list — switchChat
      * alone can't do this since it only ever matches against contacts
      * that list already knows about.
      */
@@ -764,7 +820,7 @@ class ChatViewModel @Inject constructor(
         }
         _isContactingBusiness.value = true
         viewModelScope.launch {
-            val deviceId = Settings.Secure.getString(context.contentResolver, Settings.Secure.ANDROID_ID)
+            val deviceId = deviceIdProvider.deviceId
             val result = infoRepository.searchContacts(deviceId, target.platform, target.handle)
             _isContactingBusiness.value = false
             when (result) {
@@ -786,8 +842,8 @@ class ChatViewModel @Inject constructor(
     private fun fetchSocialHistory(partner: String, platform: String) {
         _isLoading.value = true
         viewModelScope.launch {
-            val deviceId = Settings.Secure.getString(context.contentResolver, Settings.Secure.ANDROID_ID)
-            val contact = _socialContacts.value.find { it.name == partner && it.platform == platform }
+            val deviceId = deviceIdProvider.deviceId
+            val contact = socialContactsController.socialContacts.value.find { it.name == partner && it.platform == platform }
             
             if (contact != null) {
                 when (val result = infoRepository.getSocialHistory(deviceId, platform, contact.id)) {
@@ -840,7 +896,7 @@ class ChatViewModel @Inject constructor(
                 else -> "the user"
             }
 
-            val deviceId = Settings.Secure.getString(context.contentResolver, Settings.Secure.ANDROID_ID)
+            val deviceId = deviceIdProvider.deviceId
 
             // Server-confirmed value — never trust a client-only flag for a feature
             // that can send real messages on the user's behalf.
@@ -912,67 +968,6 @@ class ChatViewModel @Inject constructor(
         }
     }
 
-    fun fetchContacts(platform: String) {
-        if (platform == "ai") return
-        viewModelScope.launch {
-            val deviceId = Settings.Secure.getString(context.contentResolver, Settings.Secure.ANDROID_ID)
-            val normalizedPlatform = platform.lowercase()
-            when (val result = infoRepository.getContacts(deviceId, normalizedPlatform)) {
-                is Resource.Success -> {
-                    val rawContacts = result.data ?: emptyList()
-                    _socialContacts.value = rawContacts
-                    
-                    val entities = rawContacts.map { c ->
-                        SocialContactEntity(
-                            contactId = "${normalizedPlatform}_${c.id}", // 🛡️ Prefixed ID
-                            platform = normalizedPlatform,
-                            name = c.name,
-                            avatarUrl = c.avatar,
-                            lastInteractionTime = System.currentTimeMillis(),
-                            isEmergency = false,
-                            platformUserId = c.id
-                        )
-                    }
-                    // Clean up legacy non-prefixed records for this platform
-                    socialContactDao.deleteByPlatform(normalizedPlatform)
-                    socialContactDao.upsertAll(entities)
-                }
-                else -> {}
-            }
-        }
-    }
-
-    fun evictFromHotSlot(contactId: String) {
-        viewModelScope.launch {
-            socialContactDao.updateInteractionTime(contactId, 0L)
-        }
-    }
-
-    fun searchContacts(platform: String, query: String) {
-        viewModelScope.launch {
-            val deviceId = Settings.Secure.getString(context.contentResolver, Settings.Secure.ANDROID_ID)
-            when (val result = infoRepository.searchContacts(deviceId, platform, query)) {
-                is Resource.Success<List<SocialContact>> -> _socialContacts.value = result.data ?: emptyList()
-                else -> {}
-            }
-        }
-    }
-
-    private val _totalUnreadCount = mutableIntStateOf(0)
-    val totalUnreadCount: State<Int> = _totalUnreadCount
-
-    fun fetchUnread() {
-        viewModelScope.launch {
-            val deviceId = Settings.Secure.getString(context.contentResolver, Settings.Secure.ANDROID_ID)
-            when (val result = infoRepository.getUnreadMessages(deviceId)) {
-                is Resource.Success -> {
-                    _unreadMessages.value = result.data ?: emptyList()
-                    _totalUnreadCount.intValue = _unreadMessages.value.size
-                }
-                else -> {}
-            }
-        }
-    }
 
     fun setProvider(provider: String) {
         _selectedProvider.value = provider
@@ -981,7 +976,7 @@ class ChatViewModel @Inject constructor(
 
     private fun updateSceneMode() {
         val modelId = _selectedProvider.value.lowercase()
-        val selectedModel = _availableProviders.find { it.id.lowercase() == modelId }
+        val selectedModel = aiProviderSelector.availableProviders.find { it.id.lowercase() == modelId }
         val modelSupportsVideo = selectedModel?.capabilities?.let { it.videoGen } ?: run {
             // No capability metadata (older cached response) — fall back to the old heuristic.
             modelId.contains("video") || modelId.contains("kling") || modelId.contains("luma") || modelId.contains("runway")
@@ -993,29 +988,14 @@ class ChatViewModel @Inject constructor(
         _isSceneMode.value = enabled
     }
 
-    private val _isScreenRecording = mutableStateOf(false)
-    val isScreenRecording: State<Boolean> = _isScreenRecording
+    private val screenRecordingController = ScreenRecordingController()
+    val isScreenRecording: State<Boolean> get() = screenRecordingController.isScreenRecording
+    val isRecordingPaused: State<Boolean> get() = screenRecordingController.isRecordingPaused
 
-    private val _isRecordingPaused = mutableStateOf(false)
-    val isRecordingPaused: State<Boolean> = _isRecordingPaused
-
-    fun startScreenRecord() {
-        _isScreenRecording.value = true
-        // Service handles logic
-    }
-
-    fun pauseScreenRecord() {
-        _isRecordingPaused.value = true
-    }
-
-    fun resumeScreenRecord() {
-        _isRecordingPaused.value = false
-    }
-
-    fun stopScreenRecord() {
-        _isScreenRecording.value = false
-        _isRecordingPaused.value = false
-    }
+    fun startScreenRecord() = screenRecordingController.start()
+    fun pauseScreenRecord() = screenRecordingController.pause()
+    fun resumeScreenRecord() = screenRecordingController.resume()
+    fun stopScreenRecord() = screenRecordingController.stop()
 
     fun clearChat() {
         viewModelScope.launch {
@@ -1045,6 +1025,44 @@ class ChatViewModel @Inject constructor(
         _messages.clear()
     }
 
+    // Re-opens AttachmentEditorDialog on an already-sent image/video (tapped
+    // from ChatBubble), instead of only ever being reachable pre-send from a
+    // pending attachment in ChatInputBar. editImageWithAi/editVideoWithAi are
+    // already attachment-agnostic — this just gets their Uri into the dialog.
+    private val _editingAttachment = mutableStateOf<Pair<Uri, Boolean>?>(null)
+    val editingAttachment: State<Pair<Uri, Boolean>?> = _editingAttachment
+
+    // Persists after the dialog closes (unlike _editingAttachment) — drives a
+    // small floating chip so whatever's currently being iterated on (an
+    // image/video being edited back and forth) stays one tap away without
+    // needing to scroll back to find it again. Cleared only by the chip's
+    // own close button, or by setActiveWorkItem(null) when a result lands.
+    private val _activeWorkItem = mutableStateOf<Pair<String, Boolean>?>(null)
+    val activeWorkItem: State<Pair<String, Boolean>?> = _activeWorkItem
+
+    fun clearActiveWorkItem() {
+        _activeWorkItem.value = null
+    }
+
+    fun openAttachmentEditor(uriString: String, isVideo: Boolean) {
+        _editingAttachment.value = Uri.parse(uriString) to isVideo
+        _activeWorkItem.value = uriString to isVideo
+    }
+
+    fun closeAttachmentEditor() {
+        _editingAttachment.value = null
+    }
+
+    // Reply-to-a-specific-message — only meaningful in real user-to-user
+    // (social) chats, where there's more than one possible thread to reply
+    // into. Never used in the AI main chat/minichat.
+    private val _replyingTo = mutableStateOf<ChatMessage?>(null)
+    val replyingTo: State<ChatMessage?> = _replyingTo
+
+    fun setReplyingTo(message: ChatMessage?) {
+        _replyingTo.value = message
+    }
+
     fun deleteMessage(message: ChatMessage) {
         viewModelScope.launch {
             message.id?.let { id ->
@@ -1069,7 +1087,7 @@ class ChatViewModel @Inject constructor(
     fun approveSocialAction(draft: ChatMessage, shareToCommunity: Boolean = false) {
         viewModelScope.launch {
             _isLoading.value = true
-            val deviceId = Settings.Secure.getString(context.contentResolver, Settings.Secure.ANDROID_ID)
+            val deviceId = deviceIdProvider.deviceId
             val metadata = draft.socialMetadata
 
             val result = infoRepository.performSocialAction(
@@ -1091,6 +1109,29 @@ class ChatViewModel @Inject constructor(
 
     fun discardSocialAction(draft: ChatMessage) {
         _messages.add(ChatMessage(role = "assistant", content = "Action Discarded.", provider = "system"))
+    }
+
+    /**
+     * "Looks Right — Generate Image" on a describe-clarify-generate domain's
+     * understanding card. Round-trips the message's own
+     * [ChatMessage.archUnderstandingJson] back to the server (see
+     * DOMAIN_CONFIGS in aiService.ts) so it can build the final render
+     * prompt from the confirmed fields rather than the raw conversation
+     * text. Reads the provider straight off the message it's replying to
+     * (already correctly set per-message) rather than hardcoding one
+     * domain — works the same for any current or future domain.
+     */
+    fun confirmArchUnderstanding(message: ChatMessage) {
+        val deviceId = deviceIdProvider.deviceId
+        performChatRequest(
+            prompt = "I confirm this understanding — please generate the image now.",
+            imageUris = null,
+            audioUri = null,
+            deviceId = deviceId,
+            providerOverride = message.provider,
+            confirmArchRender = true,
+            archUnderstanding = message.archUnderstandingJson
+        )
     }
 
     fun addPendingAttachment(uri: Uri) {
@@ -1145,9 +1186,13 @@ class ChatViewModel @Inject constructor(
     private val EDIT_VERBS = listOf("edit", "change the background", "change background", "replace the background", "replace background", "remove the", "turn it into", "turn this into", "turn the", "make it look like", "make the background")
     private val IMAGE_GEN_PHRASES = listOf("generate an image", "generate a picture", "generate a photo", "create an image", "create a picture", "draw me", "draw a picture", "make me an image", "make an image of")
     private val VIDEO_GEN_PHRASES = listOf("generate a video", "create a video", "make a video of", "make me a video")
+    // Deliberately NOT "blueprint"/"layout" — those already trigger the
+    // unrelated tactical-map [AI_BLUEPRINT] feature (aiService.ts), and the
+    // two must never be able to collide on the same trigger word.
+    private val ARCH_IMAGE_PHRASES = listOf("floor plan", "architectural render", "architectural drawing", "render my sketch", "render this room", "to scale")
 
     private fun detectAutoRoutedProvider(text: String, attachmentUris: List<Uri>, attachmentType: String): String? {
-        val explicitlySelected = setOf("imagen-3.0-generate-002", "veo-2.0-generate-001", "gemini-2.5-flash-image", "byok-video-edit")
+        val explicitlySelected = setOf("imagen-3.0-generate-002", "veo-2.0-generate-001", "gemini-2.5-flash-image", "byok-video-edit", ARCH_IMAGE_PROVIDER_ID)
         if (_selectedProvider.value in explicitlySelected) return null // respect an explicit manual choice
 
         val lower = text.lowercase()
@@ -1159,6 +1204,7 @@ class ChatViewModel @Inject constructor(
         return when {
             hasImageAttachment && EDIT_VERBS.any { lower.contains(it) } -> "gemini-2.5-flash-image"
             hasVideoAttachment && EDIT_VERBS.any { lower.contains(it) } -> "byok-video-edit"
+            ARCH_IMAGE_PHRASES.any { lower.contains(it) } -> ARCH_IMAGE_PROVIDER_ID
             attachmentUris.isEmpty() && IMAGE_GEN_PHRASES.any { lower.contains(it) } -> "imagen-3.0-generate-002"
             attachmentUris.isEmpty() && VIDEO_GEN_PHRASES.any { lower.contains(it) } -> "veo-2.0-generate-001"
             else -> null
@@ -1209,7 +1255,7 @@ class ChatViewModel @Inject constructor(
         if (_isSocialChat.value && _activeSocialContact.value != null) {
             viewModelScope.launch {
                 val contact = _activeSocialContact.value!!
-                val deviceId = Settings.Secure.getString(context.contentResolver, Settings.Secure.ANDROID_ID)
+                val deviceId = deviceIdProvider.deviceId
                 // This generic send path (used by the text box AND the voice-note
                 // button/Conversation Mode while chatting with a real contact) was
                 // silently dropping any attachment — only `text` ever reached the
@@ -1238,7 +1284,8 @@ class ChatViewModel @Inject constructor(
                             content = text,
                             type = if (attachmentUris.isNotEmpty()) attachmentType else "text",
                             attachmentPaths = attachmentUris.map { it.toString() },
-                            provider = "you"
+                            provider = "you",
+                            replyToId = _replyingTo.value?.id
                         )
                     )
                 } else {
@@ -1246,6 +1293,7 @@ class ChatViewModel @Inject constructor(
                 }
             }
             clearPendingAttachments()
+            _replyingTo.value = null
             return
         }
 
@@ -1268,7 +1316,7 @@ class ChatViewModel @Inject constructor(
             repository.saveEntity(entity)
         }
         
-        val deviceId = Settings.Secure.getString(context.contentResolver, Settings.Secure.ANDROID_ID)
+        val deviceId = deviceIdProvider.deviceId
         val imageUris = if (attachmentType == "image" || attachmentUris.isNotEmpty()) attachmentUris else null
         val audioUri = if (attachmentType == "audio" && attachmentUris.isNotEmpty()) attachmentUris[0] else null
 
@@ -1278,6 +1326,7 @@ class ChatViewModel @Inject constructor(
                 "byok-video-edit" -> "video editing"
                 "imagen-3.0-generate-002" -> "image generation"
                 "veo-2.0-generate-001" -> "video generation"
+                ARCH_IMAGE_PROVIDER_ID -> "Architectural Render"
                 else -> autoRoutedProvider
             }
             viewModelScope.launch { _errorEvents.emit("Routed to $label for this request.") }
@@ -1294,7 +1343,7 @@ class ChatViewModel @Inject constructor(
     fun syncSocials() {
         _isLoading.value = true
         viewModelScope.launch {
-            val deviceId = Settings.Secure.getString(context.contentResolver, Settings.Secure.ANDROID_ID)
+            val deviceId = deviceIdProvider.deviceId
             when (val result = syncSocialsUseCase(deviceId)) {
                 is Resource.Success<com.example.mistreal_mini.data.model.SocialSyncResponse> -> {
                     if (result.data?.summary == "CONNECTION_REQUIRED") {
@@ -1317,26 +1366,36 @@ class ChatViewModel @Inject constructor(
         }
     }
 
-    fun performChatRequest(prompt: String, imageUris: List<Uri>?, audioUri: Uri?, deviceId: String?, isVoiceRequest: Boolean = false, trendTitle: String? = null, providerOverride: String? = null) {
+    fun performChatRequest(
+        prompt: String, imageUris: List<Uri>?, audioUri: Uri?, deviceId: String?, isVoiceRequest: Boolean = false,
+        trendTitle: String? = null, providerOverride: String? = null,
+        confirmArchRender: Boolean = false, archUnderstanding: String? = null
+    ) {
         _isLoading.value = true
         viewModelScope.launch {
             val history = _messages.takeLast(10).toList()
             val activePersona = if (_currentPersona.value == "None") "" else _currentPersona.value
-            
+
             val systemPromptOverlay = if (_aiCustomName.value.isNotBlank()) {
                 "IDENTITY_OVERRIDE: Your designation is '${_aiCustomName.value}'. Always identify yourself by this name if asked."
             } else ""
 
+            val resolvedProvider = providerOverride ?: _selectedProvider.value
+            val isArchRender = resolvedProvider == ARCH_IMAGE_PROVIDER_ID
+
             val result = sendMessageUseCase(
                 context = context,
-                prompt = if (systemPromptOverlay.isNotBlank()) "$systemPromptOverlay\n\n$prompt" else prompt,
+                prompt = if (systemPromptOverlay.isNotBlank() && !isArchRender) "$systemPromptOverlay\n\n$prompt" else prompt,
                 persona = activePersona,
                 history = history,
-                provider = providerOverride ?: _selectedProvider.value,
+                provider = resolvedProvider,
                 deviceId = deviceId,
                 imageUris = imageUris,
                 audioUri = audioUri,
-                isSceneMode = _isSceneMode.value
+                isSceneMode = _isSceneMode.value,
+                isArchitecturalRender = isArchRender,
+                confirmArchRender = confirmArchRender,
+                archUnderstanding = archUnderstanding
             )
             
             when (result) {
@@ -1365,13 +1424,29 @@ class ChatViewModel @Inject constructor(
 
                         val mood = moodRegex.find(content)?.groupValues?.get(1)?.lowercase()
 
-                        val cleanContent = content
+                        // 🏛 Architectural Render's restated understanding —
+                        // only ever present on replies from that flow (see
+                        // aiService.ts's ARCH_IMAGE_SYSTEM_INSTRUCTION).
+                        val archUnderstandingJson = archUnderstandingRegex.find(content)?.groupValues?.get(1)
+
+                        var cleanContent = content
                             .replace(blueprintRegex, "")
                             .replace(markerRegex, "")
                             .replace(feelingsRegex, "")
                             .replace(moodRegex, "")
                             .replace(socialAutosendRegex, "")
+                            .replace(archUnderstandingRegex, "")
                             .trim()
+
+                        // Gemini's search-grounding tool runs on every Gemini request
+                        // (app-key or BYOK) but its citations were previously computed
+                        // server-side and thrown away before reaching the client at all.
+                        response.groundingCitations?.takeIf { it.isNotEmpty() }?.let { citations ->
+                            val sourcesBlock = citations.joinToString("\n") { c ->
+                                "• ${c.title?.takeIf { it.isNotBlank() } ?: c.uri} — ${c.uri}"
+                            }
+                            cleanContent = "$cleanContent\n\nSources:\n$sourcesBlock"
+                        }
 
                         val assistantMsg = ChatMessage(
                             role = "assistant",
@@ -1380,16 +1455,21 @@ class ChatViewModel @Inject constructor(
                             isTrend = trendTitle != null,
                             trendTitle = trendTitle,
                             trueFeelings = trueFeelings,
-                            mood = mood
+                            mood = mood,
+                            archUnderstandingJson = archUnderstandingJson
                         )
-                        repository.saveMessage(assistantMsg)
+                        if (trendTitle != null && _delayEnabledTrendTitles.contains(trendTitle)) {
+                            scheduleDelayedReveal(assistantMsg)
+                        } else {
+                            repository.saveMessage(assistantMsg)
+                        }
 
                         // AI-generated media comes back as a separate message (not an
                         // attachment on the text reply) so it renders through the same
                         // ChatBubble image/video paths as a user-sent attachment would.
                         response.generatedImageBase64?.let { base64 ->
                             val uri = com.example.mistreal_mini.util.MediaEditorUtil.saveBase64Image(
-                                context, base64, response.generatedImageMimeType
+                                context, base64, response.generatedImageMimeType, _aiTagPosition.value
                             )
                             if (uri != null) {
                                 repository.saveMessage(
@@ -1503,16 +1583,27 @@ class ChatViewModel @Inject constructor(
 
     fun onDistressDetected() {
         if (_guardianEnabled.value) {
+            // Recording starts immediately, unconditionally — delaying it
+            // behind a preference network fetch would cost the first
+            // seconds of exactly the audio that matters most. Whether it
+            // actually gets UPLOADED afterward respects the microphone
+            // toggle; the photo attempt itself is gated upfront since a
+            // skipped capture costs nothing to not-start.
+            sfxHapticPlayer.playAlert()
             startSosAudioCapture()
             viewModelScope.launch {
                 voiceManager.speak("Detecting possible distress. Sending your location and alerting your confirmed emergency contacts.")
-                val deviceId = android.provider.Settings.Secure.getString(context.contentResolver, android.provider.Settings.Secure.ANDROID_ID)
+                val deviceId = deviceIdProvider.deviceId
+                val (cameraAllowed, micAllowed) = fetchSosCapturePrefs(deviceId)
+                val photoDeferred = if (cameraAllowed) async { sosCameraCapture.capturePhoto() } else null
                 // Public broadcasting to real social platforms is no longer
-                // decided here — only the server's 30-day escalation sweep
-                // can do that now, and only if no confirmed contact responds.
+                // decided here — only the server's community-broadcast
+                // tiers can do that now, and only if no confirmed contact responds.
                 val result = handleDistressUseCase(deviceId, distressSignature = "Audio Spike Detected", triggerType = "manual")
                 val audioFile = stopSosAudioCapture()
-                attachSosAudioIfAny((result as? Resource.Success)?.data?.alert?.id, deviceId, audioFile)
+                val alertId = (result as? Resource.Success)?.data?.alert?.id
+                if (micAllowed) attachSosAudioIfAny(alertId, deviceId, audioFile)
+                photoDeferred?.await()?.let { attachSosImageIfAny(alertId, deviceId, it) }
             }
         }
     }
@@ -1524,13 +1615,18 @@ class ChatViewModel @Inject constructor(
     fun triggerManualSos() {
         if (_isSendingSos.value) return
         _isSendingSos.value = true
+        sfxHapticPlayer.playAlert()
         startSosAudioCapture()
         viewModelScope.launch {
-            val deviceId = android.provider.Settings.Secure.getString(context.contentResolver, android.provider.Settings.Secure.ANDROID_ID)
+            val deviceId = deviceIdProvider.deviceId
+            val (cameraAllowed, micAllowed) = fetchSosCapturePrefs(deviceId)
+            val photoDeferred = if (cameraAllowed) async { sosCameraCapture.capturePhoto() } else null
             val result = handleDistressUseCase(deviceId, distressSignature = "Manual SOS triggered", triggerType = "manual")
             _isSendingSos.value = false
             val audioFile = stopSosAudioCapture()
-            attachSosAudioIfAny((result as? Resource.Success)?.data?.alert?.id, deviceId, audioFile)
+            val alertId = (result as? Resource.Success)?.data?.alert?.id
+            if (micAllowed) attachSosAudioIfAny(alertId, deviceId, audioFile)
+            photoDeferred?.await()?.let { attachSosImageIfAny(alertId, deviceId, it) }
             when (result) {
                 is Resource.Success -> {
                     val data = result.data
@@ -1543,114 +1639,23 @@ class ChatViewModel @Inject constructor(
     }
 
     // --- Compose & send email (drawer "EMAIL" category) — send-only, no inbox sync ---
+    // Delegated to EmailController; this was fully self-contained already,
+    // so the extraction is a straight move with the same exposed surface.
 
-    private val _emailContacts = mutableStateListOf<com.example.mistreal_mini.data.api.EmailContactSummary>()
-    val emailContacts: List<com.example.mistreal_mini.data.api.EmailContactSummary> = _emailContacts
-
-    private val _activeEmailThread = mutableStateListOf<com.example.mistreal_mini.data.api.EmailMessage>()
-    val activeEmailThread: List<com.example.mistreal_mini.data.api.EmailMessage> = _activeEmailThread
-
-    private val _isSendingEmail = mutableStateOf(false)
-    val isSendingEmail: State<Boolean> = _isSendingEmail
-
-    fun fetchEmailContacts() {
-        viewModelScope.launch {
-            val deviceId = android.provider.Settings.Secure.getString(context.contentResolver, android.provider.Settings.Secure.ANDROID_ID)
-            val result = infoRepository.getEmailContacts(deviceId)
-            if (result is Resource.Success) {
-                _emailContacts.clear()
-                _emailContacts.addAll(result.data ?: emptyList())
-            }
-        }
+    private val emailController = EmailController(infoRepository, context, viewModelScope) { message ->
+        viewModelScope.launch { _errorEvents.emit(message) }
     }
 
-    fun openEmailThread(toEmail: String) {
-        viewModelScope.launch {
-            val deviceId = android.provider.Settings.Secure.getString(context.contentResolver, android.provider.Settings.Secure.ANDROID_ID)
-            val result = infoRepository.getEmailHistory(deviceId, toEmail)
-            _activeEmailThread.clear()
-            if (result is Resource.Success) {
-                _activeEmailThread.addAll(result.data ?: emptyList())
-            }
-        }
-    }
+    val emailContacts: List<com.example.mistreal_mini.data.api.EmailContactSummary> get() = emailController.emailContacts
+    val activeEmailThread: List<com.example.mistreal_mini.data.api.EmailMessage> get() = emailController.activeEmailThread
+    val isSendingEmail: State<Boolean> get() = emailController.isSendingEmail
 
-    fun clearActiveEmailThread() {
-        _activeEmailThread.clear()
-    }
+    fun fetchEmailContacts() = emailController.fetchEmailContacts()
+    fun openEmailThread(toEmail: String) = emailController.openEmailThread(toEmail)
+    fun clearActiveEmailThread() = emailController.clearActiveEmailThread()
+    fun sendEmail(toEmail: String, toName: String?, subject: String, body: String, onResult: (Boolean) -> Unit) =
+        emailController.sendEmail(toEmail, toName, subject, body, onResult)
 
-    fun sendEmail(toEmail: String, toName: String?, subject: String, body: String, onResult: (Boolean) -> Unit) {
-        if (toEmail.isBlank() || subject.isBlank() || body.isBlank()) {
-            viewModelScope.launch { _errorEvents.emit("Address, subject and message are all required.") }
-            onResult(false)
-            return
-        }
-        _isSendingEmail.value = true
-        viewModelScope.launch {
-            val deviceId = android.provider.Settings.Secure.getString(context.contentResolver, android.provider.Settings.Secure.ANDROID_ID)
-            val result = infoRepository.sendEmail(deviceId, toEmail, toName, subject, body)
-            _isSendingEmail.value = false
-            when (result) {
-                is Resource.Success -> {
-                    _errorEvents.emit("Email sent to $toEmail")
-                    fetchEmailContacts()
-                    openEmailThread(toEmail)
-                    onResult(true)
-                }
-                is Resource.Error -> {
-                    _errorEvents.emit("Email failed: ${result.message}")
-                    onResult(false)
-                }
-                else -> onResult(false)
-            }
-        }
-    }
-
-    private val _isSendingToContact = mutableStateOf(false)
-    val isSendingToContact: State<Boolean> = _isSendingToContact
-
-    /**
-     * Delivers an image message (e.g. an AI-edited picture) as a real DM on a
-     * connected platform — e.g. WhatsApp/Facebook — via Zernio. The image only
-     * exists locally as a Uri, so it's base64-encoded and handed to the backend,
-     * which briefly hosts it at a public URL for Zernio to fetch (see
-     * mediaStore.ts) since DM APIs take a media URL, not inline bytes.
-     */
-    fun sendImageToContact(imageUri: Uri, platform: String, targetId: String, caption: String, onResult: (Boolean) -> Unit) {
-        _isSendingToContact.value = true
-        viewModelScope.launch {
-            val base64 = FileUtil.uriToBase64(context, imageUri)
-            if (base64 == null) {
-                _isSendingToContact.value = false
-                _errorEvents.emit("Couldn't read that image.")
-                onResult(false)
-                return@launch
-            }
-            val mimeType = FileUtil.getMimeType(context, imageUri) ?: "image/jpeg"
-            val deviceId = android.provider.Settings.Secure.getString(context.contentResolver, android.provider.Settings.Secure.ANDROID_ID)
-            val result = infoRepository.performSocialAction(
-                deviceId = deviceId,
-                type = "Direct Message",
-                platform = platform,
-                content = caption,
-                targetId = targetId,
-                mediaBase64 = base64,
-                mediaMimeType = mimeType
-            )
-            _isSendingToContact.value = false
-            when (result) {
-                is Resource.Success -> {
-                    _errorEvents.emit("Sent to $targetId on $platform")
-                    onResult(true)
-                }
-                is Resource.Error -> {
-                    _errorEvents.emit("Send failed: ${result.message}")
-                    onResult(false)
-                }
-                else -> onResult(false)
-            }
-        }
-    }
 
     private val _isEditingVideo = mutableStateOf(false)
     val isEditingVideo: State<Boolean> = _isEditingVideo
@@ -1658,50 +1663,10 @@ class ChatViewModel @Inject constructor(
     private val _isSynthesizingVoiceOver = mutableStateOf(false)
     val isSynthesizingVoiceOver: State<Boolean> = _isSynthesizingVoiceOver
 
-    /**
-     * For multi-face video targeting: grabs the video's middle frame and runs
-     * ML Kit face detection on it, so the UI can show tappable boxes over each
-     * detected face — "swap THIS one" instead of a single generic "the main
-     * person." Returns the frame plus each face's bounding box as a 0f..1f
-     * fraction of the frame (so the UI doesn't need to know the frame's pixel
-     * dimensions to draw/hit-test the boxes).
-     */
-    suspend fun detectFacesInVideo(videoUri: Uri): Pair<android.graphics.Bitmap, List<android.graphics.RectF>>? {
-        return try {
-            val retriever = android.media.MediaMetadataRetriever()
-            val frame = try {
-                retriever.setDataSource(context, videoUri)
-                val durationMs = retriever.extractMetadata(android.media.MediaMetadataRetriever.METADATA_KEY_DURATION)?.toLongOrNull() ?: 0L
-                retriever.getFrameAtTime((durationMs * 500), android.media.MediaMetadataRetriever.OPTION_CLOSEST_SYNC) // midpoint, ms->us
-            } finally {
-                retriever.release()
-            }
-            if (frame == null) {
-                Timber.w("detectFacesInVideo: couldn't extract a frame from %s", videoUri)
-                return null
-            }
-
-            val faces = faceGuard.detectFaces(com.google.mlkit.vision.common.InputImage.fromBitmap(frame, 0)).await()
-            Timber.d("detectFacesInVideo: found %d face(s) in %s", faces.size, videoUri)
-            val boxes = faces.map { face ->
-                val box = face.boundingBox
-                android.graphics.RectF(
-                    (box.left.toFloat() / frame.width).coerceIn(0f, 1f),
-                    (box.top.toFloat() / frame.height).coerceIn(0f, 1f),
-                    (box.right.toFloat() / frame.width).coerceIn(0f, 1f),
-                    (box.bottom.toFloat() / frame.height).coerceIn(0f, 1f)
-                )
-            }
-            frame to boxes
-        } catch (e: Exception) {
-            Timber.e(e, "detectFacesInVideo failed for %s", videoUri)
-            null
-        }
-    }
-
-    /** Highlights the tapped face's box on the frame, for use as the face-swap target reference image. */
-    suspend fun markFaceTarget(frame: android.graphics.Bitmap, box: android.graphics.RectF): Uri? =
-        com.example.mistreal_mini.util.MediaEditorUtil.rasterizeFaceTargetMarker(context, frame, box)
+    // For multi-face video targeting (see FaceVideoEditor for the extracted
+    // frame-grab + ML Kit logic this used to inline directly).
+    suspend fun detectFacesInVideo(videoUri: Uri) = faceVideoEditor.detectFacesInVideo(videoUri)
+    suspend fun markFaceTarget(frame: android.graphics.Bitmap, box: android.graphics.RectF) = faceVideoEditor.markFaceTarget(frame, box)
 
     /** TTS-synthesizes [narration] and muxes it onto [videoUri] as its new audio track. */
     fun addVoiceOverToVideo(videoUri: Uri, narration: String, onResult: (Uri?) -> Unit) {
@@ -1765,7 +1730,7 @@ class ChatViewModel @Inject constructor(
             videoUri, faceReferenceUri != null, faceTargetUri != null, instruction.length
         )
         viewModelScope.launch {
-            val deviceId = android.provider.Settings.Secure.getString(context.contentResolver, android.provider.Settings.Secure.ANDROID_ID)
+            val deviceId = deviceIdProvider.deviceId
             // Tagged explicitly (not derived from Scene Mode) so the backend's
             // BYOK video-edit path picks these up as referenceImageBase64 /
             // faceTargetImageBase64 — see getAiResponse's role extraction.
@@ -1801,6 +1766,7 @@ class ChatViewModel @Inject constructor(
                                 trendTitle = _currentTrendTitle.value
                             )
                         )
+                        _activeWorkItem.value = videoUrl to true
                         onResult(true)
                     } else {
                         Timber.w("editVideoWithAi: backend returned success with no generatedVideoUrl (provider=%s)", result.data?.provider)
@@ -1839,7 +1805,7 @@ class ChatViewModel @Inject constructor(
         _isEditingImage.value = true
         Timber.d("editImageWithAi: starting — imageUri=%s, extraRefs=%d, faceSwap=%s", imageUri, extraReferenceImages.size, isFaceSwap)
         viewModelScope.launch {
-            val deviceId = android.provider.Settings.Secure.getString(context.contentResolver, android.provider.Settings.Secure.ANDROID_ID)
+            val deviceId = deviceIdProvider.deviceId
             val result = sendMessageUseCase(
                 context = context,
                 prompt = instruction,
@@ -1858,7 +1824,7 @@ class ChatViewModel @Inject constructor(
                     val base64 = result.data?.generatedImageBase64
                     if (base64 != null) {
                         val uri = com.example.mistreal_mini.util.MediaEditorUtil.saveBase64Image(
-                            context, base64, result.data?.generatedImageMimeType
+                            context, base64, result.data?.generatedImageMimeType, _aiTagPosition.value
                         )
                         if (uri != null) {
                             Timber.d("editImageWithAi: success — savedUri=%s", uri)
@@ -1873,6 +1839,7 @@ class ChatViewModel @Inject constructor(
                                     trendTitle = _currentTrendTitle.value
                                 )
                             )
+                            _activeWorkItem.value = uri.toString() to false
                             onResult(true)
                         } else {
                             Timber.w("editImageWithAi: saveBase64Image returned null (mime=%s)", result.data?.generatedImageMimeType)
@@ -1979,27 +1946,6 @@ class ChatViewModel @Inject constructor(
         }
     }
 
-    fun refreshSocialContacts() {
-        viewModelScope.launch {
-            val deviceId = Settings.Secure.getString(context.contentResolver, Settings.Secure.ANDROID_ID)
-
-            // 🔄 Step 1: Sync with Zernio Cloud First
-            syncSocialsUseCase(deviceId)
-
-            // 📥 Step 2: Refresh local metadata, then pull contacts only for platforms
-            // the user actually has connected (previously a hardcoded 6-platform list
-            // that silently excluded TikTok and anything else not in it).
-            val platformsResult = infoRepository.getAvailablePlatforms(deviceId)
-            if (platformsResult is Resource.Success) {
-                _availablePlatforms.clear()
-                platformsResult.data?.let { _availablePlatforms.addAll(it) }
-            }
-            fetchUnread()
-            _availablePlatforms.filter { it.isConnected }.forEach {
-                fetchContacts(it.id)
-            }
-        }
-    }
 
     fun startScribe() {
         _isScribing.value = true

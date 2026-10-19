@@ -50,11 +50,22 @@ fun WeatherHour(time: String, temp: String, icon: androidx.compose.ui.graphics.v
 @Composable
 fun IntelMiniCard(article: Article, onClick: () -> Unit) {
     Card(
-        modifier = Modifier.width(160.dp).height(100.dp).clickable { onClick() },
+        modifier = Modifier.width(160.dp).height(if (article.imageUrl != null) 150.dp else 100.dp).clickable { onClick() },
         shape = RoundedCornerShape(12.dp),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f))
     ) {
-        Column(modifier = Modifier.padding(12.dp)) {
+        Column {
+            // Only novels currently carry a cover (OpenLibrary) — everything
+            // else falls back to the plain icon-header layout below.
+            article.imageUrl?.let { url ->
+                AsyncImage(
+                    model = url,
+                    contentDescription = null,
+                    modifier = Modifier.fillMaxWidth().height(60.dp),
+                    contentScale = ContentScale.Crop
+                )
+            }
+            Column(modifier = Modifier.padding(12.dp)) {
             val icon = when(article.type) {
                 "novel" -> Icons.AutoMirrored.Filled.MenuBook
                 "wiki" -> Icons.Default.Info
@@ -62,8 +73,10 @@ fun IntelMiniCard(article: Article, onClick: () -> Unit) {
                 "sports" -> Icons.Default.SportsSoccer
                 else -> Icons.AutoMirrored.Filled.Article
             }
-            Icon(icon, null, modifier = Modifier.size(16.dp), tint = MaterialTheme.colorScheme.primary)
-            Spacer(modifier = Modifier.height(8.dp))
+            if (article.imageUrl == null) {
+                Icon(icon, null, modifier = Modifier.size(16.dp), tint = MaterialTheme.colorScheme.primary)
+                Spacer(modifier = Modifier.height(8.dp))
+            }
             Text(article.title, maxLines = 2, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold)
             if (article.type == "sports" && !article.description.isNullOrBlank()) {
                 Spacer(modifier = Modifier.height(4.dp))
@@ -75,6 +88,7 @@ fun IntelMiniCard(article: Article, onClick: () -> Unit) {
                     fontWeight = FontWeight.Black,
                     color = MaterialTheme.colorScheme.primary
                 )
+            }
             }
         }
     }
@@ -88,6 +102,7 @@ fun IntelligenceFeedView(
     articles: List<Article>,
     onArticleClick: (Article) -> Unit,
     onAskAi: (String) -> Unit,
+    onVoiceAsk: () -> Unit = {},
     onPinClick: (Article) -> Unit,
     onReadAloud: (String, InteractionMode) -> Unit,
     chatViewModel: ChatViewModel,
@@ -138,7 +153,7 @@ fun IntelligenceFeedView(
                         Text("RESEARCH & LITERATURE", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Black, color = Color.Gray)
                         Spacer(modifier = Modifier.height(8.dp))
                         LazyRow(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                            items(horizontalArticles) { art ->
+                            items(horizontalArticles, key = { it.url }) { art ->
                                 IntelMiniCard(art, onClick = { showIntelPopup = art })
                             }
                         }
@@ -157,7 +172,7 @@ fun IntelligenceFeedView(
                         Text("LIVE SCORES", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Black, color = Color.Gray)
                         Spacer(modifier = Modifier.height(8.dp))
                         LazyRow(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                            items(sportsArticles) { art ->
+                            items(sportsArticles, key = { it.url }) { art ->
                                 IntelMiniCard(art, onClick = { showIntelPopup = art })
                             }
                         }
@@ -193,18 +208,22 @@ fun IntelligenceFeedView(
             }
         }
 
-        items(filteredArticles) { article ->
+        items(filteredArticles, key = { it.url }) { article ->
             if (article.type == "astro") {
                 NasaApodCard(
                     article = article,
                     onPinClick = { onPinClick(article) },
-                    onAiClick = { onAskAi("NASA_APOD: ${article.title}. Explain this astronomical event and its tactical significance.") }
+                    onAiClick = { onAskAi("NASA_APOD: ${article.title}. Explain this astronomical event and its tactical significance.") },
+                    onVoiceAsk = onVoiceAsk
                 )
+            } else if (article.type == "sos_alert") {
+                SosAlertCard(article = article)
             } else {
                 NewsItem(
                     article = article,
                     onPinClick = { onPinClick(article) },
                     onAiClick = { onAskAi("NEWS_INTEL: ${article.title}. Summarize this and analyze potential impact.") },
+                    onVoiceAsk = onVoiceAsk,
                     onClick = { onArticleClick(article) }
                 )
             }
@@ -370,7 +389,7 @@ fun WeatherDetailPopup(
 }
 
 @Composable
-fun NewsItem(article: Article, onPinClick: () -> Unit, onAiClick: () -> Unit, onClick: () -> Unit) {
+fun NewsItem(article: Article, onPinClick: () -> Unit, onAiClick: () -> Unit, onVoiceAsk: () -> Unit = {}, onClick: () -> Unit) {
     Card(
         modifier = Modifier.fillMaxWidth().clickable { onClick() },
         shape = RoundedCornerShape(16.dp),
@@ -379,8 +398,8 @@ fun NewsItem(article: Article, onPinClick: () -> Unit, onAiClick: () -> Unit, on
         Column(modifier = Modifier.padding(16.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(
-                    text = article.category?.uppercase() ?: "WORLD", 
-                    style = MaterialTheme.typography.labelSmall, 
+                    text = article.category?.uppercase() ?: "WORLD",
+                    style = MaterialTheme.typography.labelSmall,
                     fontWeight = FontWeight.Black,
                     color = MaterialTheme.colorScheme.primary
                 )
@@ -390,6 +409,15 @@ fun NewsItem(article: Article, onPinClick: () -> Unit, onAiClick: () -> Unit, on
                 IconButton(onClick = onPinClick, modifier = Modifier.size(24.dp)) {
                     Icon(if(article.isPinned == true) Icons.Default.PushPin else Icons.Default.PushPin, null, tint = if(article.isPinned == true) Color.Yellow else Color.Gray, modifier = Modifier.size(14.dp))
                 }
+            }
+            article.imageUrl?.let { url ->
+                Spacer(modifier = Modifier.height(8.dp))
+                AsyncImage(
+                    model = url,
+                    contentDescription = null,
+                    modifier = Modifier.fillMaxWidth().height(140.dp).clip(RoundedCornerShape(12.dp)),
+                    contentScale = ContentScale.Crop
+                )
             }
             Spacer(modifier = Modifier.height(8.dp))
             Text(article.title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, maxLines = 2, overflow = TextOverflow.Ellipsis)
@@ -404,6 +432,11 @@ fun NewsItem(article: Article, onPinClick: () -> Unit, onAiClick: () -> Unit, on
                     Spacer(modifier = Modifier.width(4.dp))
                     Text("AI ANALYSIS", fontSize = 10.sp)
                 }
+                // Quick voice question — lighter than the full "AI Analysis"
+                // sheet, see ui/util/QuickVoiceAskDialog.kt.
+                OutlinedButton(onClick = onVoiceAsk, modifier = Modifier.size(36.dp), contentPadding = PaddingValues(0.dp), shape = RoundedCornerShape(8.dp)) {
+                    Icon(Icons.Default.Mic, "Ask AI by voice", modifier = Modifier.size(16.dp))
+                }
                 OutlinedButton(onClick = onClick, modifier = Modifier.weight(1f), shape = RoundedCornerShape(8.dp)) {
                     Text("READ FULL", fontSize = 10.sp)
                 }
@@ -412,8 +445,38 @@ fun NewsItem(article: Article, onPinClick: () -> Unit, onAiClick: () -> Unit, on
     }
 }
 
+/**
+ * Guardian community broadcast card — a nearby Mistreal user who hasn't
+ * confirmed safe (see FeedViewModel.fetchNearbySos). Deliberately
+ * non-interactive (informational only, no "I can help" action in scope)
+ * and visually distinct (red border) from ordinary news content.
+ */
 @Composable
-fun NasaApodCard(article: Article, onPinClick: () -> Unit, onAiClick: () -> Unit) {
+fun SosAlertCard(article: Article) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(16.dp),
+        colors = CardDefaults.cardColors(containerColor = Color(0xFFD32F2F).copy(alpha = 0.08f)),
+        border = androidx.compose.foundation.BorderStroke(1.5.dp, Color(0xFFD32F2F))
+    ) {
+        Column(modifier = Modifier.padding(16.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text("🆘 GUARDIAN BROADCAST", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Black, color = Color(0xFFD32F2F))
+                Spacer(modifier = Modifier.weight(1f))
+                Text(article.timestamp ?: "", style = MaterialTheme.typography.labelSmall, color = Color.Gray)
+            }
+            Spacer(modifier = Modifier.height(8.dp))
+            Text(article.title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+            if (article.description != null) {
+                Spacer(modifier = Modifier.height(4.dp))
+                Text(article.description, style = MaterialTheme.typography.bodySmall, color = Color.Gray)
+            }
+        }
+    }
+}
+
+@Composable
+fun NasaApodCard(article: Article, onPinClick: () -> Unit, onAiClick: () -> Unit, onVoiceAsk: () -> Unit = {}) {
     Card(
         modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
         colors = CardDefaults.cardColors(containerColor = Color.Black),
@@ -469,6 +532,9 @@ fun NasaApodCard(article: Article, onPinClick: () -> Unit, onAiClick: () -> Unit
                 }
                 IconButton(onClick = onAiClick) {
                     Icon(Icons.Default.Psychology, null, tint = Color.White, modifier = Modifier.size(20.dp))
+                }
+                IconButton(onClick = onVoiceAsk) {
+                    Icon(Icons.Default.Mic, "Ask AI by voice", tint = Color.White, modifier = Modifier.size(20.dp))
                 }
             }
         }

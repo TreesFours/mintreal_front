@@ -45,7 +45,7 @@ fun TimelineMiniMap(
             horizontalArrangement = Arrangement.spacedBy(8.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            itemsIndexed(posts) { index, post ->
+            itemsIndexed(posts, key = { _, post -> post.id }) { index, post ->
                 val isSelected = index == currentIndex
                 
                 Box(

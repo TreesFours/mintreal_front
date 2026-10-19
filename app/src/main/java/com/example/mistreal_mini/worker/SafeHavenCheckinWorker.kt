@@ -4,13 +4,13 @@ import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.content.Context
 import android.os.Build
-import android.provider.Settings
 import androidx.core.app.NotificationCompat
 import androidx.hilt.work.HiltWorker
 import androidx.work.CoroutineWorker
 import androidx.work.WorkerParameters
 import com.example.mistreal_mini.data.Resource
 import com.example.mistreal_mini.data.repository.InfoRepository
+import com.example.mistreal_mini.util.DeviceIdProvider
 import dagger.assisted.Assisted
 import dagger.assisted.AssistedInject
 
@@ -28,11 +28,12 @@ import dagger.assisted.AssistedInject
 class SafeHavenCheckinWorker @AssistedInject constructor(
     @Assisted context: Context,
     @Assisted params: WorkerParameters,
-    private val infoRepository: InfoRepository
+    private val infoRepository: InfoRepository,
+    private val deviceIdProvider: DeviceIdProvider
 ) : CoroutineWorker(context, params) {
 
     override suspend fun doWork(): Result {
-        val deviceId = Settings.Secure.getString(applicationContext.contentResolver, Settings.Secure.ANDROID_ID)
+        val deviceId = deviceIdProvider.deviceId
         val result = infoRepository.getEmergencyAlerts(deviceId)
         val hasActiveAlert = (result as? Resource.Success)?.data?.any { it.status == "active" } == true
         if (hasActiveAlert) {

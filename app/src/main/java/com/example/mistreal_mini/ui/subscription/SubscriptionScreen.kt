@@ -15,10 +15,14 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
 import com.example.mistreal_mini.data.api.AddonDefinition
+import com.example.mistreal_mini.ui.util.LocalSfxHapticPlayer
 import kotlinx.coroutines.flow.collectLatest
 
 /**
@@ -37,6 +41,19 @@ fun SubscriptionScreen(
     val activeAddonIds by viewModel.activeAddonIds
     val isLoading by viewModel.isLoading
     val snackbarHostState = remember { SnackbarHostState() }
+
+    // Neither Stripe Checkout nor the Stripe portal hand control back to
+    // the app with a result callback the way Play Billing does — picking
+    // up a grant/cancellation made in the browser means re-polling
+    // my-addons whenever this screen comes back into the foreground.
+    val lifecycleOwner = LocalLifecycleOwner.current
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) viewModel.refreshAddonStatus()
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
 
     LaunchedEffect(Unit) {
         viewModel.purchaseSuccess.collectLatest {
@@ -111,7 +128,7 @@ fun SubscriptionScreen(
                                 addon = addon,
                                 isActive = activeAddonIds.contains(addon.id),
                                 onToggleOn = { viewModel.purchaseAddon(context as Activity, addon) },
-                                onToggleOff = { viewModel.openCancelSubscription(addon) }
+                                onToggleOff = { viewModel.openCancelSubscription(context as Activity, addon) }
                             )
                         }
                     }
@@ -119,7 +136,10 @@ fun SubscriptionScreen(
 
                 Spacer(modifier = Modifier.height(8.dp))
                 Text(
-                    text = "Turning an add-on off opens Google Play's subscription management — cancellation always happens there, never silently in-app.",
+                    text = if (viewModel.isPlayStoreInstall)
+                        "Turning an add-on off opens Google Play's subscription management — cancellation always happens there, never silently in-app."
+                    else
+                        "Turning an add-on off opens your subscription management page — cancellation always happens there, never silently in-app.",
                     style = MaterialTheme.typography.labelSmall,
                     color = Color.Gray
                 )
@@ -149,9 +169,13 @@ private fun AddonRow(
                 Text(addon.description, style = MaterialTheme.typography.bodySmall, color = Color.Gray)
                 Text("$${addon.priceUsd}/month", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold)
             }
+            val sfx = LocalSfxHapticPlayer.current
             Switch(
                 checked = isActive,
-                onCheckedChange = { checked -> if (checked) onToggleOn() else onToggleOff() }
+                onCheckedChange = { checked ->
+                    sfx?.playToggle()
+                    if (checked) onToggleOn() else onToggleOff()
+                }
             )
         }
     }

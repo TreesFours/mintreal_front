@@ -26,9 +26,11 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Modifier
 import androidx.fragment.app.FragmentActivity
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
+import androidx.navigation.navArgument
 import androidx.compose.animation.*
 import androidx.compose.animation.core.tween
 import androidx.work.*
@@ -45,7 +47,11 @@ import com.example.mistreal_mini.ui.auth.AuthScreen
 import com.example.mistreal_mini.ui.auth.AuthViewModel
 import com.example.mistreal_mini.ui.settings.SettingsViewModel
 import com.example.mistreal_mini.ui.records.RecordsScreen
+import com.example.mistreal_mini.ui.navigation.Routes
+import com.example.mistreal_mini.ui.util.LocalSfxHapticPlayer
+import com.example.mistreal_mini.util.DeviceIdProvider
 import com.example.mistreal_mini.util.FaceGuard
+import com.example.mistreal_mini.util.SfxHapticPlayer
 import com.example.mistreal_mini.worker.WeatherWorker
 import com.example.mistreal_mini.worker.NewsWorker
 import com.example.mistreal_mini.worker.HistoryWorker
@@ -61,6 +67,8 @@ class MainActivity : FragmentActivity() {
 
     @Inject lateinit var faceGuard: FaceGuard
     @Inject lateinit var preferenceManager: PreferenceManager
+    @Inject lateinit var deviceIdProvider: DeviceIdProvider
+    @Inject lateinit var sfxHapticPlayer: SfxHapticPlayer
 
     private val requestPermissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()
@@ -96,6 +104,7 @@ class MainActivity : FragmentActivity() {
             }
 
             MistrealTheme(darkTheme = isDarkTheme) {
+            CompositionLocalProvider(LocalSfxHapticPlayer provides sfxHapticPlayer) {
                 val intentState by _intentState
                 val isOnboarded by preferenceManager.isOnboarded.collectAsStateWithLifecycle(initialValue = null)
                 val scope = rememberCoroutineScope()
@@ -120,6 +129,13 @@ class MainActivity : FragmentActivity() {
                             if (isAuthenticated) guardianViewModel.fetchAlerts()
                         }
 
+                        // Keeps lastKnownLat/Lon roughly fresh for the Needs/Offers
+                        // matching feature's proximity ranking — once per session,
+                        // not continuous tracking (see SettingsViewModel.reportLocationOnce).
+                        LaunchedEffect(isAuthenticated) {
+                            if (isAuthenticated) settingsViewModel.reportLocationOnce()
+                        }
+
                         // 🔗 Deep Link Handler
                         LaunchedEffect(intentState) {
                             intentState?.data?.let { uri ->
@@ -131,7 +147,7 @@ class MainActivity : FragmentActivity() {
                                 if (isMistrealScheme || isHttpsAppLink) {
                                     val platform = uri.getQueryParameter("platform") ?: "platform"
                                     val success = uri.getQueryParameter("success") == "true"
-                                    val deviceId = android.provider.Settings.Secure.getString(contentResolver, android.provider.Settings.Secure.ANDROID_ID)
+                                    val deviceId = deviceIdProvider.deviceId
                                     
                                     if (success) {
                                         Toast.makeText(this@MainActivity, "✅ $platform linked successfully!", Toast.LENGTH_LONG).show()
@@ -169,7 +185,7 @@ class MainActivity : FragmentActivity() {
                     LaunchedEffect(isOnboarded, isFirebaseAuthenticated, isAuthenticated) {
                         if (isOnboarded == true) {
                             if (!isFirebaseAuthenticated) {
-                                navController.navigate("auth") {
+                                navController.navigate(Routes.AUTH) {
                                     popUpTo(0) { inclusive = true }
                                 }
                             } else if (!isAuthenticated) {
@@ -184,9 +200,9 @@ class MainActivity : FragmentActivity() {
                                 // ViewModels deferred out of their init{} blocks (so nothing
                                 // talks to the backend before this point), and shows that
                                 // sequence to the user instead of it happening silently.
-                                if (navController.currentDestination?.route == "splash" ||
-                                    navController.currentDestination?.route == "auth") {
-                                    navController.navigate("boot") {
+                                if (navController.currentDestination?.route == Routes.SPLASH ||
+                                    navController.currentDestination?.route == Routes.AUTH) {
+                                    navController.navigate(Routes.BOOT) {
                                         popUpTo(0) { inclusive = true }
                                     }
                                 }
@@ -194,61 +210,78 @@ class MainActivity : FragmentActivity() {
                         }
                     }
 
+                    // Shared across market/discovery/detail — all three used to
+                    // duplicate this exact navigate-on-success/toast-on-failure
+                    // block independently.
+                    val onContactBusiness: (com.example.mistreal_mini.data.api.RemoteBusiness) -> Unit = { business ->
+                        chatViewModel.contactBusiness(business) { success, error ->
+                            if (success) {
+                                navController.navigate(Routes.chat())
+                            } else {
+                                Toast.makeText(this@MainActivity, error ?: "Couldn't contact this business.", Toast.LENGTH_LONG).show()
+                            }
+                        }
+                    }
+
                     NavHost(
                         navController = navController,
-                        startDestination = "splash",
+                        startDestination = Routes.SPLASH,
                         enterTransition = { fadeIn(animationSpec = tween(400)) + slideInHorizontally(initialOffsetX = { 300 }) },
                         exitTransition = { fadeOut(animationSpec = tween(400)) + slideOutHorizontally(targetOffsetX = { -300 }) },
                         popEnterTransition = { fadeIn(animationSpec = tween(400)) + slideInHorizontally(initialOffsetX = { -300 }) },
                         popExitTransition = { fadeOut(animationSpec = tween(400)) + slideOutHorizontally(targetOffsetX = { 300 }) }
                     ) {
-                        composable("splash") {
-                            SplashScreen(onTimeout = { 
+                        composable(Routes.SPLASH) {
+                            SplashScreen(onTimeout = {
                                 if (isOnboarded == false) {
-                                    navController.navigate("onboarding") { popUpTo("splash") { inclusive = true } }
+                                    navController.navigate(Routes.ONBOARDING) { popUpTo(Routes.SPLASH) { inclusive = true } }
                                 } else {
                                     // Guard logic handled by LaunchedEffect above
                                 }
                             })
                         }
-                        composable("boot") {
+                        composable(Routes.BOOT) {
                             com.example.mistreal_mini.ui.boot.BootScreen(
                                 chatViewModel = chatViewModel,
                                 settingsViewModel = settingsViewModel,
                                 onComplete = {
-                                    navController.navigate("chat") {
+                                    navController.navigate(Routes.chat()) {
                                         popUpTo(0) { inclusive = true }
                                     }
                                 }
                             )
                         }
-                        composable("onboarding") {
+                        composable(Routes.ONBOARDING) {
                             OnboardingScreen(
                                 faceGuard = faceGuard,
-                                onComplete = { 
-                                    scope.launch { 
+                                onComplete = {
+                                    scope.launch {
                                         preferenceManager.setOnboarded(true)
                                         // Guard logic handled by LaunchedEffect above
                                     }
                                 }
                             )
                         }
-                        composable("auth") {
+                        composable(Routes.AUTH) {
                             AuthScreen(onAuthSuccess = { isFirebaseAuthenticated = true })
                         }
-                        composable("chat") {
+                        composable(
+                            Routes.CHAT_TEMPLATE,
+                            arguments = listOf(navArgument("initialProvider") { type = NavType.StringType; nullable = true; defaultValue = null })
+                        ) { backStackEntry ->
                             ChatScreen(
                                 viewModel = chatViewModel,
-                                onSubscribeClick = { navController.navigate("subscription") },
-                                onSettingsClick = { navController.navigate("settings") },
-                                onDashboardClick = { navController.navigate("dashboard") },
-                                onArchiveClick = { navController.navigate("archive") }
+                                initialProviderOverride = backStackEntry.arguments?.getString("initialProvider"),
+                                onSubscribeClick = { navController.navigate(Routes.SUBSCRIPTION) },
+                                onSettingsClick = { navController.navigate(Routes.SETTINGS) },
+                                onDashboardClick = { navController.navigate(Routes.DASHBOARD) },
+                                onArchiveClick = { navController.navigate(Routes.ARCHIVE) }
                             )
                         }
-                        composable("subscription") {
+                        composable(Routes.SUBSCRIPTION) {
                             SubscriptionScreen(onDismiss = { navController.popBackStack() })
                         }
-                        composable("archive") {
+                        composable(Routes.ARCHIVE) {
                             RecordsScreen(
                                 onBack = { navController.popBackStack() },
                                 onTrendClick = { title ->
@@ -258,90 +291,208 @@ class MainActivity : FragmentActivity() {
                                 chatViewModel = chatViewModel
                             )
                         }
-                        composable("connections") {
+                        composable(Routes.CONNECTIONS) {
                             com.example.mistreal_mini.ui.settings.SocialConnectionsScreen(
                                 onBack = { navController.popBackStack() }
                             )
                         }
-                        composable("dashboard") {
+                        composable(Routes.DASHBOARD) {
                             DashboardScreen(
                                 onBack = { navController.popBackStack() },
-                                onDmClick = { navController.popBackStack() }
+                                onDmClick = { navController.popBackStack() },
+                                onMyProfileClick = {
+                                    navController.navigate(Routes.ownerProfile(deviceIdProvider.deviceId))
+                                },
+                                onAuthorProfileClick = { authorDeviceId ->
+                                    navController.navigate(Routes.ownerProfile(authorDeviceId))
+                                },
+                                onOpenAiRender = {
+                                    // Map already shares this exact chatViewModel instance with
+                                    // the "chat" destination (both are given the same one
+                                    // instantiated above, outside the NavHost) — setting the
+                                    // provider directly here is correct BECAUSE of that, not a
+                                    // shortcut around it. If DashboardScreen/InteractiveMapView
+                                    // ever stop sharing that instance, this silently breaks;
+                                    // Settings' route below uses a nav-arg instead for exactly
+                                    // that reason.
+                                    chatViewModel.setProvider(com.example.mistreal_mini.ui.chat.ChatViewModel.ARCH_IMAGE_PROVIDER_ID)
+                                    navController.navigate(Routes.chat())
+                                }
                             )
                         }
-                        composable("settings") {
+                        composable(Routes.SETTINGS) {
                             SettingsScreen(
                                 onBack = { navController.popBackStack() },
-                                onUpgradeClick = { navController.navigate("subscription") },
-                                onConnectionsClick = { navController.navigate("connections") },
-                                onBusinessHubClick = { navController.navigate("business_hub") },
-                                onGuardianAlertsClick = { navController.navigate("guardian_alerts") }
+                                onUpgradeClick = { navController.navigate(Routes.SUBSCRIPTION) },
+                                onConnectionsClick = { navController.navigate(Routes.CONNECTIONS) },
+                                onBusinessHubClick = { navController.navigate(Routes.BUSINESS_HUB) },
+                                onGuardianAlertsClick = { navController.navigate(Routes.GUARDIAN_ALERTS) },
+                                onWatchHostClick = { navController.navigate(Routes.WATCH_HOST_BASE) },
+                                onWatchViewerClick = { navController.navigate(Routes.WATCH_VIEWER_BASE) },
+                                onMarketClick = { navController.navigate(Routes.MARKET) },
+                                onGamesClick = { navController.navigate(Routes.GAMES) },
+                                onPendingReviewsClick = { navController.navigate(Routes.PENDING_REVIEWS) },
+                                onMyProfileClick = {
+                                    navController.navigate(Routes.ownerProfile(deviceIdProvider.deviceId))
+                                },
+                                onNeedsClick = { navController.navigate(Routes.NEEDS) },
+                                onAiRenderClick = { navController.navigate(Routes.chat(com.example.mistreal_mini.ui.chat.ChatViewModel.ARCH_IMAGE_PROVIDER_ID)) }
                             )
                         }
-                        composable("guardian_alerts") {
+                        composable(Routes.NEEDS) {
+                            com.example.mistreal_mini.ui.needs.NeedsFeedScreen(
+                                onBack = { navController.popBackStack() }
+                            )
+                        }
+                        composable(Routes.PENDING_REVIEWS) {
+                            com.example.mistreal_mini.ui.profile.PendingReviewsScreen(
+                                onBack = { navController.popBackStack() }
+                            )
+                        }
+                        composable(
+                            Routes.OWNER_PROFILE_TEMPLATE,
+                            arguments = listOf(
+                                navArgument("ownerName") { type = NavType.StringType; nullable = true; defaultValue = null },
+                                navArgument("ownerPhotoUrl") { type = NavType.StringType; nullable = true; defaultValue = null },
+                                navArgument("businessId") { type = NavType.StringType; nullable = true; defaultValue = null }
+                            )
+                        ) { backStackEntry ->
+                            val decode = { s: String -> java.net.URLDecoder.decode(s, "UTF-8") }
+                            com.example.mistreal_mini.ui.profile.OwnerProfileScreen(
+                                revieweeDeviceId = backStackEntry.arguments?.getString("revieweeDeviceId")?.let(decode) ?: "",
+                                ownerName = backStackEntry.arguments?.getString("ownerName")?.let(decode),
+                                ownerPhotoUrl = backStackEntry.arguments?.getString("ownerPhotoUrl")?.let(decode),
+                                businessId = backStackEntry.arguments?.getString("businessId")?.let(decode),
+                                onBack = { navController.popBackStack() }
+                            )
+                        }
+                        composable(Routes.MARKET) {
+                            com.example.mistreal_mini.ui.market.MarketScreen(
+                                onBack = { navController.popBackStack() },
+                                onContactBusiness = onContactBusiness,
+                                onViewBusinessDetail = { business ->
+                                    navController.navigate(Routes.businessDetail(business.businessId))
+                                }
+                            )
+                        }
+                        composable(Routes.GAMES) {
+                            com.example.mistreal_mini.ui.games.GamesListScreen(
+                                onBack = { navController.popBackStack() },
+                                onPlayGame = { game ->
+                                    navController.navigate(Routes.gamePlay(game.title, game.playUrl))
+                                }
+                            )
+                        }
+                        composable(
+                            Routes.GAME_PLAY_TEMPLATE,
+                            arguments = listOf(
+                                navArgument("title") { type = NavType.StringType; defaultValue = "" },
+                                navArgument("playUrl") { type = NavType.StringType; defaultValue = "" }
+                            )
+                        ) { backStackEntry ->
+                            com.example.mistreal_mini.ui.games.GamePlayScreen(
+                                title = backStackEntry.arguments?.getString("title").orEmpty(),
+                                playUrl = backStackEntry.arguments?.getString("playUrl").orEmpty(),
+                                onBack = { navController.popBackStack() }
+                            )
+                        }
+                        composable(
+                            Routes.WATCH_HOST_TEMPLATE,
+                            arguments = listOf(
+                                navArgument("contextType") { type = NavType.StringType; defaultValue = "standalone" },
+                                navArgument("contextId") { type = NavType.StringType; nullable = true; defaultValue = null }
+                            )
+                        ) { backStackEntry ->
+                            com.example.mistreal_mini.ui.watch.WatchHostScreen(
+                                onBack = { navController.popBackStack() },
+                                contextType = backStackEntry.arguments?.getString("contextType") ?: "standalone",
+                                contextId = backStackEntry.arguments?.getString("contextId")
+                            )
+                        }
+                        composable(
+                            Routes.WATCH_VIEWER_TEMPLATE,
+                            arguments = listOf(navArgument("sessionId") { type = NavType.StringType; nullable = true; defaultValue = null })
+                        ) { backStackEntry ->
+                            com.example.mistreal_mini.ui.watch.WatchViewerScreen(
+                                onBack = { navController.popBackStack() },
+                                initialSessionId = backStackEntry.arguments?.getString("sessionId")
+                            )
+                        }
+                        composable(Routes.GUARDIAN_ALERTS) {
                             com.example.mistreal_mini.ui.guardian.AlertHistoryScreen(
                                 onBack = { navController.popBackStack() }
                             )
                         }
-                        composable("business_hub") {
+                        composable(Routes.BUSINESS_HUB) {
                             com.example.mistreal_mini.ui.business.components.BusinessHubDialog(
                                 onDismiss = { navController.popBackStack() },
-                                onNavigateToDiscovery = { 
+                                onNavigateToDiscovery = {
                                     navController.popBackStack()
-                                    navController.navigate("business_discovery") 
+                                    navController.navigate(Routes.BUSINESS_DISCOVERY)
                                 },
                                 onNavigateToSellerCommand = {
                                     navController.popBackStack()
-                                    navController.navigate("business_seller")
+                                    navController.navigate(Routes.BUSINESS_SELLER)
                                 },
                                 onNavigateToMeetups = {
                                     navController.popBackStack()
-                                    navController.navigate("business_meetups")
+                                    navController.navigate(Routes.BUSINESS_MEETUPS)
                                 }
                             )
                         }
-                        composable("business_meetups") {
+                        composable(Routes.BUSINESS_MEETUPS) {
                             com.example.mistreal_mini.ui.business.MeetupListScreen(
+                                onBack = { navController.popBackStack() },
+                                onOpenComfortMeet = { meetupId -> navController.navigate(Routes.comfortMeet(meetupId)) }
+                            )
+                        }
+                        composable(Routes.COMFORT_MEET_TEMPLATE) { backStackEntry ->
+                            val meetupId = backStackEntry.arguments?.getString("meetupId")?.toIntOrNull() ?: 0
+                            com.example.mistreal_mini.ui.business.ComfortMeetScreen(
+                                meetupId = meetupId,
                                 onBack = { navController.popBackStack() }
                             )
                         }
-                        composable("business_discovery") {
+                        composable(Routes.BUSINESS_DISCOVERY) {
                             com.example.mistreal_mini.ui.business.DiscoverySearchScreen(
                                 onBack = { navController.popBackStack() },
-                                onContactBusiness = { business ->
-                                    chatViewModel.contactBusiness(business) { success, error ->
-                                        if (success) {
-                                            navController.navigate("chat")
-                                        } else {
-                                            Toast.makeText(this@MainActivity, error ?: "Couldn't contact this business.", Toast.LENGTH_LONG).show()
-                                        }
-                                    }
-                                },
+                                onContactBusiness = onContactBusiness,
                                 onViewBusinessDetail = { business ->
-                                    navController.navigate("business_detail/${business.businessId}")
+                                    navController.navigate(Routes.businessDetail(business.businessId))
                                 }
                             )
                         }
-                        composable("business_detail/{businessId}") { backStackEntry ->
+                        composable(Routes.BUSINESS_DETAIL_TEMPLATE) { backStackEntry ->
                             val businessId = backStackEntry.arguments?.getString("businessId") ?: ""
                             com.example.mistreal_mini.ui.business.BusinessDetailScreen(
                                 businessId = businessId,
                                 onBack = { navController.popBackStack() },
-                                onContactBusiness = { business ->
-                                    chatViewModel.contactBusiness(business) { success, error ->
-                                        if (success) {
-                                            navController.navigate("chat")
-                                        } else {
-                                            Toast.makeText(this@MainActivity, error ?: "Couldn't contact this business.", Toast.LENGTH_LONG).show()
-                                        }
+                                onContactBusiness = onContactBusiness,
+                                onWatchLiveView = { sessionId ->
+                                    navController.navigate(Routes.watchViewer(sessionId))
+                                },
+                                onViewOwnerProfile = { business ->
+                                    val ownerDeviceId = business.ownerDeviceId
+                                    if (ownerDeviceId != null) {
+                                        navController.navigate(
+                                            Routes.ownerProfile(
+                                                deviceId = ownerDeviceId,
+                                                ownerName = business.ownerName,
+                                                ownerPhotoUrl = business.ownerPhotoUrl,
+                                                businessId = business.businessId
+                                            )
+                                        )
                                     }
                                 }
                             )
                         }
-                        composable("business_seller") {
+                        composable(Routes.BUSINESS_SELLER) {
                             com.example.mistreal_mini.ui.business.SellerCommandScreen(
                                 onBack = { navController.popBackStack() },
-                                onUpgradeClick = { navController.navigate("subscription") }
+                                onUpgradeClick = { navController.navigate(Routes.SUBSCRIPTION) },
+                                onStartLiveView = { businessId ->
+                                    navController.navigate(Routes.watchHost(contextType = "market", contextId = businessId))
+                                }
                             )
                         }
                     }
@@ -366,6 +517,7 @@ class MainActivity : FragmentActivity() {
                         )
                     }
                 }
+            }
             }
         }
     }

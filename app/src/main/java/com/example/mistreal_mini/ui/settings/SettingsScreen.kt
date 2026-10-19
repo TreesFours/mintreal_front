@@ -36,6 +36,7 @@ import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.mistreal_mini.ui.settings.components.AddEmergencyContactDialog
+import com.example.mistreal_mini.ui.util.LocalSfxHapticPlayer
 import com.example.mistreal_mini.ui.dashboard.components.FlowRow
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.first
@@ -50,13 +51,23 @@ fun SettingsScreen(
     onConnectionsClick: () -> Unit = {},
     onBusinessHubClick: () -> Unit = {},
     onGuardianAlertsClick: () -> Unit = {},
+    onWatchHostClick: () -> Unit = {},
+    onWatchViewerClick: () -> Unit = {},
+    onMarketClick: () -> Unit = {},
+    onGamesClick: () -> Unit = {},
+    onPendingReviewsClick: () -> Unit = {},
+    onMyProfileClick: () -> Unit = {},
+    onNeedsClick: () -> Unit = {},
+    onAiRenderClick: () -> Unit = {},
     viewModel: SettingsViewModel = hiltViewModel(),
-    billingViewModel: com.example.mistreal_mini.ui.subscription.SubscriptionViewModel = hiltViewModel()
+    billingViewModel: com.example.mistreal_mini.ui.subscription.SubscriptionViewModel = hiltViewModel(),
+    guardianViewModel: com.example.mistreal_mini.ui.guardian.GuardianViewModel = hiltViewModel()
 ) {
     val context = LocalContext.current
     val activity = context as? android.app.Activity
     val scope = rememberCoroutineScope()
     val focusManager = LocalFocusManager.current
+    val sfx = LocalSfxHapticPlayer.current
     
     var userName by remember { mutableStateOf("") }
     var aiCustomName by remember { mutableStateOf("") }
@@ -69,6 +80,8 @@ fun SettingsScreen(
     var customDelayUnit by remember { mutableStateOf("m") }
     var localIntelligenceEnabled by remember { mutableStateOf(false) }
     var ttsEnabled by remember { mutableStateOf(true) }
+    var errorNotificationsEnabled by remember { mutableStateOf(true) }
+    var voiceAutoSendOnRelease by remember { mutableStateOf(false) }
     var sttEnabled by remember { mutableStateOf(true) }
     var translationLang by remember { mutableStateOf("English") }
     var selectedTheme by remember { mutableStateOf("auto") }
@@ -93,6 +106,8 @@ fun SettingsScreen(
     }
 
     LaunchedEffect(Unit) {
+        guardianViewModel.fetchSafeZone()
+        guardianViewModel.fetchSosPreferences()
         viewModel.fetchPlatforms()
         userName = viewModel.getUserName()
         aiCustomName = viewModel.getAiCustomName()
@@ -101,6 +116,8 @@ fun SettingsScreen(
         localIntelligenceEnabled = viewModel.isLocationEnabled()
         ttsEnabled = viewModel.isTtsEnabled()
         sttEnabled = viewModel.isSttEnabled()
+        errorNotificationsEnabled = viewModel.isErrorNotificationsEnabled()
+        voiceAutoSendOnRelease = viewModel.isVoiceAutoSendOnRelease()
         translationLang = viewModel.getDefaultTranslationLang()
         selectedTheme = viewModel.getThemeMode()
         val currentDelay = viewModel.getAutoReplyDelay()
@@ -637,6 +654,120 @@ fun SettingsScreen(
                             Spacer(modifier = Modifier.width(8.dp))
                             Text("VIEW ALERT HISTORY")
                         }
+
+                        HorizontalDivider(modifier = Modifier.padding(vertical = 16.dp), thickness = 0.5.dp, color = MaterialTheme.colorScheme.outlineVariant)
+
+                        // Safe zone — required before ANY alert can be
+                        // self-resolved (anti-coercion: the "I'm safe" tap
+                        // only counts within this location). Always the
+                        // device's own live location at save time — there's
+                        // deliberately no text field to type a coordinate
+                        // into, so it can't be configured remotely.
+                        val safeZone by guardianViewModel.safeZone.collectAsStateWithLifecycle()
+                        var isSavingSafeZone by remember { mutableStateOf(false) }
+                        Text("SAFE ZONE", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Black, color = Color.Gray)
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Text(
+                            "Required to resolve your own SOS alerts. Set it while you're standing at the place you'd call safe — home, etc. You can only resolve an alert from within 1 mile of this spot.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = Color.Gray
+                        )
+                        Spacer(modifier = Modifier.height(8.dp))
+                        if (safeZone != null) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Icon(Icons.Default.CheckCircle, null, tint = Color(0xFF2E7D32), modifier = Modifier.size(16.dp))
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text("Safe zone configured", color = Color(0xFF2E7D32), fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                            }
+                            Spacer(modifier = Modifier.height(8.dp))
+                        }
+                        OutlinedButton(
+                            onClick = {
+                                isSavingSafeZone = true
+                                guardianViewModel.saveSafeZoneHere { success ->
+                                    isSavingSafeZone = false
+                                    scope.launch {
+                                        snackbarHostState.showSnackbar(
+                                            if (success) "Safe zone set to your current location." else "Couldn't set safe zone — check location services."
+                                        )
+                                    }
+                                }
+                            },
+                            modifier = Modifier.fillMaxWidth(),
+                            enabled = !isSavingSafeZone,
+                            shape = RoundedCornerShape(8.dp)
+                        ) {
+                            Icon(Icons.Default.MyLocation, null, modifier = Modifier.size(16.dp))
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(if (isSavingSafeZone) "SETTING..." else if (safeZone != null) "UPDATE TO MY CURRENT LOCATION" else "SET SAFE ZONE HERE")
+                        }
+
+                        HorizontalDivider(modifier = Modifier.padding(vertical = 16.dp), thickness = 0.5.dp, color = MaterialTheme.colorScheme.outlineVariant)
+
+                        // What to actually collect/share if an alert ever
+                        // escalates — the user's own call on the
+                        // helping-an-investigation vs. not-over-exposing
+                        // tradeoff for their own account. Camera auto-
+                        // capture itself isn't wired up yet (no camera
+                        // infra in this app to build on safely without a
+                        // real device to verify against) — this toggle is
+                        // ready for when it is.
+                        val sosPreferences by guardianViewModel.sosPreferences.collectAsStateWithLifecycle()
+                        Text("SOS DATA COLLECTION", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Black, color = Color.Gray)
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Text(
+                            "What to capture or share if you ever trigger an alert.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = Color.Gray
+                        )
+                        Spacer(modifier = Modifier.height(8.dp))
+                        ProtocolSwitch("Camera", "Auto-capture a photo when SOS fires", sosPreferences.camera, { guardianViewModel.setSosPreference(camera = it) })
+                        ProtocolSwitch("Microphone", "Record ambient audio when SOS fires", sosPreferences.microphone, { guardianViewModel.setSosPreference(microphone = it) })
+                        ProtocolSwitch("Photo in broadcast", "Include a photo of you in the community broadcast, if one exists", sosPreferences.image, { guardianViewModel.setSosPreference(image = it) })
+                        ProtocolSwitch("Full location after 30 days", "Let the community broadcast upgrade to your exact last-known location if still unresolved after 30 days", sosPreferences.fullDetailEscalation, { guardianViewModel.setSosPreference(fullDetailEscalation = it) })
+
+                        HorizontalDivider(modifier = Modifier.padding(vertical = 16.dp), thickness = 0.5.dp, color = MaterialTheme.colorScheme.outlineVariant)
+
+                        // Your own escalation timeline — editable anytime,
+                        // clamped server-side so it can't be set to
+                        // effectively-never-fire or fire-instantly-and-spam.
+                        Text("ESCALATION TIMELINE", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Black, color = Color.Gray)
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Text(
+                            "How long a missed meetup goes silent before each stage fires.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = Color.Gray
+                        )
+                        Spacer(modifier = Modifier.height(12.dp))
+
+                        var silentDays by remember(sosPreferences.silentMeetupWindowDays) { mutableFloatStateOf(sosPreferences.silentMeetupWindowDays.toFloat()) }
+                        TimelineSlider(
+                            label = "Notify friends after",
+                            valueDays = silentDays,
+                            range = 1f..30f,
+                            onValueChange = { silentDays = it },
+                            onValueChangeFinished = { guardianViewModel.setSosPreference(silentMeetupWindowDays = silentDays.toInt()) }
+                        )
+
+                        Spacer(modifier = Modifier.height(12.dp))
+                        var broadcastDays by remember(sosPreferences.communityBroadcastDelayDays) { mutableFloatStateOf(sosPreferences.communityBroadcastDelayDays.toFloat()) }
+                        TimelineSlider(
+                            label = "Minimal community broadcast after",
+                            valueDays = broadcastDays,
+                            range = 1f..90f,
+                            onValueChange = { broadcastDays = it },
+                            onValueChangeFinished = { guardianViewModel.setSosPreference(communityBroadcastDelayDays = broadcastDays.toInt()) }
+                        )
+
+                        Spacer(modifier = Modifier.height(12.dp))
+                        var fullDetailDays by remember(sosPreferences.fullDetailWindowDays) { mutableFloatStateOf(sosPreferences.fullDetailWindowDays.toFloat()) }
+                        TimelineSlider(
+                            label = "Full-detail broadcast after",
+                            valueDays = fullDetailDays,
+                            range = 1f..180f,
+                            onValueChange = { fullDetailDays = it },
+                            onValueChangeFinished = { guardianViewModel.setSosPreference(fullDetailWindowDays = fullDetailDays.toInt()) }
+                        )
                     }
 
                     // --- SECTION 4a: SOCIAL CHANNELS ---
@@ -690,6 +821,152 @@ fun SettingsScreen(
                             Icon(Icons.Default.Storefront, null)
                             Spacer(Modifier.width(8.dp))
                             Text("BUSINESS HUB", fontWeight = FontWeight.Bold)
+                        }
+                    }
+
+                    // --- SECTION 4b-1: MARKET ---
+                    // Ticker bands + ad slot + category/search over
+                    // businesses, native-first with an external fallback.
+                    SettingsSection(title = "MARKET", icon = Icons.Default.ShowChart) {
+                        Button(
+                            onClick = onMarketClick,
+                            modifier = Modifier.fillMaxWidth(),
+                            shape = RoundedCornerShape(8.dp)
+                        ) {
+                            Icon(Icons.Default.ShowChart, null)
+                            Spacer(Modifier.width(8.dp))
+                            Text("OPEN MARKET", fontWeight = FontWeight.Bold)
+                        }
+                    }
+
+                    // --- SECTION 4b-1c: GAMES ---
+                    SettingsSection(title = "GAMES", icon = Icons.Default.SportsEsports) {
+                        Button(
+                            onClick = onGamesClick,
+                            modifier = Modifier.fillMaxWidth(),
+                            shape = RoundedCornerShape(8.dp)
+                        ) {
+                            Icon(Icons.Default.SportsEsports, null)
+                            Spacer(Modifier.width(8.dp))
+                            Text("BROWSE GAMES", fontWeight = FontWeight.Bold)
+                        }
+                    }
+
+                    // --- SECTION 4b-1b: REVIEWS ---
+                    // Every Mistreal user has their own review profile and
+                    // timeline, not just business owners — this is the
+                    // entry point for YOUR profile; a business page's owner
+                    // row is the entry point for someone ELSE's.
+                    SettingsSection(title = "REVIEWS", icon = Icons.Default.RateReview) {
+                        Button(
+                            onClick = onMyProfileClick,
+                            modifier = Modifier.fillMaxWidth(),
+                            shape = RoundedCornerShape(8.dp)
+                        ) {
+                            Icon(Icons.Default.AccountCircle, null)
+                            Spacer(Modifier.width(8.dp))
+                            Text("MY PROFILE", fontWeight = FontWeight.Bold)
+                        }
+                        Spacer(Modifier.height(8.dp))
+                        OutlinedButton(
+                            onClick = onPendingReviewsClick,
+                            modifier = Modifier.fillMaxWidth(),
+                            shape = RoundedCornerShape(8.dp)
+                        ) {
+                            Icon(Icons.Default.RateReview, null)
+                            Spacer(Modifier.width(8.dp))
+                            Text("REVIEWS ABOUT YOU")
+                        }
+                    }
+
+                    // --- SECTION 4b-1c: NEEDS ---
+                    // Offer side (skills tagged on your profile — edited
+                    // from MY PROFILE above) vs. need side (want-ads posted
+                    // here) — distinct from both the Review timeline and
+                    // the Community Feed.
+                    SettingsSection(title = "NEEDS", icon = Icons.Default.Handyman) {
+                        Button(
+                            onClick = onNeedsClick,
+                            modifier = Modifier.fillMaxWidth(),
+                            shape = RoundedCornerShape(8.dp)
+                        ) {
+                            Icon(Icons.Default.Handyman, null)
+                            Spacer(Modifier.width(8.dp))
+                            Text("BROWSE / POST NEEDS", fontWeight = FontWeight.Bold)
+                        }
+                    }
+
+                    // --- SECTION 4b-1b: AI RENDER ---
+                    // A discoverable shortcut into Chat pre-set to the
+                    // describe-clarify-generate flow (Architecture today,
+                    // DOMAIN_CONFIGS in aiService.ts) — not to be confused
+                    // with the unrelated Dashboard "Design" tab's floor-plan
+                    // text audit, hence "AI Render"/"Concept Render" copy
+                    // here rather than bare "Architecture."
+                    SettingsSection(title = "AI RENDER", icon = Icons.Default.Architecture) {
+                        Button(
+                            onClick = onAiRenderClick,
+                            modifier = Modifier.fillMaxWidth(),
+                            shape = RoundedCornerShape(8.dp)
+                        ) {
+                            Icon(Icons.Default.Architecture, null)
+                            Spacer(Modifier.width(8.dp))
+                            Text("CONCEPT RENDER", fontWeight = FontWeight.Bold)
+                        }
+                    }
+
+                    // --- SECTION 4b-1c: AI TAG ---
+                    // Where the "AI" tag gets stamped onto AI-generated
+                    // images before they're saved or shared — baked into the
+                    // pixels (MediaEditorUtil.stampAiTag), so it's still
+                    // there even if the image ends up posted on another app.
+                    SettingsSection(title = "AI TAG", icon = Icons.Default.Label) {
+                        Text(
+                            "Where to place the \"AI\" tag on images the AI generates for you.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = Color.Gray
+                        )
+                        Spacer(modifier = Modifier.height(8.dp))
+                        val aiTagPosition by viewModel.aiTagPosition
+                        FlowRow(
+                            modifier = Modifier.fillMaxWidth(),
+                            mainAxisSpacing = 8.dp,
+                            crossAxisSpacing = 8.dp
+                        ) {
+                            listOf("center" to "Center", "top" to "Top", "bottom" to "Bottom", "left" to "Left", "right" to "Right").forEach { (id, label) ->
+                                FilterChip(
+                                    selected = aiTagPosition == id,
+                                    onClick = { viewModel.setAiTagPosition(id) },
+                                    label = { Text(label, fontSize = 11.sp) }
+                                )
+                            }
+                        }
+                    }
+
+                    // --- SECTION 4b-2: WATCH HUB ---
+                    // Live screen-share, internet-relay only for now (Phase 1
+                    // of the Watch Hub plan) — Bluetooth/Wi-Fi-Direct and the
+                    // Market/Meetup integration points come later.
+                    SettingsSection(title = "WATCH HUB", icon = Icons.Default.ScreenShare) {
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                            Button(
+                                onClick = onWatchHostClick,
+                                modifier = Modifier.weight(1f),
+                                shape = RoundedCornerShape(8.dp)
+                            ) {
+                                Icon(Icons.Default.ScreenShare, null, modifier = Modifier.size(18.dp))
+                                Spacer(Modifier.width(6.dp))
+                                Text("SHARE SCREEN")
+                            }
+                            OutlinedButton(
+                                onClick = onWatchViewerClick,
+                                modifier = Modifier.weight(1f),
+                                shape = RoundedCornerShape(8.dp)
+                            ) {
+                                Icon(Icons.Default.Visibility, null, modifier = Modifier.size(18.dp))
+                                Spacer(Modifier.width(6.dp))
+                                Text("WATCH")
+                            }
                         }
                     }
 
@@ -849,8 +1126,61 @@ fun SettingsScreen(
                                 Switch(
                                     checked = ttsEnabled,
                                     onCheckedChange = {
+                                        sfx?.playToggle()
                                         ttsEnabled = it
                                         viewModel.setTtsEnabled(it)
+                                    }
+                                )
+                            }
+                        }
+
+                        Spacer(modifier = Modifier.height(8.dp))
+
+                        OutlinedCard(modifier = Modifier.fillMaxWidth()) {
+                            Row(
+                                modifier = Modifier.padding(16.dp).fillMaxWidth(),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text("Error Notifications", style = MaterialTheme.typography.labelSmall)
+                                    Text(
+                                        "Shows the exact error when an API call fails, so it can be copied and shared for debugging.",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = Color.Gray
+                                    )
+                                }
+                                Switch(
+                                    checked = errorNotificationsEnabled,
+                                    onCheckedChange = {
+                                        sfx?.playToggle()
+                                        errorNotificationsEnabled = it
+                                        viewModel.setErrorNotificationsEnabled(it)
+                                    }
+                                )
+                            }
+                        }
+
+                        Spacer(modifier = Modifier.height(8.dp))
+
+                        OutlinedCard(modifier = Modifier.fillMaxWidth()) {
+                            Row(
+                                modifier = Modifier.padding(16.dp).fillMaxWidth(),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text("Voice Note Auto-Send", style = MaterialTheme.typography.labelSmall)
+                                    Text(
+                                        "Sends a voice note immediately on release, skipping the play/trim/send preview step.",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = Color.Gray
+                                    )
+                                }
+                                Switch(
+                                    checked = voiceAutoSendOnRelease,
+                                    onCheckedChange = {
+                                        sfx?.playToggle()
+                                        voiceAutoSendOnRelease = it
+                                        viewModel.setVoiceAutoSendOnRelease(it)
                                     }
                                 )
                             }
@@ -873,7 +1203,7 @@ fun SettingsScreen(
                                 }
                                 Switch(
                                     checked = viewModel.voiceNoteAutoplay.value,
-                                    onCheckedChange = { viewModel.setVoiceNoteAutoplay(it) }
+                                    onCheckedChange = { sfx?.playToggle(); viewModel.setVoiceNoteAutoplay(it) }
                                 )
                             }
                         }
@@ -907,6 +1237,9 @@ fun SettingsScreen(
 
                     Spacer(modifier = Modifier.height(24.dp))
                     MediaGenProviderSection(viewModel, "video_gen", "VIDEO GENERATION PROVIDER", "Our Recommended (Veo)")
+
+                    Spacer(modifier = Modifier.height(24.dp))
+                    CloudStorageSettingsSection()
 
                     Spacer(modifier = Modifier.height(24.dp))
                     MarketAlertsSection(viewModel)
@@ -1021,15 +1354,33 @@ fun SettingsSection(title: String, icon: androidx.compose.ui.graphics.vector.Ima
 }
 
 @Composable
+fun TimelineSlider(label: String, valueDays: Float, range: ClosedFloatingPointRange<Float>, onValueChange: (Float) -> Unit, onValueChangeFinished: () -> Unit) {
+    Column {
+        Row(modifier = Modifier.fillMaxWidth()) {
+            Text(label, style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
+            Text("${valueDays.toInt()} day${if (valueDays.toInt() == 1) "" else "s"}", style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+        }
+        Slider(
+            value = valueDays,
+            onValueChange = onValueChange,
+            onValueChangeFinished = onValueChangeFinished,
+            valueRange = range,
+            steps = (range.endInclusive - range.start).toInt() - 1
+        )
+    }
+}
+
+@Composable
 fun ProtocolSwitch(title: String, desc: String, checked: Boolean, onCheckedChange: (Boolean) -> Unit, isSub: Boolean = false) {
+    val sfx = LocalSfxHapticPlayer.current
     Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
         Column(modifier = Modifier.weight(1f)) {
             Text(title, style = if(isSub) MaterialTheme.typography.bodySmall else MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
             Text(desc, style = MaterialTheme.typography.labelSmall, color = Color.Gray)
         }
         Switch(
-            checked = checked, 
-            onCheckedChange = onCheckedChange,
+            checked = checked,
+            onCheckedChange = { sfx?.playToggle(); onCheckedChange(it) },
             modifier = if(isSub) Modifier.scale(0.7f) else Modifier
         )
     }

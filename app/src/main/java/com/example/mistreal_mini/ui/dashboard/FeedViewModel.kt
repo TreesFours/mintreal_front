@@ -66,11 +66,45 @@ class FeedViewModel @Inject constructor(
                 val intelDeferred = async { fetchIntelligence(fastLoad = true) }
                 val socialDeferred = async { syncSocials(deviceId) }
                 val youtubeDeferred = async { loadYoutubeVideos() }
+                val sosDeferred = async { fetchNearbySos(deviceId) }
                 intelDeferred.await()
                 socialDeferred.await()
                 youtubeDeferred.await()
+                sosDeferred.await()
             }
             _isLoading.value = false
+        }
+    }
+
+    /**
+     * Guardian dead-man's-switch community broadcast — a stateless live
+     * query (no push infra), surfaced at the top of the same Intelligence
+     * feed as a distinct, non-interactive card. See
+     * emergencyRoutes.ts's GET /nearby-sos.
+     */
+    private suspend fun fetchNearbySos(deviceId: String) {
+        try {
+            val result = infoRepository.getNearbySosAlerts(deviceId)
+            if (result is com.example.mistreal_mini.data.Resource.Success) {
+                val sosArticles = result.data.orEmpty().map { alert ->
+                    com.example.mistreal_mini.data.api.Article(
+                        title = "🆘 Unconfirmed-safe person nearby (~${alert.distanceMiles} mi)",
+                        description = (alert.distressSignature ?: "A Mistreal user hasn't checked in.") +
+                            if (alert.fullDetail && alert.latitude != null && alert.longitude != null)
+                                " Last known location: https://www.google.com/maps?q=${alert.latitude},${alert.longitude}"
+                            else "",
+                        url = "sos://alert/${alert.id}",
+                        type = "sos_alert",
+                        timestamp = alert.createdAt
+                    )
+                }
+                // Surfaced at the top, not interleaved by date — this is
+                // informational safety content, not routine news.
+                _newsArticles.addAll(0, sosArticles)
+                _interleavedFeed.addAll(0, sosArticles)
+            }
+        } catch (e: Exception) {
+            // Best-effort enrichment — never block the rest of the feed.
         }
     }
 
@@ -208,13 +242,14 @@ class FeedViewModel @Inject constructor(
         }
     }
 
-    suspend fun postToSocial(deviceId: String, platform: String, type: String, content: String, targetId: String = "self"): Boolean {
+    suspend fun postToSocial(deviceId: String, platform: String, type: String, content: String, targetId: String = "self", mistrealOnly: Boolean = false): Boolean {
         val result = infoRepository.performSocialAction(
             deviceId = deviceId,
             type = type,
             platform = platform,
             content = content,
-            targetId = targetId
+            targetId = targetId,
+            mistrealOnly = mistrealOnly
         )
         return result is Resource.Success
     }

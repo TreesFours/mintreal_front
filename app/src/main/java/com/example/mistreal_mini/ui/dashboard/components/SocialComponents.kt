@@ -38,7 +38,7 @@ fun SocialIntelView(
         }
     } else {
         LazyColumn(modifier = Modifier.fillMaxSize()) {
-            items(posts) { post ->
+            items(posts, key = { it.id }) { post ->
                 SocialPostItem(
                     post = post,
                     onAiClick = { onAiClick(post, post.content) },

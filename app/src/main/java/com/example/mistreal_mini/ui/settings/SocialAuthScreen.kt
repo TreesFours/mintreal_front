@@ -20,6 +20,7 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import kotlinx.coroutines.flow.collectLatest
 import com.example.mistreal_mini.data.api.SocialPlatformResponse
+import com.example.mistreal_mini.data.model.PlatformIcons
 import com.example.mistreal_mini.ui.util.SyncProgressDialog
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -198,14 +199,7 @@ fun PlatformCard(platform: SocialPlatformResponse, isConnecting: Boolean = false
                     Text(platform.icon, fontSize = 32.sp)
                 } else {
                     Icon(
-                        imageVector = when(platform.id.lowercase()) {
-                            "twitter", "x" -> Icons.Default.Public
-                            "whatsapp" -> Icons.Default.Chat
-                            "instagram" -> Icons.Default.CameraAlt
-                            "linkedin" -> Icons.Default.Work
-                            "facebook" -> Icons.Default.Public
-                            else -> Icons.Default.Link
-                        },
+                        imageVector = PlatformIcons.forPlatform(platform.id) ?: Icons.Default.Link,
                         contentDescription = null,
                         modifier = Modifier.size(32.dp),
                         tint = when {

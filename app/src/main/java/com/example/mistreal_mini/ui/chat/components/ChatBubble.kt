@@ -6,6 +6,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.Reply
 import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
@@ -15,7 +16,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -37,7 +40,18 @@ fun ChatBubble(
     onReadAloud: (String, InteractionMode) -> Unit,
     snackbarHostState: SnackbarHostState,
     coroutineScope: CoroutineScope,
-    targetLang: String = "English"
+    targetLang: String = "English",
+    // Re-opens AttachmentEditorDialog on an already-sent image/video, instead
+    // of needing to scroll back to a not-yet-sent attachment to edit it.
+    onAttachmentClick: (uri: String, isVideo: Boolean) -> Unit = { _, _ -> },
+    // Null hides the "Reply" menu item entirely — only ever passed non-null
+    // in real user-to-user (social) chats, where replying to a specific
+    // earlier message is meaningful (the AI main chat/minichat only ever
+    // has one thread, so there's nothing to disambiguate).
+    onReplyClick: ((ChatMessage) -> Unit)? = null,
+    // Precomputed by the caller (which holds the full message list) — the
+    // truncated content of whichever message this one is a reply to.
+    repliedToPreview: String? = null
 ) {
     val isUser = message.role == "user"
     val align = if (isUser) Alignment.End else Alignment.Start
@@ -67,6 +81,21 @@ fun ChatBubble(
         ) {
             SelectionContainer {
                 Column(modifier = Modifier.padding(12.dp)) {
+                    if (repliedToPreview != null) {
+                        Surface(
+                            color = textColor.copy(alpha = 0.08f),
+                            shape = RoundedCornerShape(6.dp),
+                            modifier = Modifier.fillMaxWidth().padding(bottom = 6.dp)
+                        ) {
+                            Text(
+                                repliedToPreview,
+                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                                style = MaterialTheme.typography.labelSmall,
+                                color = textColor.copy(alpha = 0.7f),
+                                maxLines = 2
+                            )
+                        }
+                    }
                     if (message.provider?.contains("face-swap") == true && (message.type == "image" || message.type == "video")) {
                         Surface(
                             color = Color(0xFFB8860B).copy(alpha = 0.2f),
@@ -85,13 +114,25 @@ fun ChatBubble(
                     }
                     if (message.type == "video" || message.attachmentUrl?.endsWith(".mp4") == true) {
                         message.attachmentUrl?.let { url ->
-                            VideoPlayer(
-                                videoUrl = url,
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .height(200.dp)
-                                    .clip(RoundedCornerShape(12.dp))
-                            )
+                            Box {
+                                VideoPlayer(
+                                    videoUrl = url,
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .height(200.dp)
+                                        .clip(RoundedCornerShape(12.dp))
+                                )
+                                IconButton(
+                                    onClick = { onAttachmentClick(url, true) },
+                                    modifier = Modifier.align(Alignment.TopEnd).padding(4.dp).size(28.dp)
+                                ) {
+                                    Icon(
+                                        Icons.Default.Edit, "Edit video",
+                                        modifier = Modifier.size(16.dp),
+                                        tint = Color.White
+                                    )
+                                }
+                            }
                             Spacer(modifier = Modifier.height(8.dp))
                         }
                     }
@@ -118,15 +159,26 @@ fun ChatBubble(
                         if (attachments.isNotEmpty()) {
                             Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                                 attachments.forEach { path ->
-                                    AsyncImage(
-                                        model = path,
-                                        contentDescription = "Image attachment",
-                                        modifier = Modifier
-                                            .fillMaxWidth()
-                                            .heightIn(max = 240.dp)
-                                            .clip(RoundedCornerShape(12.dp)),
-                                        contentScale = ContentScale.Crop
-                                    )
+                                    Box {
+                                        AsyncImage(
+                                            model = path,
+                                            contentDescription = "Image attachment",
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .heightIn(max = 240.dp)
+                                                .clip(RoundedCornerShape(12.dp))
+                                                .clickable { onAttachmentClick(path, false) },
+                                            contentScale = ContentScale.Crop
+                                        )
+                                        Icon(
+                                            Icons.Default.Edit, "Edit image",
+                                            modifier = Modifier
+                                                .align(Alignment.TopEnd)
+                                                .padding(6.dp)
+                                                .size(16.dp),
+                                            tint = Color.White
+                                        )
+                                    }
                                 }
                             }
                             Spacer(modifier = Modifier.height(8.dp))
@@ -180,6 +232,93 @@ fun ChatBubble(
                                     } else {
                                         TextButton(onClick = { showFeelings = true }, modifier = Modifier.height(24.dp)) {
                                             Text("VIEW TRUE FEELINGS", fontSize = 8.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.tertiary)
+                                        }
+                                    }
+                                }
+                            }
+                        }
+
+                        // 🏛 ARCHITECTURAL RENDER — AI'S UNDERSTANDING
+                        if (message.archUnderstandingJson != null) {
+                            var showUnderstanding by remember(message.id) { mutableStateOf(false) }
+                            val parsed = remember(message.archUnderstandingJson) {
+                                try { org.json.JSONObject(message.archUnderstandingJson) } catch (e: Exception) { null }
+                            }
+                            val confirmed = parsed?.optBoolean("confirmed", false) ?: false
+
+                            Card(
+                                modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp),
+                                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.secondary.copy(alpha = 0.1f)),
+                                border = androidx.compose.foundation.BorderStroke(0.5.dp, MaterialTheme.colorScheme.secondary.copy(alpha = 0.3f))
+                            ) {
+                                Column(modifier = Modifier.padding(8.dp)) {
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth().clickable { showUnderstanding = !showUnderstanding },
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Text("🏛", fontSize = 12.sp)
+                                        Spacer(modifier = Modifier.width(6.dp))
+                                        Text("AI'S UNDERSTANDING", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Black, color = MaterialTheme.colorScheme.secondary, fontSize = 8.sp)
+                                        Spacer(modifier = Modifier.weight(1f))
+                                        Icon(
+                                            if (showUnderstanding) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
+                                            null, tint = MaterialTheme.colorScheme.secondary, modifier = Modifier.size(16.dp)
+                                        )
+                                    }
+
+                                    if (showUnderstanding && parsed != null) {
+                                        Spacer(modifier = Modifier.height(6.dp))
+                                        // Generic over whatever fields this domain's system
+                                        // prompt chose to put in the tag (aiService.ts's
+                                        // DOMAIN_CONFIGS) — architecture's rooms/dimensions/
+                                        // scale/style today, anything else for a future
+                                        // domain, with zero client changes either way.
+                                        Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                                            parsed.keys().asSequence()
+                                                .filter { it != "confirmed" }
+                                                .forEach { key ->
+                                                    val value = parsed.opt(key)
+                                                    val display = when {
+                                                        value == null || value == org.json.JSONObject.NULL -> null
+                                                        value is String && value.isBlank() -> null
+                                                        else -> value.toString()
+                                                    }
+                                                    display?.let {
+                                                        val label = key.replace('_', ' ').replaceFirstChar { c -> c.uppercase() }
+                                                        Text("$label: $it", style = MaterialTheme.typography.bodySmall, color = textColor)
+                                                    }
+                                                }
+                                        }
+
+                                        if (!confirmed) {
+                                            Spacer(modifier = Modifier.height(8.dp))
+                                            Text(
+                                                "Concept render only — not a precision CAD drawing.",
+                                                style = MaterialTheme.typography.labelSmall,
+                                                color = textColor.copy(alpha = 0.6f),
+                                                fontSize = 9.sp
+                                            )
+                                            Spacer(modifier = Modifier.height(6.dp))
+                                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                                Button(
+                                                    onClick = {
+                                                        viewModel.confirmArchUnderstanding(message)
+                                                        showUnderstanding = false
+                                                    },
+                                                    modifier = Modifier.weight(1f),
+                                                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.secondary),
+                                                    shape = RoundedCornerShape(8.dp)
+                                                ) {
+                                                    Text("Looks Right — Generate Image", fontSize = 9.sp, fontWeight = FontWeight.Bold)
+                                                }
+                                                OutlinedButton(
+                                                    onClick = { showUnderstanding = false },
+                                                    modifier = Modifier.weight(1f),
+                                                    shape = RoundedCornerShape(8.dp)
+                                                ) {
+                                                    Text("Keep Clarifying", fontSize = 9.sp)
+                                                }
+                                            }
                                         }
                                     }
                                 }
@@ -303,6 +442,16 @@ fun ChatBubble(
                                     leadingIcon = { Icon(Icons.Default.Archive, null) }
                                 )
                             }
+                            if (onReplyClick != null) {
+                                DropdownMenuItem(
+                                    text = { Text("Reply") },
+                                    onClick = {
+                                        onReplyClick(message)
+                                        showMenu = false
+                                    },
+                                    leadingIcon = { Icon(Icons.AutoMirrored.Filled.Reply, null) }
+                                )
+                            }
                             DropdownMenuItem(
                                 text = { Text("Edit") },
                                 onClick = {
@@ -367,12 +516,22 @@ fun ChatBubble(
                         Spacer(modifier = Modifier.width(4.dp))
 
                         IconButton(
-                            onClick = { 
+                            onClick = {
                                 viewModel.sendMessage("TRANSLATE to $targetLang: ${message.content}")
                             },
                             modifier = Modifier.size(24.dp)
                         ) {
                             Icon(Icons.Default.Translate, "Translate", modifier = Modifier.size(14.dp), tint = textColor.copy(alpha = 0.5f))
+                        }
+
+                        Spacer(modifier = Modifier.width(4.dp))
+
+                        val clipboardManager = LocalClipboardManager.current
+                        IconButton(
+                            onClick = { clipboardManager.setText(AnnotatedString(message.content)) },
+                            modifier = Modifier.size(24.dp)
+                        ) {
+                            Icon(Icons.Default.ContentCopy, "Copy", modifier = Modifier.size(14.dp), tint = textColor.copy(alpha = 0.5f))
                         }
                     }
                 }

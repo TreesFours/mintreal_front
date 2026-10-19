@@ -21,7 +21,10 @@ data class SocialPost(
     val isBookmarked: Boolean = false,
     // From another app user's Community Feed share, not this viewer's own
     // synced content — distinct from everything else above.
-    val isCommunityPost: Boolean = false
+    val isCommunityPost: Boolean = false,
+    // Only ever non-null for a Community Feed post — the author's Mistreal
+    // deviceId, safe to navigate to owner_profile/{authorDeviceId} with.
+    val authorDeviceId: String? = null
 ) {
     fun fetchDisplayName(): String = platformDisplayName ?: platform.replaceFirstChar { 
         if (it.isLowerCase()) it.titlecase(java.util.Locale.getDefault()) else it.toString()

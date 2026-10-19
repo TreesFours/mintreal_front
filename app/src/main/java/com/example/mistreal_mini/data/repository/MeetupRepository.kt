@@ -2,12 +2,12 @@ package com.example.mistreal_mini.data.repository
 
 import android.content.Context
 import android.net.Uri
-import android.provider.Settings
 import com.example.mistreal_mini.data.Resource
 import com.example.mistreal_mini.data.api.ConfirmMeetupRequest
 import com.example.mistreal_mini.data.api.InfoApiService
 import com.example.mistreal_mini.data.api.Meetup
 import com.example.mistreal_mini.data.api.ProposeMeetupRequest
+import com.example.mistreal_mini.util.DeviceIdProvider
 import com.example.mistreal_mini.util.FileUtil
 import dagger.hilt.android.qualifiers.ApplicationContext
 import javax.inject.Inject
@@ -26,10 +26,11 @@ import javax.inject.Singleton
 class MeetupRepository @Inject constructor(
     private val api: InfoApiService,
     private val authRepository: AuthRepository,
-    @ApplicationContext private val context: Context
+    @ApplicationContext private val context: Context,
+    private val deviceIdProvider: DeviceIdProvider
 ) {
     private val deviceId: String
-        get() = Settings.Secure.getString(context.contentResolver, Settings.Secure.ANDROID_ID)
+        get() = deviceIdProvider.deviceId
 
     suspend fun proposeMeetup(
         businessId: String?,
@@ -38,7 +39,9 @@ class MeetupRepository @Inject constructor(
         latitude: Double,
         longitude: Double,
         addressLabel: String?,
-        scheduledAtIso: String
+        scheduledAtIso: String,
+        counterpartyDeviceId: String? = null,
+        meetupType: String = "business"
     ): Resource<Meetup> {
         return try {
             val response = api.proposeMeetup(
@@ -48,6 +51,8 @@ class MeetupRepository @Inject constructor(
                     businessId = businessId,
                     counterpartyPlatform = counterpartyPlatform,
                     counterpartyContactId = counterpartyContactId,
+                    counterpartyDeviceId = counterpartyDeviceId,
+                    meetupType = meetupType,
                     latitude = latitude,
                     longitude = longitude,
                     addressLabel = addressLabel,
@@ -58,6 +63,25 @@ class MeetupRepository @Inject constructor(
             else Resource.Error(response.error ?: "Failed to propose meetup")
         } catch (e: Exception) {
             Resource.Error(e.message ?: "Failed to propose meetup")
+        }
+    }
+
+    /** Called repeatedly (every few seconds) while a comfort meet's "I'm here" screen is open on both sides — see meetupRoutes.ts's comfort-ping. */
+    suspend fun comfortMeetPing(meetupId: Int, latitude: Double, longitude: Double): Resource<com.example.mistreal_mini.data.api.ComfortMeetPingResponse> {
+        return try {
+            val response = api.comfortMeetPing(meetupId, com.example.mistreal_mini.data.api.ComfortMeetPingRequest(deviceId, latitude, longitude))
+            if (response.success) Resource.Success(response) else Resource.Error(response.error ?: "Failed to check proximity")
+        } catch (e: Exception) {
+            Resource.Error(e.message ?: "Failed to check proximity")
+        }
+    }
+
+    suspend fun getComfortMeetCount(): Resource<Int> {
+        return try {
+            val response = api.getComfortMeetCount(deviceId)
+            if (response.success) Resource.Success(response.count) else Resource.Error(response.error ?: "Failed to load count")
+        } catch (e: Exception) {
+            Resource.Error(e.message ?: "Failed to load count")
         }
     }
 

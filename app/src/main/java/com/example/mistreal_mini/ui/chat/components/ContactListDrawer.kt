@@ -20,6 +20,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.mistreal_mini.data.model.PlatformBrandColors
+import com.example.mistreal_mini.data.model.PlatformIcons
 import com.example.mistreal_mini.ui.chat.ChatViewModel
 
 @Composable
@@ -76,16 +77,7 @@ fun ContactListDrawer(
                         
                         platformsToShow.drop(rollingOffset).take(5).forEach { platform ->
                             val platformUnread = unreadItems.count { it.platform.lowercase() == platform.lowercase() }
-                            val icon = when(platform.lowercase()) {
-                                "whatsapp" -> Icons.Default.Chat
-                                "instagram" -> Icons.Default.CameraAlt
-                                "twitter", "x" -> Icons.Default.Public
-                                "linkedin" -> Icons.Default.Business
-                                "facebook" -> Icons.Default.Facebook
-                                "tiktok" -> Icons.Default.MusicNote
-                                "youtube" -> Icons.Default.PlayCircle
-                                else -> Icons.Default.Link
-                            }
+                            val icon = PlatformIcons.forPlatform(platform) ?: Icons.Default.Link
                             CategoryIcon(
                                 icon = icon,
                                 label = platform.take(4),

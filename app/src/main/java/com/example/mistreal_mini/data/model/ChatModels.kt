@@ -22,7 +22,16 @@ data class ChatMessage(
     val trendTitle: String? = null,
     val trueFeelings: String? = null, // 🧠 "True Feelings" Protocol
     val mood: String? = null, // one of: happy, excited, neutral, curious, confused, frustrated, sad, angry
-    val socialMetadata: SocialMetadata? = null
+    val socialMetadata: SocialMetadata? = null,
+    // 🏛 Architectural Render — the AI's restated understanding of the
+    // request (rooms/dimensions/scale/style/confirmed), parsed from the
+    // [ARCH_UNDERSTANDING: {...}] tag. Non-null only on assistant replies
+    // from that flow; drives ChatBubble's understanding card.
+    val archUnderstandingJson: String? = null,
+    // Only ever set in real user-to-user (social) chats — the id of the
+    // specific earlier message this one is a reply to. Never used in the AI
+    // main chat/minichat, where there's only ever one thread to reply into.
+    val replyToId: Long? = null
 )
 
 data class SocialMetadata(
@@ -39,5 +48,12 @@ data class ChatResponse(
     val generatedImageBase64: String? = null,
     val generatedImageMimeType: String? = null,
     val generatedImageUrl: String? = null,
-    val generatedVideoUrl: String? = null
+    val generatedVideoUrl: String? = null,
+    // Only ever set when Gemini's search-grounding tool backed the answer.
+    val groundingCitations: List<GroundingCitation>? = null
+)
+
+data class GroundingCitation(
+    val uri: String,
+    val title: String? = null
 )

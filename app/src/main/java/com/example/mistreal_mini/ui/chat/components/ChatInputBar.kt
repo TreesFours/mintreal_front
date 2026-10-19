@@ -67,11 +67,16 @@ fun ChatInputBar(
     isSceneMode: Boolean = false,
     onToggleSceneMode: (Boolean) -> Unit = {},
     isAutoReplyEnabled: Boolean = false,
-    onToggleAutoReply: (Boolean) -> Unit = {}
+    onToggleAutoReply: (Boolean) -> Unit = {},
+    // Only ever non-null in a real user-to-user (social) chat — see
+    // ChatBubble's "Reply" menu item, which is what sets this.
+    replyingTo: com.example.mistreal_mini.data.model.ChatMessage? = null,
+    onCancelReply: () -> Unit = {}
 ) {
     val focusManager = LocalFocusManager.current
     val context = LocalContext.current
-    
+    val sfx = com.example.mistreal_mini.ui.util.LocalSfxHapticPlayer.current
+
     var showMediaTools by remember { mutableStateOf(false) }
     var showCaptureTools by remember { mutableStateOf(false) }
     var previewUri by remember { mutableStateOf<Uri?>(null) }
@@ -84,6 +89,25 @@ fun ChatInputBar(
         shape = RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp)
     ) {
     Column(modifier = Modifier.padding(8.dp).fillMaxWidth()) {
+        if (replyingTo != null) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(bottom = 4.dp)
+                    .clip(RoundedCornerShape(8.dp))
+                    .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
+                    .padding(horizontal = 10.dp, vertical = 6.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text("Replying to", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+                    Text(replyingTo.content.take(80), style = MaterialTheme.typography.bodySmall, maxLines = 1)
+                }
+                IconButton(onClick = onCancelReply, modifier = Modifier.size(24.dp)) {
+                    Icon(Icons.Default.Close, "Cancel reply", modifier = Modifier.size(16.dp))
+                }
+            }
+        }
         if (pendingAttachments.isNotEmpty()) {
             LazyRow(
                 modifier = Modifier.fillMaxWidth().padding(bottom = 4.dp),
@@ -208,7 +232,7 @@ fun ChatInputBar(
                     Text("GHOST", style = MaterialTheme.typography.labelSmall, fontSize = 7.sp, color = if(isAutoReplyEnabled) Color.Green else Color.Gray)
                     Switch(
                         checked = isAutoReplyEnabled,
-                        onCheckedChange = onToggleAutoReply,
+                        onCheckedChange = { sfx?.playToggle(); onToggleAutoReply(it) },
                         modifier = Modifier.scale(0.5f).height(24.dp),
                         colors = SwitchDefaults.colors(checkedThumbColor = Color.Green)
                     )
@@ -296,6 +320,7 @@ fun ChatInputBar(
                     keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send),
                     keyboardActions = KeyboardActions(onSend = {
                         if (text.isNotBlank() && !isLoading) {
+                            sfx?.playTap()
                             onSend()
                             focusManager.clearFocus()
                         }
@@ -303,7 +328,7 @@ fun ChatInputBar(
                 )
                 Spacer(modifier = Modifier.width(12.dp))
                 FloatingActionButton(
-                    onClick = { if (text.isNotBlank() && !isLoading) onSend() },
+                    onClick = { if (text.isNotBlank() && !isLoading) { sfx?.playTap(); onSend() } },
                     modifier = Modifier.size(48.dp),
                     containerColor = if (text.isNotBlank() && !isLoading) MaterialTheme.colorScheme.primary else Color.Gray.copy(alpha = 0.3f),
                     contentColor = if (text.isNotBlank() && !isLoading) MaterialTheme.colorScheme.onPrimary else Color.Gray,

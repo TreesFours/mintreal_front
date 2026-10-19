@@ -30,8 +30,26 @@ class SettingsViewModel @Inject constructor(
     private val marketRepository: com.example.mistreal_mini.data.repository.MarketRepository,
     private val verifiedFaceRepository: com.example.mistreal_mini.data.repository.VerifiedFaceRepository,
     private val updateUserSettingsUseCase: UpdateUserSettingsUseCase,
-    @dagger.hilt.android.qualifiers.ApplicationContext private val context: android.content.Context
+    private val locationHelper: com.example.mistreal_mini.util.LocationHelper,
+    @dagger.hilt.android.qualifiers.ApplicationContext private val context: android.content.Context,
+    private val deviceIdProvider: com.example.mistreal_mini.util.DeviceIdProvider
 ) : ViewModel() {
+
+    /**
+     * Keeps User.lastKnownLat/Lon (userModel.ts) roughly fresh — not
+     * continuous tracking, just a once-per-app-session "where is this
+     * device" update, called from MainActivity on launch. This is what
+     * the Needs/Offers matching feature's proximity ranking depends on;
+     * the endpoint itself (POST /api/user/location) already existed but
+     * had zero client callers until now.
+     */
+    fun reportLocationOnce() {
+        viewModelScope.launch {
+            val location = locationHelper.getCurrentLocation() ?: return@launch
+            val deviceId = deviceIdProvider.deviceId
+            infoRepository.updateLocation(deviceId, location.latitude, location.longitude)
+        }
+    }
 
     private val _saveSuccess = MutableSharedFlow<Unit>()
     val saveSuccess = _saveSuccess.asSharedFlow()
@@ -94,6 +112,16 @@ class SettingsViewModel @Inject constructor(
             preferenceManager.setCommunityFeedPlatforms(updated)
             infoRepository.setCommunityFeedPreferences(updated)
         }
+    }
+
+    // "center"/"top"/"bottom"/"left"/"right" — where the "AI" tag gets
+    // stamped onto AI-generated images before saving (MediaEditorUtil).
+    private val _aiTagPosition = mutableStateOf("bottom")
+    val aiTagPosition: State<String> = _aiTagPosition
+
+    fun setAiTagPosition(position: String) {
+        _aiTagPosition.value = position
+        viewModelScope.launch { preferenceManager.setAiTagPosition(position) }
     }
 
     private val _byokStatus = MutableStateFlow<com.example.mistreal_mini.data.api.ByokStatusResponse?>(null)
@@ -167,6 +195,9 @@ class SettingsViewModel @Inject constructor(
         }
         viewModelScope.launch {
             preferenceManager.communityFeedPlatforms.collect { _communityFeedPlatforms.value = it }
+        }
+        viewModelScope.launch {
+            preferenceManager.aiTagPosition.collect { _aiTagPosition.value = it }
         }
         viewModelScope.launch {
             preferenceManager.voiceNoteAutoplay.collect { _voiceNoteAutoplay.value = it }
@@ -558,7 +589,7 @@ class SettingsViewModel @Inject constructor(
     ) {
         viewModelScope.launch {
             _isSaving.value = true
-            val deviceId = android.provider.Settings.Secure.getString(context.contentResolver, android.provider.Settings.Secure.ANDROID_ID)
+            val deviceId = deviceIdProvider.deviceId
 
             val result = updateUserSettingsUseCase(
                 deviceId = deviceId,
@@ -585,7 +616,7 @@ class SettingsViewModel @Inject constructor(
     fun fetchPlatforms() {
         viewModelScope.launch {
             _isLoadingPlatforms.value = true
-            val deviceId = android.provider.Settings.Secure.getString(context.contentResolver, android.provider.Settings.Secure.ANDROID_ID)
+            val deviceId = deviceIdProvider.deviceId
             when (val result = infoRepository.getAvailablePlatforms(deviceId)) {
                 is Resource.Success -> {
                     _availablePlatforms.value = result.data ?: emptyList()
@@ -604,7 +635,7 @@ class SettingsViewModel @Inject constructor(
             _isConnectingSocial.value = true
             _connectingPlatform.value = platform
             timber.log.Timber.d("🚀 Initiating social connection for platform: $platform")
-            val deviceId = android.provider.Settings.Secure.getString(context.contentResolver, android.provider.Settings.Secure.ANDROID_ID)
+            val deviceId = deviceIdProvider.deviceId
             val response = infoRepository.initiateConnection(deviceId, platform)
             if (response is Resource.Success<String> && response.data != null && response.data.isNotBlank()) {
                 timber.log.Timber.d("✅ Connection initiated successfully. URL: ${response.data}")
@@ -629,7 +660,7 @@ class SettingsViewModel @Inject constructor(
 
     fun disconnectSocial(platform: String) {
         viewModelScope.launch {
-            val deviceId = android.provider.Settings.Secure.getString(context.contentResolver, android.provider.Settings.Secure.ANDROID_ID)
+            val deviceId = deviceIdProvider.deviceId
             when (val result = infoRepository.disconnectPlatform(deviceId, platform)) {
                 is Resource.Success<Boolean> -> {
                     fetchPlatforms()
@@ -651,7 +682,7 @@ class SettingsViewModel @Inject constructor(
                 _syncProgress.value = 0.2f
                 
                 try {
-                    val deviceId = android.provider.Settings.Secure.getString(context.contentResolver, android.provider.Settings.Secure.ANDROID_ID)
+                    val deviceId = deviceIdProvider.deviceId
                     
                     // 🔄 Step 1: Trigger Cloud Sync First
                     _syncMessage.value = "Fetching Latest Cloud Data..."
@@ -704,6 +735,8 @@ class SettingsViewModel @Inject constructor(
     suspend fun isLocationEnabled() = preferenceManager.isLocationEnabled.first()
     suspend fun isTtsEnabled() = preferenceManager.isTtsEnabled.first()
     suspend fun isSttEnabled() = preferenceManager.isSttEnabled.first()
+    suspend fun isErrorNotificationsEnabled() = preferenceManager.isErrorNotificationsEnabled.first()
+    suspend fun isVoiceAutoSendOnRelease() = preferenceManager.isVoiceAutoSendOnRelease.first()
     suspend fun getThemeMode() = preferenceManager.themeMode.first()
     suspend fun getDefaultTranslationLang() = preferenceManager.defaultTranslationLang.first()
 
@@ -800,6 +833,18 @@ class SettingsViewModel @Inject constructor(
         }
     }
 
+    fun setErrorNotificationsEnabled(enabled: Boolean) {
+        viewModelScope.launch {
+            preferenceManager.setErrorNotificationsEnabled(enabled)
+        }
+    }
+
+    fun setVoiceAutoSendOnRelease(enabled: Boolean) {
+        viewModelScope.launch {
+            preferenceManager.setVoiceAutoSendOnRelease(enabled)
+        }
+    }
+
     fun setSttEnabled(enabled: Boolean) {
         viewModelScope.launch {
             preferenceManager.setSttEnabled(enabled)
@@ -870,7 +915,7 @@ class SettingsViewModel @Inject constructor(
 
     fun fetchAddonStatus() {
         viewModelScope.launch {
-            val deviceId = android.provider.Settings.Secure.getString(context.contentResolver, android.provider.Settings.Secure.ANDROID_ID)
+            val deviceId = deviceIdProvider.deviceId
             when (val result = infoRepository.getMyAddons(deviceId)) {
                 is Resource.Success -> _hasSmsAddon.value = result.data?.contains("sms_notifications") == true
                 else -> {}
@@ -880,7 +925,7 @@ class SettingsViewModel @Inject constructor(
 
     fun fetchEmergencyContacts() {
         viewModelScope.launch {
-            val deviceId = android.provider.Settings.Secure.getString(context.contentResolver, android.provider.Settings.Secure.ANDROID_ID)
+            val deviceId = deviceIdProvider.deviceId
             when (val result = infoRepository.getEmergencyContacts(deviceId)) {
                 is Resource.Success -> _emergencyContacts.value = result.data ?: emptyList()
                 else -> {}
@@ -892,7 +937,7 @@ class SettingsViewModel @Inject constructor(
     fun addEmergencyContact(name: String, channel: String, platform: String? = null, platformContactId: String? = null, email: String? = null, phoneNumber: String? = null) {
         viewModelScope.launch {
             _isSavingEmergencyContact.value = true
-            val deviceId = android.provider.Settings.Secure.getString(context.contentResolver, android.provider.Settings.Secure.ANDROID_ID)
+            val deviceId = deviceIdProvider.deviceId
             val result = infoRepository.addEmergencyContact(deviceId, name, channel, platform, platformContactId, email, phoneNumber)
             _isSavingEmergencyContact.value = false
             if (result is Resource.Success) {
@@ -903,7 +948,7 @@ class SettingsViewModel @Inject constructor(
 
     fun removeEmergencyContact(contact: EmergencyContact) {
         viewModelScope.launch {
-            val deviceId = android.provider.Settings.Secure.getString(context.contentResolver, android.provider.Settings.Secure.ANDROID_ID)
+            val deviceId = deviceIdProvider.deviceId
             val result = infoRepository.deleteEmergencyContact(contact.id, deviceId)
             if (result is Resource.Success) {
                 _emergencyContacts.value = _emergencyContacts.value.filter { it.id != contact.id }

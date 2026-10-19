@@ -23,6 +23,11 @@ class PreferenceManager @Inject constructor(
     private val AUTO_APPROVE_ACTIONS_KEY = booleanPreferencesKey("auto_approve_actions")
     private val USER_NAME_KEY = androidx.datastore.preferences.core.stringPreferencesKey("user_name")
     private val AI_PERSONA_KEY = androidx.datastore.preferences.core.stringPreferencesKey("ai_persona")
+    // Where the "AI" tag gets stamped on AI-generated images before they're
+    // saved/shared — one of "center", "top", "bottom", "left", "right".
+    // Survives the image leaving the app entirely (posted elsewhere), since
+    // it's baked into the pixels at save time, not an in-app overlay.
+    private val AI_TAG_POSITION_KEY = androidx.datastore.preferences.core.stringPreferencesKey("ai_tag_position")
     private val AI_CUSTOM_NAME_KEY = androidx.datastore.preferences.core.stringPreferencesKey("ai_custom_name")
     private val AI_AUDIENCE_KEY = androidx.datastore.preferences.core.stringPreferencesKey("ai_audience")
     private val AUTO_REPLY_DELAY_KEY = androidx.datastore.preferences.core.intPreferencesKey("auto_reply_delay")
@@ -33,6 +38,14 @@ class PreferenceManager @Inject constructor(
     private val EMERGENCY_CONTACTS_KEY = androidx.datastore.preferences.core.stringPreferencesKey("emergency_contacts")
     private val LOCATION_ENABLED_KEY = booleanPreferencesKey("location_enabled")
     private val TTS_ENABLED_KEY = booleanPreferencesKey("tts_enabled")
+    // Posts a local notification with the full error detail whenever an API
+    // call fails — default on since right now you're the only user testing
+    // in production; flip off once real users are on the app.
+    private val ERROR_NOTIFICATIONS_ENABLED_KEY = booleanPreferencesKey("error_notifications_enabled")
+    // Default false — the existing play/delete/trim/send preview step stays
+    // the default behavior; this is an opt-in fast path for the manual mic
+    // button only (hands-free/Conversation Mode already always auto-sends).
+    private val VOICE_AUTO_SEND_ON_RELEASE_KEY = booleanPreferencesKey("voice_auto_send_on_release")
     private val STT_ENABLED_KEY = booleanPreferencesKey("stt_enabled")
     private val TTS_VOICE_NAME_KEY = androidx.datastore.preferences.core.stringPreferencesKey("tts_voice_name")
     private val CUSTOM_PERSONAS_KEY = androidx.datastore.preferences.core.stringPreferencesKey("custom_personas")
@@ -76,6 +89,11 @@ class PreferenceManager @Inject constructor(
     val aiCustomName: Flow<String> = context.dataStore.data
         .map { preferences ->
             preferences[AI_CUSTOM_NAME_KEY] ?: "Shadow AI"
+        }
+
+    val aiTagPosition: Flow<String> = context.dataStore.data
+        .map { preferences ->
+            preferences[AI_TAG_POSITION_KEY] ?: "bottom"
         }
 
     val aiAudience: Flow<String> = context.dataStore.data
@@ -137,6 +155,16 @@ class PreferenceManager @Inject constructor(
     val isSttEnabled: Flow<Boolean> = context.dataStore.data
         .map { preferences ->
             preferences[STT_ENABLED_KEY] ?: true
+        }
+
+    val isErrorNotificationsEnabled: Flow<Boolean> = context.dataStore.data
+        .map { preferences ->
+            preferences[ERROR_NOTIFICATIONS_ENABLED_KEY] ?: true
+        }
+
+    val isVoiceAutoSendOnRelease: Flow<Boolean> = context.dataStore.data
+        .map { preferences ->
+            preferences[VOICE_AUTO_SEND_ON_RELEASE_KEY] ?: false
         }
 
     val ttsVoiceName: Flow<String?> = context.dataStore.data
@@ -261,6 +289,12 @@ class PreferenceManager @Inject constructor(
         }
     }
 
+    suspend fun setAiTagPosition(position: String) {
+        context.dataStore.edit { preferences ->
+            preferences[AI_TAG_POSITION_KEY] = position
+        }
+    }
+
     suspend fun setAiCustomName(name: String) {
         context.dataStore.edit { preferences ->
             preferences[AI_CUSTOM_NAME_KEY] = name
@@ -318,6 +352,18 @@ class PreferenceManager @Inject constructor(
     suspend fun setTtsEnabled(enabled: Boolean) {
         context.dataStore.edit { preferences ->
             preferences[TTS_ENABLED_KEY] = enabled
+        }
+    }
+
+    suspend fun setErrorNotificationsEnabled(enabled: Boolean) {
+        context.dataStore.edit { preferences ->
+            preferences[ERROR_NOTIFICATIONS_ENABLED_KEY] = enabled
+        }
+    }
+
+    suspend fun setVoiceAutoSendOnRelease(enabled: Boolean) {
+        context.dataStore.edit { preferences ->
+            preferences[VOICE_AUTO_SEND_ON_RELEASE_KEY] = enabled
         }
     }
 

@@ -82,6 +82,14 @@ interface InfoApiService {
     @GET("api/payment/my-addons")
     suspend fun getMyAddons(@Query("deviceId") deviceId: String): MyAddonsResponse
 
+    // Only used for installs that didn't come from the Play Store — see
+    // billingRail.kt. Play-sourced installs must use Play Billing instead.
+    @POST("api/payment/stripe/checkout")
+    suspend fun createStripeCheckout(@Body request: StripeCheckoutRequest): StripeCheckoutResponse
+
+    @POST("api/payment/stripe/portal")
+    suspend fun createStripePortalSession(@Body request: Map<String, String>): StripeCheckoutResponse
+
     @POST("api/user/location")
     suspend fun updateLocation(@Body request: LocationRequest): SocialActionResponse
 
@@ -92,10 +100,28 @@ interface InfoApiService {
     suspend fun getEmergencyAlerts(@Query("deviceId") deviceId: String): EmergencyAlertsListResponse
 
     @POST("api/emergency/alerts/{id}/resolve")
-    suspend fun resolveEmergencyAlert(@Path("id") id: Int, @Body body: Map<String, String>): EmergencyActionResponse
+    suspend fun resolveEmergencyAlert(@Path("id") id: Int, @Body body: ResolveEmergencyAlertRequest): EmergencyActionResponse
 
     @PATCH("api/emergency/alerts/{id}/audio")
     suspend fun attachSosAudio(@Path("id") id: Int, @Body request: AttachSosAudioRequest): EmergencyActionResponse
+
+    @PATCH("api/emergency/alerts/{id}/image")
+    suspend fun attachSosImage(@Path("id") id: Int, @Body request: AttachSosImageRequest): EmergencyActionResponse
+
+    @GET("api/emergency/safe-zone")
+    suspend fun getSafeZone(@Query("deviceId") deviceId: String): SafeZoneResponse
+
+    @PATCH("api/emergency/safe-zone")
+    suspend fun setSafeZone(@Body request: SafeZoneRequest): SafeZoneResponse
+
+    @GET("api/emergency/sos-preferences")
+    suspend fun getSosPreferences(@Query("deviceId") deviceId: String): SosPreferencesResponse
+
+    @PATCH("api/emergency/sos-preferences")
+    suspend fun setSosPreferences(@Body request: SosPreferencesRequest): SosPreferencesResponse
+
+    @GET("api/emergency/nearby-sos")
+    suspend fun getNearbySosAlerts(@Query("deviceId") deviceId: String): NearbySosResponse
 
     @GET("api/emergency/contacts")
     suspend fun getEmergencyContacts(@Query("deviceId") deviceId: String): EmergencyContactsListResponse
@@ -115,11 +141,19 @@ interface InfoApiService {
     @GET("api/business/search")
     suspend fun searchBusinessesRemote(
         @Query("category") category: String?,
-        @Query("city") city: String?
+        @Query("city") city: String?,
+        @Query("lat") lat: Double?,
+        @Query("lon") lon: Double?
     ): BusinessSearchResponse
 
     @GET("api/business/{businessId}")
     suspend fun getBusinessDetail(@Path("businessId") businessId: String): BusinessDetailResponse
+
+    @GET("api/watch/sessions")
+    suspend fun getWatchSessions(
+        @Query("contextType") contextType: String?,
+        @Query("contextId") contextId: String?
+    ): WatchSessionsResponse
 
     @POST("api/business/{businessId}/owner-photo")
     suspend fun uploadOwnerPhoto(@Path("businessId") businessId: String, @Body request: UploadOwnerPhotoRequest): UploadOwnerPhotoResponse
@@ -138,6 +172,12 @@ interface InfoApiService {
 
     @POST("api/meetups/{id}/confirm")
     suspend fun confirmMeetup(@Path("id") id: Int, @Body request: ConfirmMeetupRequest): MeetupConfirmResponse
+
+    @POST("api/meetups/{id}/comfort-ping")
+    suspend fun comfortMeetPing(@Path("id") id: Int, @Body request: ComfortMeetPingRequest): ComfortMeetPingResponse
+
+    @GET("api/meetups/comfort-count")
+    suspend fun getComfortMeetCount(@Query("deviceId") deviceId: String): ComfortMeetCountResponse
 
     @Multipart
     @POST("api/ads")
@@ -159,6 +199,9 @@ interface InfoApiService {
 
     @POST("api/ads/{adId}/track")
     suspend fun trackAdEvent(@Path("adId") adId: Int, @Body request: AdEventRequest): SocialActionResponse
+
+    @GET("api/games")
+    suspend fun listGames(@Query("category") category: String? = null): GamesListResponse
 
     @GET("api/email/history")
     suspend fun getEmailHistory(
@@ -306,6 +349,21 @@ data class AdEventRequest(
     val eventType: String
 )
 
+data class GameSummary(
+    val id: String,
+    val title: String,
+    val description: String? = null,
+    val thumbnailUrl: String? = null,
+    val category: String? = null,
+    val playUrl: String
+)
+
+data class GamesListResponse(
+    val success: Boolean,
+    val games: List<GameSummary> = emptyList(),
+    val error: String? = null
+)
+
 data class YoutubeVideoResponse(
     val videoId: String,
     val title: String,
@@ -313,7 +371,10 @@ data class YoutubeVideoResponse(
     val channelTitle: String? = null,
     val publishedAt: String? = null,
     val viewCount: Long? = null,
-    val likeCount: Long? = null
+    val likeCount: Long? = null,
+    val description: String? = null,
+    val durationSeconds: Int? = null,
+    val commentCount: Long? = null
 )
 
 data class YoutubeFeedResponse(
@@ -370,12 +431,53 @@ data class RemoteBusiness(
     val connectedPlatforms: List<BusinessPlatformHandle> = emptyList(),
     val confirmedMeetupsCount: Int = 0,
     val ownerName: String? = null,
-    val ownerPhotoUrl: String? = null
+    val ownerPhotoUrl: String? = null,
+    // The review feature's target — a review is about this device, not
+    // the business record itself. Already serialized by the backend's
+    // plain Business model today; just wasn't declared here until now.
+    val ownerDeviceId: String? = null,
+    // Null unless the search request included the searcher's own lat/lon.
+    val distanceKm: Double? = null
 )
 
 data class BusinessSearchResponse(
     val success: Boolean,
     val businesses: List<RemoteBusiness>? = null,
+    // Only ever populated when `businesses` came back empty — a search
+    // never shows external results alongside native ones, only instead of
+    // them. Most entries will have none of the contact fields set; that's
+    // the normal case (Geoapify/OSM data for a place occasionally carries
+    // one, most don't), not a bug.
+    val externalBusinesses: List<RemoteDiscoveryPoi>? = null,
+    val error: String? = null
+)
+
+data class RemoteDiscoveryPoi(
+    val name: String,
+    val address: String,
+    val category: String,
+    val latitude: Double,
+    val longitude: Double,
+    val website: String? = null,
+    val contactPhone: String? = null,
+    val contactEmail: String? = null,
+    val contactHandle: String? = null,
+    val source: String = "external"
+)
+
+// Discovery-only — the id here is the Watch Hub share code a viewer joins
+// with; this server never sees the actual screen-share video itself.
+data class RemoteWatchSession(
+    val id: String,
+    val hostDeviceId: String,
+    val contextType: String,
+    val contextId: String? = null,
+    val status: String
+)
+
+data class WatchSessionsResponse(
+    val success: Boolean,
+    val sessions: List<RemoteWatchSession>? = null,
     val error: String? = null
 )
 
@@ -401,6 +503,11 @@ data class ProposeMeetupRequest(
     val businessId: String? = null,
     val counterpartyPlatform: String? = null,
     val counterpartyContactId: String? = null,
+    // Required when meetupType == "comfort" — that flow cross-checks live
+    // location against a specific other device, not a DM to a platform
+    // contact who may not have the app at all.
+    val counterpartyDeviceId: String? = null,
+    val meetupType: String = "business", // "business" | "comfort"
     val latitude: Double,
     val longitude: Double,
     val addressLabel: String? = null,
@@ -413,12 +520,34 @@ data class Meetup(
     val proposerDeviceId: String,
     val counterpartyPlatform: String? = null,
     val counterpartyContactId: String? = null,
+    val counterpartyDeviceId: String? = null,
+    val meetupType: String = "business",
     val latitude: Double,
     val longitude: Double,
     val addressLabel: String? = null,
     val scheduledAt: String,
     val status: String, // "proposed" | "accepted" | "declined" | "completed"
     val transactionToken: String
+)
+
+data class ComfortMeetPingRequest(
+    val deviceId: String,
+    val latitude: Double,
+    val longitude: Double
+)
+
+data class ComfortMeetPingResponse(
+    val success: Boolean,
+    val confirmed: Boolean = false,
+    val distanceMeters: Double? = null,
+    val confirmedAt: String? = null,
+    val error: String? = null
+)
+
+data class ComfortMeetCountResponse(
+    val success: Boolean,
+    val count: Int = 0,
+    val error: String? = null
 )
 
 data class MeetupResponse(
@@ -466,7 +595,9 @@ data class FireEmergencyAlertRequest(
     val distressSignature: String,
     val triggerType: String = "manual", // "manual" | "meetup_panic"
     val sosAudioBase64: String? = null,
-    val sosAudioMimeType: String? = null
+    val sosAudioMimeType: String? = null,
+    val sosImageBase64: String? = null,
+    val sosImageMimeType: String? = null
 )
 
 data class EmergencyAlertFireResponse(
@@ -484,10 +615,13 @@ data class EmergencyAlert(
     val latitude: Double,
     val longitude: Double,
     val sosAudioUrl: String? = null,
+    val sosImageUrl: String? = null,
     val distressSignature: String? = null,
     val status: String, // "active" | "resolved_safe" | "escalated_public"
     val createdAt: String,
     val escalateAt: String? = null,
+    val nextCommunityBroadcastAt: String? = null,
+    val fullDetailAt: String? = null,
     val resolvedAt: String? = null
 )
 
@@ -495,6 +629,78 @@ data class AttachSosAudioRequest(
     val deviceId: String,
     val sosAudioBase64: String,
     val sosAudioMimeType: String
+)
+
+data class AttachSosImageRequest(
+    val deviceId: String,
+    val sosImageBase64: String,
+    val sosImageMimeType: String
+)
+
+data class ResolveEmergencyAlertRequest(
+    val deviceId: String,
+    val latitude: Double,
+    val longitude: Double
+)
+
+data class SafeZoneRequest(
+    val deviceId: String,
+    val latitude: Double,
+    val longitude: Double
+)
+
+data class SafeZone(val latitude: Double, val longitude: Double)
+
+data class SafeZoneResponse(
+    val success: Boolean,
+    val safeZone: SafeZone? = null,
+    val error: String? = null
+)
+
+data class SosPreferences(
+    val camera: Boolean = true,
+    val microphone: Boolean = true,
+    val image: Boolean = true,
+    val fullDetailEscalation: Boolean = true,
+    // Per-user dead-man's-switch timing, clamped server-side (1-30/1-90/1-180 days respectively).
+    val silentMeetupWindowDays: Int = 4,
+    val communityBroadcastDelayDays: Int = 14,
+    val fullDetailWindowDays: Int = 30
+)
+
+data class SosPreferencesRequest(
+    val deviceId: String,
+    val camera: Boolean? = null,
+    val microphone: Boolean? = null,
+    val image: Boolean? = null,
+    val fullDetailEscalation: Boolean? = null,
+    val silentMeetupWindowDays: Int? = null,
+    val communityBroadcastDelayDays: Int? = null,
+    val fullDetailWindowDays: Int? = null
+)
+
+data class SosPreferencesResponse(
+    val success: Boolean,
+    val preferences: SosPreferences? = null,
+    val error: String? = null
+)
+
+data class NearbySosAlert(
+    val id: Int,
+    val createdAt: String,
+    val distanceMiles: Double,
+    val distressSignature: String? = null,
+    val sosAudioUrl: String? = null,
+    val sosImageUrl: String? = null,
+    val fullDetail: Boolean = false,
+    val latitude: Double? = null,
+    val longitude: Double? = null
+)
+
+data class NearbySosResponse(
+    val success: Boolean,
+    val alerts: List<NearbySosAlert>? = null,
+    val error: String? = null
 )
 
 data class EmergencyAlertsListResponse(
@@ -623,7 +829,19 @@ data class AddonDefinition(
     val label: String,
     val description: String,
     val priceUsd: String,
-    val playProductId: String
+    val playProductId: String,
+    // False means the backend has no Stripe price configured for this
+    // add-on — a non-Play install should hide it rather than attempt a
+    // checkout that can't succeed (see billingRail.kt).
+    val stripeAvailable: Boolean = false
+)
+
+data class StripeCheckoutRequest(val deviceId: String, val addonId: String)
+
+data class StripeCheckoutResponse(
+    val success: Boolean,
+    val url: String? = null,
+    val error: String? = null
 )
 
 data class AppConfigResponse(
@@ -735,7 +953,10 @@ data class Article(
     val type: String? = "news",
     val isPinned: Boolean? = false,
     val category: String? = null,
-    val timestamp: String? = null
+    val timestamp: String? = null,
+    // Only ever populated on "news" (NewsAPI urlToImage) and "novel"
+    // (OpenLibrary cover) items — absent/null for every other feed type.
+    val imageUrl: String? = null
 )
 
 // Flat, matching the backend's socialActionSchema exactly — this used to
@@ -751,7 +972,8 @@ data class SocialActionRequest(
     val targetId: String,
     val mediaBase64: String? = null,
     val mediaMimeType: String? = null,
-    val shareToCommunity: Boolean = false
+    val shareToCommunity: Boolean = false,
+    val mistrealOnly: Boolean = false
 )
 
 data class SocialActionResponse(

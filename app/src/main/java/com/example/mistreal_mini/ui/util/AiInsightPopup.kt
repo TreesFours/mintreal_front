@@ -133,8 +133,7 @@ fun AiInsightPopup(
                     onSend = {
                         recordedFile?.let { viewModel.sendAttachments(listOf(Uri.fromFile(it)), "audio") }
                         recordedFile = null
-                    },
-                    onCancel = { recordedFile = null; isRecording = false }
+                    }
                 )
             } else {
                 ChatInputBar(

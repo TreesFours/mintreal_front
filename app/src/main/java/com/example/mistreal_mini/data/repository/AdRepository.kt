@@ -2,12 +2,13 @@ package com.example.mistreal_mini.data.repository
 
 import android.content.Context
 import android.net.Uri
-import android.provider.Settings
 import com.example.mistreal_mini.data.Resource
 import com.example.mistreal_mini.data.api.AdEventRequest
 import com.example.mistreal_mini.data.api.AdPayload
 import com.example.mistreal_mini.data.api.InfoApiService
+import com.example.mistreal_mini.util.DeviceIdProvider
 import com.example.mistreal_mini.util.FileUtil
+import com.example.mistreal_mini.util.MediaEditorUtil
 import dagger.hilt.android.qualifiers.ApplicationContext
 import okhttp3.MediaType.Companion.toMediaTypeOrNull
 import okhttp3.RequestBody.Companion.toRequestBody
@@ -19,10 +20,11 @@ import javax.inject.Singleton
 class AdRepository @Inject constructor(
     private val api: InfoApiService,
     private val authRepository: AuthRepository,
-    @ApplicationContext private val context: Context
+    @ApplicationContext private val context: Context,
+    private val deviceIdProvider: DeviceIdProvider
 ) {
     private val deviceId: String
-        get() = Settings.Secure.getString(context.contentResolver, Settings.Secure.ANDROID_ID)
+        get() = deviceIdProvider.deviceId
 
     private fun String.toTextBody() = this.toRequestBody("text/plain".toMediaTypeOrNull())
 
@@ -37,7 +39,11 @@ class AdRepository @Inject constructor(
         imageUris: List<Uri>?
     ): Resource<Int> {
         return try {
-            val videoPart = videoUri?.let { FileUtil.uriToMultipart(context, it, "video") }
+            // Compressed before upload — raw camera footage went out
+            // uncompressed until now, often 4-5x the bitrate a feed video
+            // actually needs to look good.
+            val compressedVideoUri = videoUri?.let { MediaEditorUtil.compressVideo(context, it) }
+            val videoPart = compressedVideoUri?.let { FileUtil.uriToMultipart(context, it, "video") }
             val imageParts = imageUris?.mapNotNull { FileUtil.uriToMultipart(context, it, "images") }
 
             val response = api.createAd(

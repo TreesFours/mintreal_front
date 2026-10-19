@@ -1,9 +1,15 @@
 package com.example.mistreal_mini.data.local.entity
 
 import androidx.room.Entity
+import androidx.room.Index
 import androidx.room.PrimaryKey
 
-@Entity(tableName = "social_posts")
+// Covers getCachedPosts' ORDER BY and deleteOlderThan's WHERE clause (see
+// Migration 16->17) — previously a full table scan on both.
+@Entity(
+    tableName = "social_posts",
+    indices = [Index(value = ["fetchedAt"], name = "index_social_posts_fetchedAt")]
+)
 data class SocialPostEntity(
     @PrimaryKey val id: String,
     val platform: String,
@@ -22,5 +28,6 @@ data class SocialPostEntity(
     val isLikedByUser: Boolean = false,
     val isBookmarked: Boolean = false,
     val isCommunityPost: Boolean = false,
+    val authorDeviceId: String? = null,
     val fetchedAt: Long
 )

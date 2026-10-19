@@ -22,7 +22,9 @@ interface AiApiService {
         @Part images: List<MultipartBody.Part>?,
         @Part("imageRoles") imageRoles: RequestBody?,
         @Part audio: MultipartBody.Part?,
-        @Part video: MultipartBody.Part?
+        @Part video: MultipartBody.Part?,
+        @Part("confirmArchRender") confirmArchRender: RequestBody? = null,
+        @Part("archUnderstanding") archUnderstanding: RequestBody? = null
     ): ChatResponse
 
     @GET("api/models")

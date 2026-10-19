@@ -9,6 +9,7 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.*
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
@@ -39,10 +40,12 @@ import androidx.core.content.FileProvider
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.mistreal_mini.data.model.ChatMessage
+import com.example.mistreal_mini.data.model.PlatformIcons
 import com.example.mistreal_mini.ui.chat.components.*
 import com.example.mistreal_mini.ui.util.AiInsightPopup
 import com.example.mistreal_mini.ui.util.NukeIcon
 import com.example.mistreal_mini.util.ScreenshotHelper
+import com.example.mistreal_mini.util.SocialDeepLinks
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
 import java.io.File
@@ -51,12 +54,20 @@ import java.io.File
 @Composable
 fun ChatScreen(
     viewModel: ChatViewModel = hiltViewModel(),
+    // Lets a quick-launch entry point (Settings' "AI Render" button) land
+    // directly in a specific provider/domain mode rather than whatever the
+    // user last had selected — same nav-arg pattern watch_host already uses.
+    initialProviderOverride: String? = null,
     onSubscribeClick: () -> Unit,
     onSettingsClick: () -> Unit,
     onDashboardClick: () -> Unit,
     onArchiveClick: () -> Unit
 ) {
+    LaunchedEffect(initialProviderOverride) {
+        initialProviderOverride?.let { viewModel.setProvider(it) }
+    }
     val context = LocalContext.current
+    val sfx = com.example.mistreal_mini.ui.util.LocalSfxHapticPlayer.current
     val coroutineScope = rememberCoroutineScope()
     var textState by rememberSaveable { mutableStateOf("") }
     val messages = viewModel.messages
@@ -160,15 +171,7 @@ fun ChatScreen(
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         // Platform/AI Logo
                         val platform = viewModel.currentChatPartnerPlatform.value
-                        val logoIcon = when(platform.lowercase()) {
-                            "ai" -> Icons.Default.SmartToy
-                            "whatsapp" -> Icons.Default.Chat
-                            "twitter", "x" -> Icons.Default.Public
-                            "linkedin" -> Icons.Default.Business
-                            "facebook" -> Icons.Default.Facebook
-                            "instagram" -> Icons.Default.PhotoCamera
-                            else -> Icons.Default.Link
-                        }
+                        val logoIcon = PlatformIcons.forPlatform(platform) ?: Icons.Default.Link
                         
                         Box(
                             modifier = Modifier
@@ -191,8 +194,8 @@ fun ChatScreen(
                                 overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
                             )
                             Row(verticalAlignment = Alignment.CenterVertically) {
-                                Text(viewModel.currentChatPartnerStatus.value, 
-                                    style = MaterialTheme.typography.labelSmall, 
+                                Text(viewModel.currentChatPartnerStatus.value,
+                                    style = MaterialTheme.typography.labelSmall,
                                     color = if (viewModel.currentChatPartnerStatus.value == "Active") Color.Green else Color.Gray,
                                     fontSize = 8.sp
                                 )
@@ -202,6 +205,16 @@ fun ChatScreen(
                                     style = MaterialTheme.typography.labelSmall,
                                     color = MaterialTheme.colorScheme.primary,
                                     fontWeight = FontWeight.Bold,
+                                    fontSize = 8.sp
+                                )
+                            }
+                            val pendingEta = viewModel.pendingReplyEtaMillis.value
+                            if (pendingEta != null) {
+                                val minsLeft = ((pendingEta - System.currentTimeMillis()) / 60_000L + 1).coerceAtLeast(0)
+                                Text(
+                                    text = "Reply arriving in ~${minsLeft}m",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.primary,
                                     fontSize = 8.sp
                                 )
                             }
@@ -225,9 +238,9 @@ fun ChatScreen(
                         )
                         
                         IconButton(
-                            onClick = { showContactList = true },
+                            onClick = { sfx?.playTap(); showContactList = true },
                             modifier = Modifier.graphicsLayer(scaleX = scale, scaleY = scale)
-                        ) { 
+                        ) {
                             Box(contentAlignment = Alignment.Center) {
                                 Icon(
                                     imageVector = if (unreadCount > 0) Icons.Default.NotificationsActive else Icons.Default.Menu, 
@@ -289,12 +302,7 @@ fun ChatScreen(
                             val contact = viewModel.activeSocialContact.value!!
                             val callContext = LocalContext.current
                             IconButton(onClick = {
-                                val nativeIntent = Intent(Intent.ACTION_VIEW, Uri.parse("fb-messenger://user-thread/${contact.id}"))
-                                try {
-                                    callContext.startActivity(nativeIntent)
-                                } catch (e: Exception) {
-                                    callContext.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://m.me/${contact.id}")))
-                                }
+                                SocialDeepLinks.openMessenger(contact.id, callContext::startActivity)
                             }) {
                                 Icon(Icons.Default.VideoCall, "Open in Messenger to call", tint = Color(0xFF0084FF))
                             }
@@ -307,7 +315,16 @@ fun ChatScreen(
                             }
                         }
                         if (viewModel.currentTrendTitle.value != null) {
-                            IconButton(onClick = { viewModel.exitTrend() }) {
+                            val trendTitle = viewModel.currentTrendTitle.value!!
+                            val delayOn = viewModel.delayEnabledTrendTitles.contains(trendTitle)
+                            IconButton(onClick = { sfx?.playTap(); viewModel.toggleTrendDelay(trendTitle) }) {
+                                Icon(
+                                    Icons.Default.Timer,
+                                    "Delayed replies ${if (delayOn) "on" else "off"} in this minichat",
+                                    tint = if (delayOn) MaterialTheme.colorScheme.primary else LocalContentColor.current.copy(alpha = 0.5f)
+                                )
+                            }
+                            IconButton(onClick = { sfx?.playTap(); viewModel.exitTrend() }) {
                                 Icon(Icons.Default.Close, "Exit Trend", tint = Color.Red)
                             }
                         }
@@ -336,7 +353,7 @@ fun ChatScreen(
                     onDelete = { viewModel.deleteRecording() },
                     onPlay = { viewModel.playRecording() },
                     onSend = { viewModel.sendVoiceMessage() },
-                    onCancel = { viewModel.cancelRecording() }
+                    onTrim = { startMs, endMs -> viewModel.trimRecording(startMs, endMs) }
                 )
             } else {
                 ChatInputBar(
@@ -409,7 +426,9 @@ fun ChatScreen(
                     onToggleAutoReply = {
                         if (viewModel.isSocialChat.value) viewModel.toggleActiveContactAutoReply()
                         else viewModel.setGuardianEnabled(it)
-                    }
+                    },
+                    replyingTo = if (viewModel.isSocialChat.value) viewModel.replyingTo.value else null,
+                    onCancelReply = { viewModel.setReplyingTo(null) }
                 )
             }
         }
@@ -453,7 +472,7 @@ fun ChatScreen(
                         }
                     }
                     item { Spacer(modifier = Modifier.height(8.dp)) }
-                    items(messages) { msg -> 
+                    items(messages, key = { it.id ?: it.hashCode() }) { msg ->
                         ChatBubble(
                             message = msg,
                             viewModel = viewModel,
@@ -470,7 +489,14 @@ fun ChatScreen(
                             },
                             snackbarHostState = snackbarHostState,
                             coroutineScope = coroutineScope,
-                            targetLang = viewModel.defaultTranslationLang.value
+                            targetLang = viewModel.defaultTranslationLang.value,
+                            onAttachmentClick = { uri, isVideo -> viewModel.openAttachmentEditor(uri, isVideo) },
+                            // Reply-to-a-specific-message only makes sense in a
+                            // real user-to-user chat (more than one possible
+                            // thread) — this branch only ever renders when
+                            // isSocialChat is true, so it's unconditional here.
+                            onReplyClick = { viewModel.setReplyingTo(it) },
+                            repliedToPreview = msg.replyToId?.let { id -> messages.find { it.id == id }?.content?.take(80) }
                         )
                     }
                 } else {
@@ -483,7 +509,10 @@ fun ChatScreen(
                         }
                     }
                     item { Spacer(modifier = Modifier.height(8.dp)) }
-                    items(count = pagedMessages.itemCount) { index ->
+                    items(
+                        count = pagedMessages.itemCount,
+                        key = { index -> pagedMessages.peek(index)?.id ?: index }
+                    ) { index ->
                         val msg = pagedMessages[index]
                         if (msg != null) {
                             ChatBubble(
@@ -502,7 +531,8 @@ fun ChatScreen(
                                 },
                                 snackbarHostState = snackbarHostState,
                                 coroutineScope = coroutineScope,
-                                targetLang = viewModel.defaultTranslationLang.value
+                                targetLang = viewModel.defaultTranslationLang.value,
+                                onAttachmentClick = { uri, isVideo -> viewModel.openAttachmentEditor(uri, isVideo) }
                             )
                         }
                     }
@@ -578,6 +608,72 @@ fun ChatScreen(
                         Spacer(modifier = Modifier.width(8.dp))
                         IconButton(onClick = { viewModel.toggleHandsFree(false) }, modifier = Modifier.size(28.dp)) {
                             Icon(Icons.Default.Close, "Stop Conversation Mode", tint = MaterialTheme.colorScheme.onPrimary)
+                        }
+                    }
+                }
+            }
+
+            // Re-edit an already-sent image/video (tapped in ChatBubble) using
+            // the exact same editor pre-send attachments get — editImageWithAi/
+            // editVideoWithAi always produce a new assistant message with the
+            // result, same as they already do today, so there's no in-place
+            // mutation of the original sent message to worry about. Crop/
+            // discard aren't meaningful for an already-sent message (there's
+            // no pending-attachment list to update), so those just close the
+            // dialog — only the AI-edit/face-swap/voice-over paths apply here.
+            viewModel.editingAttachment.value?.let { (uri, isVideo) ->
+                AttachmentEditorDialog(
+                    uri = uri,
+                    isVideo = isVideo,
+                    segmentNotes = emptyMap(),
+                    onDismiss = { viewModel.closeAttachmentEditor() },
+                    onReplaceAttachment = { viewModel.closeAttachmentEditor() },
+                    onDiscardAttachment = { viewModel.closeAttachmentEditor() },
+                    onSegmentNotesChanged = {},
+                    verifiedFaces = viewModel.verifiedFaces.collectAsStateWithLifecycle().value,
+                    onDetectFacesInVideo = { u -> viewModel.detectFacesInVideo(u) },
+                    onMarkFaceTarget = { frame, box -> viewModel.markFaceTarget(frame, box) },
+                    isSynthesizingVoiceOver = viewModel.isSynthesizingVoiceOver.value,
+                    onAddVoiceOver = { u, narration, cb -> viewModel.addVoiceOverToVideo(u, narration, cb) },
+                    isAiEditingVideo = viewModel.isEditingVideo.value,
+                    onAiEditVideo = { u, faceRef, faceTarget, instruction, cb -> viewModel.editVideoWithAi(u, faceRef, faceTarget, instruction, cb) },
+                    isAiEditingImage = viewModel.isEditingImage.value,
+                    onAiEditImage = { u, extraImages, isFaceSwap, instruction, cb -> viewModel.editImageWithAi(u, extraImages, isFaceSwap, instruction, cb) }
+                )
+            }
+
+            // Whatever's currently being iterated on (an image/video just
+            // edited, or tapped from an earlier bubble) — one tap to reopen
+            // its editor without scrolling back to find it. Same pill
+            // template as the Conversation Mode indicator above, stacked
+            // just below it rather than overlapping.
+            val activeWorkItem = viewModel.activeWorkItem.value
+            AnimatedVisibility(
+                visible = activeWorkItem != null,
+                enter = fadeIn() + slideInVertically(),
+                exit = fadeOut() + slideOutVertically(),
+                modifier = Modifier.align(Alignment.TopCenter).padding(top = if (isHandsFree) 56.dp else 8.dp)
+            ) {
+                activeWorkItem?.let { (uri, isVideo) ->
+                    Surface(
+                        color = MaterialTheme.colorScheme.secondary,
+                        contentColor = MaterialTheme.colorScheme.onSecondary,
+                        shape = RoundedCornerShape(20.dp),
+                        tonalElevation = 8.dp,
+                        shadowElevation = 8.dp,
+                        modifier = Modifier.clickable { viewModel.openAttachmentEditor(uri, isVideo) }
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier.padding(start = 16.dp, end = 8.dp, top = 8.dp, bottom = 8.dp)
+                        ) {
+                            Icon(if (isVideo) Icons.Default.Movie else Icons.Default.Image, null, modifier = Modifier.size(18.dp))
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text("Editing — tap to continue", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold)
+                            Spacer(modifier = Modifier.width(8.dp))
+                            IconButton(onClick = { viewModel.clearActiveWorkItem() }, modifier = Modifier.size(28.dp)) {
+                                Icon(Icons.Default.Close, "Dismiss", tint = MaterialTheme.colorScheme.onSecondary)
+                            }
                         }
                     }
                 }

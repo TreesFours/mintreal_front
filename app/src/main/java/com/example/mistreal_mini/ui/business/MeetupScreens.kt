@@ -57,6 +57,11 @@ fun ProposeMeetupDialog(
     var scheduledSet by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
 
+    // Comfort meets are personal, not business — only offered when this
+    // proposal isn't tied to a business transaction.
+    var meetupType by remember { mutableStateOf("business") }
+    var counterpartyDeviceId by remember { mutableStateOf("") }
+
     LaunchedEffect(result) {
         if (result is Resource.Success) {
             onProposed()
@@ -74,6 +79,26 @@ fun ProposeMeetupDialog(
                     style = MaterialTheme.typography.labelSmall,
                     color = Color.Gray
                 )
+                if (businessId == null) {
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        FilterChip(selected = meetupType == "business", onClick = { meetupType = "business" }, label = { Text("Regular") })
+                        FilterChip(selected = meetupType == "comfort", onClick = { meetupType = "comfort" }, label = { Text("Comfort Meet 💞") })
+                    }
+                    if (meetupType == "comfort") {
+                        Text(
+                            "Comfort meets confirm differently — both of you open an \"I'm here\" screen when you're together, and it checks your live location against theirs instead of trusting either side's word for it.",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = Color.Gray
+                        )
+                        Text("Your code (share it with them): ${viewModel.myDeviceId}", style = MaterialTheme.typography.labelSmall)
+                        OutlinedTextField(
+                            value = counterpartyDeviceId,
+                            onValueChange = { counterpartyDeviceId = it },
+                            label = { Text("Their code") },
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                    }
+                }
                 OutlinedTextField(
                     value = addressLabel,
                     onValueChange = { addressLabel = it },
@@ -114,13 +139,18 @@ fun ProposeMeetupDialog(
             }
         },
         confirmButton = {
+            val isComfortReady = meetupType != "comfort" || counterpartyDeviceId.isNotBlank()
             Button(
                 onClick = {
                     val (lat, lon) = coords ?: return@Button
                     val iso = java.time.Instant.ofEpochMilli(calendar.timeInMillis).toString()
-                    viewModel.proposeMeetup(businessId, counterpartyPlatform, counterpartyContactId, lat, lon, addressLabel.ifBlank { null }, iso)
+                    viewModel.proposeMeetup(
+                        businessId, counterpartyPlatform, counterpartyContactId, lat, lon, addressLabel.ifBlank { null }, iso,
+                        counterpartyDeviceId = counterpartyDeviceId.ifBlank { null },
+                        meetupType = meetupType
+                    )
                 },
-                enabled = !isSubmitting && coords != null && scheduledSet
+                enabled = !isSubmitting && coords != null && scheduledSet && isComfortReady
             ) {
                 if (isSubmitting) CircularProgressIndicator(modifier = Modifier.size(18.dp)) else Text("Propose")
             }
@@ -132,9 +162,10 @@ fun ProposeMeetupDialog(
 /** "My Meetups" — list + per-meetup presence confirmation (location + photo + outcome). */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun MeetupListScreen(onBack: () -> Unit, viewModel: MeetupViewModel = hiltViewModel()) {
+fun MeetupListScreen(onBack: () -> Unit, onOpenComfortMeet: (Int) -> Unit = {}, viewModel: MeetupViewModel = hiltViewModel()) {
     val meetups by viewModel.meetups.collectAsStateWithLifecycle()
     val isLoading by viewModel.isLoading.collectAsStateWithLifecycle()
+    val comfortMeetCount by viewModel.comfortMeetCount.collectAsStateWithLifecycle()
     var confirmTarget by remember { mutableStateOf<Meetup?>(null) }
 
     LaunchedEffect(Unit) { viewModel.fetchMeetups() }
@@ -143,7 +174,16 @@ fun MeetupListScreen(onBack: () -> Unit, viewModel: MeetupViewModel = hiltViewMo
         topBar = {
             TopAppBar(
                 title = { Text("MY MEETUPS") },
-                navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.Default.ArrowBack, null) } }
+                navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.Default.ArrowBack, null) } },
+                actions = {
+                    if (comfortMeetCount > 0) {
+                        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(end = 12.dp)) {
+                            Icon(Icons.Default.Favorite, null, tint = Color(0xFFE91E63), modifier = Modifier.size(16.dp))
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text("$comfortMeetCount", fontWeight = FontWeight.Bold, color = Color(0xFFE91E63))
+                        }
+                    }
+                }
             )
         }
     ) { padding ->
@@ -161,10 +201,23 @@ fun MeetupListScreen(onBack: () -> Unit, viewModel: MeetupViewModel = hiltViewMo
                                 Text(meetup.scheduledAt, style = MaterialTheme.typography.labelSmall, color = Color.Gray)
                                 Text("Transaction ID: ${meetup.transactionToken}", style = MaterialTheme.typography.labelSmall, color = Color.Gray)
                                 Text(meetup.status.uppercase(), color = MaterialTheme.colorScheme.primary, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                if (meetup.meetupType == "comfort") {
+                                    Text("COMFORT MEET 💞", color = Color(0xFFE91E63), fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                }
                                 if (meetup.status == "accepted" || meetup.status == "proposed") {
                                     Spacer(modifier = Modifier.height(8.dp))
-                                    Button(onClick = { confirmTarget = meetup }, modifier = Modifier.fillMaxWidth()) {
-                                        Text("Confirm Presence")
+                                    if (meetup.meetupType == "comfort") {
+                                        Button(
+                                            onClick = { onOpenComfortMeet(meetup.id) },
+                                            modifier = Modifier.fillMaxWidth(),
+                                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFE91E63))
+                                        ) {
+                                            Text("Open \"I'm Here\" Check-in")
+                                        }
+                                    } else {
+                                        Button(onClick = { confirmTarget = meetup }, modifier = Modifier.fillMaxWidth()) {
+                                            Text("Confirm Presence")
+                                        }
                                     }
                                 }
                             }

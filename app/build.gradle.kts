@@ -62,7 +62,15 @@ dependencies {
     implementation(libs.androidx.navigation.compose)
     implementation(libs.androidx.paging.runtime)
     implementation(libs.androidx.paging.compose)
-    
+
+    // CameraX — headless SOS photo capture only (ImageCapture use case, no
+    // Preview/PreviewView anywhere — see util/SosCameraCapture.kt). Stable,
+    // well-documented public API; minSdk 26 is well above CameraX's own
+    // minSdk 21 floor.
+    implementation("androidx.camera:camera-core:1.3.4")
+    implementation("androidx.camera:camera-camera2:1.3.4")
+    implementation("androidx.camera:camera-lifecycle:1.3.4")
+
     // Hilt
     implementation(libs.hilt.android)
     ksp(libs.hilt.compiler)
@@ -113,6 +121,23 @@ dependencies {
 
     // Billing
     implementation(libs.billing.ktx)
+
+    // Watch Hub (live screencast/share) — WebRTC for the actual peer media,
+    // Socket.IO client for signaling against watchSignalingService.ts's
+    // '/watch' namespace. org.json is excluded because Android already
+    // ships its own implementation of those classes; without excluding the
+    // transitive dependency the two collide at build time.
+    implementation("io.getstream:stream-webrtc-android:1.1.1")
+    implementation("io.socket:socket.io-client:2.1.1") {
+        exclude(group = "org.json", module = "json")
+    }
+
+    // Watch Hub Phase 3 — Nearby Connections handles the Bluetooth/Wi-Fi-
+    // Direct/local-hotspot discovery and link negotiation itself (don't
+    // hand-roll raw BluetoothSocket/WifiP2pManager); used here purely as an
+    // alternate SIGNALING transport alongside Socket.IO, not as the media
+    // path itself (see NearbyTransport.kt for why).
+    implementation("com.google.android.gms:play-services-nearby:19.3.0")
 
     // Logging
     implementation(libs.timber)

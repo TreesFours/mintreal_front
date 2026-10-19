@@ -35,8 +35,29 @@ class SendMessageUseCase @Inject constructor(
         // below — for narrow flows (face-swap reference image, etc.) that need
         // a specific role regardless of whether Scene Mode's toggle is on.
         explicitImageRoles: List<String>? = null,
-        isSocialAutosendContext: Boolean = false
+        isSocialAutosendContext: Boolean = false,
+        // Architectural Render runs its own dedicated, narrowly-scoped system
+        // instruction server-side (aiService.ts's ARCH_IMAGE_SYSTEM_INSTRUCTION) —
+        // the usual Shadow/God-Mode/True-Feelings/Mood-tag wrapper this use case
+        // normally bakes into every prompt below would only confuse that, so this
+        // skips straight to repository.sendMessage with the raw prompt instead.
+        isArchitecturalRender: Boolean = false,
+        confirmArchRender: Boolean = false,
+        archUnderstanding: String? = null
     ): Resource<ChatResponse> {
+        if (isArchitecturalRender) {
+            val imageParts = imageUris?.mapIndexedNotNull { _, uri -> FileUtil.uriToMultipart(context, uri, "images") }
+            return repository.sendMessage(
+                prompt = prompt,
+                provider = provider,
+                history = history,
+                deviceId = deviceId,
+                images = imageParts,
+                audio = null,
+                confirmArchRender = confirmArchRender,
+                archUnderstanding = archUnderstanding
+            )
+        }
         val currentDate = SimpleDateFormat("EEEE, MMMM dd, yyyy HH:mm", Locale.getDefault()).format(Date())
         
         // 🛡️ Collect Shadow Protocols

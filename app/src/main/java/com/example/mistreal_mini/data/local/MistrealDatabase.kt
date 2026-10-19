@@ -12,6 +12,8 @@ import com.example.mistreal_mini.data.local.dao.ScribeDao
 import com.example.mistreal_mini.data.local.dao.BankDao
 import com.example.mistreal_mini.data.local.dao.VerifiedFaceDao
 import com.example.mistreal_mini.data.local.dao.business.BusinessDao
+import com.example.mistreal_mini.data.local.dao.PinnedGameDao
+import com.example.mistreal_mini.data.local.dao.DelayedTrendDao
 import com.example.mistreal_mini.data.local.entity.*
 
 @Database(
@@ -26,9 +28,11 @@ import com.example.mistreal_mini.data.local.entity.*
         BusinessEntity::class,
         BusinessItemEntity::class,
         BankLinkEntity::class,
-        VerifiedFaceEntity::class
+        VerifiedFaceEntity::class,
+        PinnedGameEntity::class,
+        DelayedTrendEntity::class
     ],
-    version = 14,
+    version = 20,
     exportSchema = false
 )
 abstract class MistrealDatabase : RoomDatabase() {
@@ -42,4 +46,6 @@ abstract class MistrealDatabase : RoomDatabase() {
     abstract fun businessDao(): BusinessDao
     abstract fun bankDao(): BankDao
     abstract fun verifiedFaceDao(): VerifiedFaceDao
+    abstract fun pinnedGameDao(): PinnedGameDao
+    abstract fun delayedTrendDao(): DelayedTrendDao
 }

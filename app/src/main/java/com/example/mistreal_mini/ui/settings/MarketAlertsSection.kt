@@ -181,16 +181,46 @@ fun MarketAlertsSection(viewModel: SettingsViewModel) {
     if (chartSymbol != null) {
         val candles by viewModel.chartCandles.collectAsState()
         val isLoadingChart by viewModel.isLoadingChart.collectAsState()
+        // getCandles() already fetches/caches up to ~180 daily candles
+        // server-side (marketDataService.ts) — the timeframe toggle just
+        // slices what's already in hand, no extra network call per window.
+        var timeframeDays by remember { mutableIntStateOf(180) }
+        var showMovingAverage by remember { mutableStateOf(false) }
+        val windowedCandles = remember(candles, timeframeDays) { candles.takeLast(timeframeDays) }
+
         AlertDialog(
             onDismissRequest = { viewModel.closeChart() },
-            title = { Text("$chartSymbol — 6 months") },
+            title = { Text("$chartSymbol") },
             text = {
-                if (isLoadingChart) {
-                    Box(modifier = Modifier.fillMaxWidth().height(180.dp), contentAlignment = Alignment.Center) {
-                        CircularProgressIndicator()
+                Column {
+                    if (isLoadingChart) {
+                        Box(modifier = Modifier.fillMaxWidth().height(180.dp), contentAlignment = Alignment.Center) {
+                            CircularProgressIndicator()
+                        }
+                    } else {
+                        CandlestickChart(candles = windowedCandles, showMovingAverage = showMovingAverage)
                     }
-                } else {
-                    CandlestickChart(candles = candles)
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        listOf("1M" to 30, "3M" to 90, "6M" to 180).forEach { (label, days) ->
+                            FilterChip(
+                                selected = timeframeDays == days,
+                                onClick = { timeframeDays = days },
+                                label = { Text(label) }
+                            )
+                        }
+                    }
+                    Spacer(modifier = Modifier.height(6.dp))
+                    FilterChip(
+                        selected = showMovingAverage,
+                        onClick = { showMovingAverage = !showMovingAverage },
+                        label = { Text("20-day avg") }
+                    )
+                    Text(
+                        "Tap and drag on the chart to draw a trend line.",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = Color.Gray
+                    )
                 }
             },
             confirmButton = { TextButton(onClick = { viewModel.closeChart() }) { Text("CLOSE") } }

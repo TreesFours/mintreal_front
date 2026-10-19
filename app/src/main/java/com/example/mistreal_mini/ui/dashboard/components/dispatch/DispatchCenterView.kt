@@ -15,6 +15,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.example.mistreal_mini.data.model.PlatformIcons
 import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -22,12 +23,13 @@ import kotlinx.coroutines.launch
 fun DispatchCenterView(
     deviceId: String,
     connectedSocials: List<String>,
-    onPostToSocial: suspend (String, String, String, String) -> Boolean,
+    onPostToSocial: suspend (String, String, String, String, Boolean) -> Boolean,
     snackbarHostState: SnackbarHostState
 ) {
     var content by remember { mutableStateOf("") }
     var selectedPlatforms by remember { mutableStateOf(setOf<String>()) }
     var postType by remember { mutableStateOf("post") }
+    var mistrealOnly by remember { mutableStateOf(false) }
     var isPosting by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
     val scrollState = rememberScrollState()
@@ -121,16 +123,58 @@ fun DispatchCenterView(
 
         Spacer(modifier = Modifier.height(20.dp))
 
+        // Mistreal-only toggle — skips every connected external account
+        // entirely and posts straight into the in-app Community Feed only,
+        // for whoever would rather not cross-post this one.
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f)),
+            shape = RoundedCornerShape(12.dp)
+        ) {
+            Row(
+                modifier = Modifier.padding(12.dp).fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Icon(Icons.Default.Shield, null, modifier = Modifier.size(20.dp))
+                Spacer(modifier = Modifier.width(12.dp))
+                Column(modifier = Modifier.weight(1f)) {
+                    Text("Mistreal Only", fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                    Text(
+                        "Post to the Mistreal community feed without cross-posting to any connected account.",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = Color.Gray
+                    )
+                }
+                val sfx = com.example.mistreal_mini.ui.util.LocalSfxHapticPlayer.current
+                Switch(checked = mistrealOnly, onCheckedChange = { sfx?.playToggle(); mistrealOnly = it })
+            }
+        }
+
+        Spacer(modifier = Modifier.height(20.dp))
+
         // Target Social Channels
         Text(
             text = "TARGET CHANNELS",
             style = MaterialTheme.typography.labelSmall,
             fontWeight = FontWeight.Black,
-            color = Color.Gray
+            color = if (mistrealOnly) Color.Gray.copy(alpha = 0.4f) else Color.Gray
         )
         Spacer(modifier = Modifier.height(8.dp))
 
-        if (connectedSocials.isEmpty()) {
+        if (mistrealOnly) {
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.15f)),
+                shape = RoundedCornerShape(12.dp)
+            ) {
+                Text(
+                    "Not needed — this broadcast won't leave Mistreal.",
+                    modifier = Modifier.padding(16.dp),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = Color.Gray
+                )
+            }
+        } else if (connectedSocials.isEmpty()) {
             Card(
                 modifier = Modifier.fillMaxWidth(),
                 colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f)),
@@ -164,14 +208,7 @@ fun DispatchCenterView(
                         label = { Text(platform.uppercase(), fontWeight = FontWeight.Bold, fontSize = 11.sp) },
                         leadingIcon = {
                             Icon(
-                                imageVector = when (platform) {
-                                    "twitter", "x" -> Icons.Default.Public
-                                    "whatsapp" -> Icons.Default.Chat
-                                    "instagram" -> Icons.Default.CameraAlt
-                                    "facebook" -> Icons.Default.Public
-                                    "linkedin" -> Icons.Default.Business
-                                    else -> Icons.Default.Link
-                                },
+                                imageVector = PlatformIcons.forPlatform(platform) ?: Icons.Default.Link,
                                 contentDescription = null,
                                 modifier = Modifier.size(16.dp)
                             )
@@ -188,12 +225,20 @@ fun DispatchCenterView(
             onClick = {
                 if (isCharLimitExceeded) {
                     scope.launch { snackbarHostState.showSnackbar("Content exceeds character limit ($charLimit).") }
+                } else if (mistrealOnly) {
+                    scope.launch {
+                        isPosting = true
+                        val result = onPostToSocial(deviceId, "mistreal", postType, content, true)
+                        isPosting = false
+                        snackbarHostState.showSnackbar(if (result) "Posted to the Mistreal community feed!" else "Failed to post.")
+                        if (result) content = ""
+                    }
                 } else {
                     scope.launch {
                         isPosting = true
                         var successCount = 0
                         selectedPlatforms.forEach { platform ->
-                            val result = onPostToSocial(deviceId, platform, postType, content)
+                            val result = onPostToSocial(deviceId, platform, postType, content, false)
                             if (result) successCount++
                         }
                         isPosting = false
@@ -205,7 +250,7 @@ fun DispatchCenterView(
             modifier = Modifier
                 .fillMaxWidth()
                 .height(56.dp),
-            enabled = content.isNotBlank() && selectedPlatforms.isNotEmpty() && !isPosting && !isCharLimitExceeded,
+            enabled = content.isNotBlank() && (mistrealOnly || selectedPlatforms.isNotEmpty()) && !isPosting && !isCharLimitExceeded,
             shape = RoundedCornerShape(16.dp)
         ) {
             if (isPosting) {

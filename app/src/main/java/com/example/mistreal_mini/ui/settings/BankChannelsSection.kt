@@ -1,7 +1,6 @@
 package com.example.mistreal_mini.ui.settings
 
 import android.content.Intent
-import android.net.Uri
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -16,6 +15,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.example.mistreal_mini.data.api.BankChannel
+import com.example.mistreal_mini.util.SocialDeepLinks
 
 /**
  * Deep-links into a bank's own official WhatsApp/Facebook chat — same
@@ -69,8 +69,7 @@ private fun BankChannelRow(bank: BankChannel, onLaunch: (Intent) -> Unit) {
 
             bank.whatsapp?.let { wa ->
                 TextButton(onClick = {
-                    val text = Uri.encode(wa.prefilledMessage ?: "")
-                    onLaunch(Intent(Intent.ACTION_VIEW, Uri.parse("https://wa.me/${wa.number}?text=$text")))
+                    onLaunch(SocialDeepLinks.whatsApp(wa.number, wa.prefilledMessage))
                 }) {
                     Icon(Icons.Default.Chat, null, tint = Color(0xFF25D366), modifier = Modifier.size(16.dp))
                     Spacer(modifier = Modifier.width(4.dp))
@@ -80,12 +79,7 @@ private fun BankChannelRow(bank: BankChannel, onLaunch: (Intent) -> Unit) {
 
             bank.facebook?.let { fb ->
                 TextButton(onClick = {
-                    val nativeIntent = Intent(Intent.ACTION_VIEW, Uri.parse("fb-messenger://user-thread/${fb.pageId}"))
-                    try {
-                        onLaunch(nativeIntent)
-                    } catch (e: Exception) {
-                        onLaunch(Intent(Intent.ACTION_VIEW, Uri.parse("https://m.me/${fb.pageId}")))
-                    }
+                    SocialDeepLinks.openMessenger(fb.pageId, onLaunch)
                 }) {
                     Icon(Icons.Default.Chat, null, tint = Color(0xFF0084FF), modifier = Modifier.size(16.dp))
                     Spacer(modifier = Modifier.width(4.dp))

@@ -14,8 +14,32 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MICROPHONE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_LOCATION" />
+    <!-- Watch Hub screen-share host: required by Android 14+ (API 34) when a
+         foreground service declares foregroundServiceType="mediaProjection". -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PROJECTION" />
     <uses-permission android:name="android.permission.WAKE_LOCK" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <!-- SfxHapticPlayer's toggle/alert vibration (SOS alert in particular). -->
+    <uses-permission android:name="android.permission.VIBRATE" />
+
+    <!-- Watch Hub Phase 3 — Nearby Connections (Bluetooth/Wi-Fi-Direct
+         signaling transport). BLUETOOTH/BLUETOOTH_ADMIN cover API <=30;
+         the three ADVERTISE/CONNECT/SCAN permissions are the API 31+
+         (Android 12) runtime-permission replacements Nearby Connections
+         needs for the same operations. neverForLocation is accurate here —
+         this app already asks for real location elsewhere for its own
+         features, but Nearby's BLE scan specifically never uses location. -->
+    <uses-permission android:name="android.permission.BLUETOOTH" android:maxSdkVersion="30" />
+    <uses-permission android:name="android.permission.BLUETOOTH_ADMIN" android:maxSdkVersion="30" />
+    <uses-permission android:name="android.permission.BLUETOOTH_ADVERTISE" />
+    <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />
+    <uses-permission android:name="android.permission.BLUETOOTH_SCAN" tools:targetApi="31" android:usesPermissionFlags="neverForLocation" />
+    <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
+    <uses-permission android:name="android.permission.CHANGE_WIFI_STATE" />
+    <!-- ResourceMonitor: network-type/metered signal for adaptive degradation. -->
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+    <!-- Android 13+ (API 33) replacement for Wi-Fi-based Nearby discovery. -->
+    <uses-permission android:name="android.permission.NEARBY_WIFI_DEVICES" android:usesPermissionFlags="neverForLocation" tools:targetApi="33" />
 
     <uses-feature android:name="android.hardware.camera" android:required="false" />
     <uses-feature android:name="android.hardware.microphone" android:required="false" />
@@ -37,6 +61,12 @@
             android:enabled="true"
             android:exported="false"
             android:foregroundServiceType="microphone|location" />
+
+        <service
+            android:name=".service.WatchHostService"
+            android:enabled="true"
+            android:exported="false"
+            android:foregroundServiceType="mediaProjection" />
 
         <activity
             android:name=".ui.startup.PhoenixBootActivity"

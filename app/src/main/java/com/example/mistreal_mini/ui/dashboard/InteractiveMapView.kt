@@ -13,6 +13,7 @@ package com.example.mistreal_mini.ui.dashboard
 import android.app.Activity
 import android.net.Uri
 import android.view.ViewGroup
+import com.example.mistreal_mini.monitor.PressureLevel
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -28,6 +29,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
@@ -97,6 +99,7 @@ private suspend fun downloadToLocalUri(context: android.content.Context, url: St
 fun InteractiveMapView(
     location: String,
     onClose: () -> Unit,
+    onOpenAiRender: () -> Unit = {},
     viewModel: ChatViewModel,
     dashboardViewModel: DashboardViewModel,
     mapViewModel: TacticalMapViewModel,
@@ -242,6 +245,7 @@ fun InteractiveMapView(
     // the moment location tracking is toggled off.
     LaunchedEffect(isLocationEnabled, isMapReady) {
         if (isLocationEnabled && isMapReady) {
+            mapViewModel.resourceMonitor.ensureMonitoring()
             var isFirstFix = true
             while (true) {
                 mapViewModel.locationHelper.getCurrentLocation()?.let { loc ->
@@ -251,7 +255,15 @@ fun InteractiveMapView(
                         isFirstFix = false
                     }
                 }
-                delay(8000)
+                // Backs off under battery/thermal/network pressure instead of
+                // polling GPS at a fixed rate regardless of device state.
+                val interval = when (mapViewModel.resourceMonitor.pressureNow()) {
+                    PressureLevel.NONE -> 8_000L
+                    PressureLevel.MILD -> 15_000L
+                    PressureLevel.MODERATE -> 30_000L
+                    PressureLevel.SEVERE -> 60_000L
+                }
+                delay(interval)
             }
         }
     }
@@ -289,6 +301,14 @@ fun InteractiveMapView(
                         onClick = { isHudExpanded = false }
                     )
             ) {
+                // Lets `update` below skip re-pushing pins/discoveryResults into
+                // the WebView when nothing actually changed, instead of
+                // Gson-serializing and clearing+rebuilding the whole pins
+                // layer on every recomposition (including ones triggered by
+                // unrelated state like tacticalCircle).
+                var lastPushedPinsKey by remember { mutableStateOf<String?>(null) }
+                var lastPushedDiscoveryJson by remember { mutableStateOf<String?>(null) }
+
                 AndroidView(
                     factory = { context ->
                         WebView(context).apply {
@@ -377,9 +397,12 @@ fun InteractiveMapView(
                                 }
                             } ?: webView.evaluateJavascript("if(tacticalCircle) map.removeLayer(tacticalCircle); if(focusPlaceMarker) map.removeLayer(focusPlaceMarker);", null)
 
-                            webView.evaluateJavascript("pins.clearLayers();", null)
-                            if (!isDrawMode) {
-                                mapViewModel.intelLog.filter { it.type == "PIN" }.forEach { pin ->
+                            val pins = if (isDrawMode) emptyList() else mapViewModel.intelLog.filter { it.type == "PIN" }
+                            val pinsKey = pins.joinToString(";") { "${it.latitude},${it.longitude},${it.label}" }
+                            if (pinsKey != lastPushedPinsKey) {
+                                lastPushedPinsKey = pinsKey
+                                webView.evaluateJavascript("pins.clearLayers();", null)
+                                pins.forEach { pin ->
                                     val safePinLabel = pin.label.replace("'", "\\'")
                                     webView.evaluateJavascript("addTacticalPin(${pin.latitude}, ${pin.longitude}, '$safePinLabel')", null)
                                 }
@@ -394,7 +417,11 @@ fun InteractiveMapView(
                                         ?: mapViewModel.discoveryResults
                                 }
                                 val json = com.google.gson.Gson().toJson(visible).replace("'", "\\'")
-                                webView.evaluateJavascript("renderDiscovery('$json', ${center.first}, ${center.second})", null)
+                                val renderKey = "$json|${center.first}|${center.second}"
+                                if (renderKey != lastPushedDiscoveryJson) {
+                                    lastPushedDiscoveryJson = renderKey
+                                    webView.evaluateJavascript("renderDiscovery('$json', ${center.first}, ${center.second})", null)
+                                }
                             }
                         }
                     },
@@ -425,6 +452,17 @@ fun InteractiveMapView(
                                 webViewInstance?.evaluateJavascript("toggleSatellite($isSatelliteOn)", null)
                             }) {
                                 Icon(Icons.Default.Satellite, "Toggle satellite view", tint = if (isSatelliteOn) Color(0xFF4CAF50) else Color.Gray)
+                            }
+                            IconButton(onClick = {
+                                // Correct BECAUSE this screen shares the exact same
+                                // chatViewModel instance as the "chat" destination
+                                // (both given the one instantiated in MainActivity,
+                                // outside the NavHost) — see the comment at this
+                                // button's onOpenAiRender wiring in MainActivity.kt.
+                                viewModel.setProvider(ChatViewModel.ARCH_IMAGE_PROVIDER_ID)
+                                onOpenAiRender()
+                            }) {
+                                Icon(Icons.Default.Architecture, "AI Render", tint = MaterialTheme.colorScheme.secondary)
                             }
                             IconButton(onClick = {
                                 (mapChatContext as? Activity)?.let { activity ->
@@ -515,6 +553,26 @@ fun InteractiveMapView(
                             if (isComputingRoute) CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp, color = Color.White)
                             else Icon(Icons.Default.DirectionsWalk, "Get directions")
                         }
+                        // Was no way to ever dismiss this — searchMarker only ever got
+                        // set, never cleared, so this FAB (and the map pin/popup under
+                        // it) stuck around for the rest of the session after the
+                        // first-ever search.
+                        Icon(
+                            Icons.Default.Close, "Dismiss search pin", tint = Color.White,
+                            modifier = Modifier
+                                .align(Alignment.TopStart)
+                                .padding(top = 56.dp + 48.dp, start = 32.dp)
+                                .size(18.dp)
+                                .background(Color.Black.copy(alpha = 0.6f), CircleShape)
+                                .padding(2.dp)
+                                .clickable {
+                                    mapViewModel.clearSearchMarker()
+                                    routeInfo = null
+                                    webViewInstance?.evaluateJavascript(
+                                        "if(searchMarker) map.removeLayer(searchMarker); clearRoute();", null
+                                    )
+                                }
+                        )
                     }
 
                     routeInfo?.let { info ->
@@ -542,6 +600,12 @@ fun InteractiveMapView(
 
                 Spacer(modifier = Modifier.weight(1f))
 
+                // Hidden (not just visually covered) while chat is open — the
+                // chat panel's fixed 550dp height always exceeds the HUD's own
+                // max height and fully overlaps it, so leaving this mounted
+                // and clickable underneath served no purpose and could swallow
+                // taps meant for the chat panel above it.
+                if (!isChatVisible) {
                 Surface(
                     color = MaterialTheme.colorScheme.surface.copy(alpha = 0.96f),
                     tonalElevation = 12.dp,
@@ -574,7 +638,7 @@ fun InteractiveMapView(
 
                         if (intelLog.isNotEmpty()) {
                             LazyRow(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                items(intelLog) { entry ->
+                                items(intelLog, key = { "${it.label}_${it.timestamp}" }) { entry ->
                                     FilterChip(
                                         selected = true,
                                         onClick = { mapViewModel.removeIntelItem(entry) },
@@ -638,6 +702,7 @@ fun InteractiveMapView(
                         }
                     }
                 }
+                }
             }
 
             if (isCalibrationWizardVisible) {
@@ -674,7 +739,7 @@ fun InteractiveMapView(
                             IconButton(onClick = { isChatVisible = false }) { Icon(Icons.Default.Close, null) }
                         }
                         LazyColumn(state = listState, modifier = Modifier.weight(1f)) {
-                            items(messages) { msg -> ChatBubble(msg, viewModel, {}, { _, _ -> }, snackbarHostState, coroutineScope) }
+                            items(messages, key = { it.id ?: it.hashCode() }) { msg -> ChatBubble(msg, viewModel, {}, { _, _ -> }, snackbarHostState, coroutineScope) }
                             if (viewModel.isLoading.value) item { TypingIndicator() }
                         }
                         val isMapChatRecording by viewModel.isRecording
@@ -689,7 +754,7 @@ fun InteractiveMapView(
                                 onDelete = { viewModel.deleteRecording() },
                                 onPlay = { viewModel.playRecording() },
                                 onSend = { viewModel.sendVoiceMessage() },
-                                onCancel = { viewModel.cancelRecording() }
+                                onTrim = { startMs, endMs -> viewModel.trimRecording(startMs, endMs) }
                             )
                         } else {
                             ChatInputBar(
@@ -771,7 +836,7 @@ fun SaveIntelDialog(
                 if (existingGroups.isNotEmpty()) {
                     Spacer(modifier = Modifier.height(8.dp))
                     LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        items(existingGroups) { g ->
+                        items(existingGroups, key = { it }) { g ->
                             FilterChip(
                                 selected = groupName == g, 
                                 onClick = { groupName = if (groupName == g) "" else g }, 

@@ -1,6 +1,7 @@
 package com.example.mistreal_mini.data.repository
 
 import com.example.mistreal_mini.data.Resource
+import com.example.mistreal_mini.data.safeApiCall
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.auth.FirebaseUser
 import kotlinx.coroutines.channels.awaitClose
@@ -27,35 +28,48 @@ class AuthRepository @Inject constructor(
         awaitClose { firebaseAuth.removeAuthStateListener(listener) }
     }
 
-    suspend fun signInWithEmail(email: String, password: String): Resource<FirebaseUser> {
-        return try {
-            val result = firebaseAuth.signInWithEmailAndPassword(email, password).await()
-            result.user?.let {
-                Resource.Success(it)
-            } ?: Resource.Error("User not found")
-        } catch (e: Exception) {
-            Resource.Error(e.message ?: "Sign in failed")
-        }
+    suspend fun signInWithEmail(email: String, password: String): Resource<FirebaseUser> = safeApiCall("Sign in failed") {
+        val result = firebaseAuth.signInWithEmailAndPassword(email, password).await()
+        result.user?.let { Resource.Success(it) } ?: Resource.Error("User not found")
     }
 
-    suspend fun signUpWithEmail(email: String, password: String): Resource<FirebaseUser> {
-        return try {
-            val result = firebaseAuth.createUserWithEmailAndPassword(email, password).await()
-            result.user?.let {
-                Resource.Success(it)
-            } ?: Resource.Error("Sign up failed")
-        } catch (e: Exception) {
-            Resource.Error(e.message ?: "Sign up failed")
-        }
+    suspend fun signUpWithEmail(email: String, password: String): Resource<FirebaseUser> = safeApiCall("Sign up failed") {
+        val result = firebaseAuth.createUserWithEmailAndPassword(email, password).await()
+        result.user?.let { Resource.Success(it) } ?: Resource.Error("Sign up failed")
     }
 
     fun signOut() {
         firebaseAuth.signOut()
+        cachedToken = null
+        cachedTokenExpiryMillis = 0L
     }
 
-    suspend fun getIdToken(): String? {
+    @Volatile private var cachedToken: String? = null
+    @Volatile private var cachedTokenExpiryMillis: Long = 0L
+
+    // Refresh a bit before actual expiry so a request that starts right at
+    // the boundary doesn't get handed a token that expires mid-flight.
+    private val tokenRefreshSkewMillis = 60_000L
+
+    /**
+     * Was: forceRefresh=true unconditionally, meaning every single HTTP
+     * request round-tripped to Firebase's token endpoint before the real
+     * request could even start. Now: reads a cached token unless it's
+     * missing/near-expiry, or the caller explicitly needs a fresh one
+     * (e.g. after a 401 — see NetworkModule's interceptor).
+     */
+    suspend fun getIdToken(forceRefresh: Boolean = false): String? {
+        val now = System.currentTimeMillis()
+        val cached = cachedToken
+        if (!forceRefresh && cached != null && now < cachedTokenExpiryMillis - tokenRefreshSkewMillis) {
+            return cached
+        }
         return try {
-            firebaseAuth.currentUser?.getIdToken(true)?.await()?.token
+            val user = firebaseAuth.currentUser ?: return null
+            val result = user.getIdToken(forceRefresh).await()
+            cachedToken = result.token
+            cachedTokenExpiryMillis = result.expirationTimestamp * 1000
+            result.token
         } catch (e: Exception) {
             null
         }

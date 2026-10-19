@@ -121,7 +121,7 @@ fun ArchitectureDesignView(
                 }
             }
 
-            items(auditMessages) { msg ->
+            items(auditMessages, key = { it.id ?: it.hashCode() }) { msg ->
                 ChatBubble(
                     message = msg,
                     viewModel = chatViewModel,

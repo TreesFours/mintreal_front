@@ -19,6 +19,7 @@ import com.example.mistreal_mini.data.model.DiscoveryResult
 import com.example.mistreal_mini.data.repository.AuthRepository
 import com.example.mistreal_mini.data.repository.InfoRepository
 import com.example.mistreal_mini.data.repository.TacticalRepository
+import com.example.mistreal_mini.monitor.ResourceMonitor
 import com.example.mistreal_mini.util.LocationHelper
 import com.google.gson.Gson
 import com.google.gson.reflect.TypeToken
@@ -42,6 +43,7 @@ class TacticalMapViewModel @Inject constructor(
     private val authRepository: AuthRepository,
     private val tacticalRepository: TacticalRepository,
     val locationHelper: LocationHelper,
+    val resourceMonitor: ResourceMonitor,
     private val locationHistoryDao: LocationHistoryDao,
     private val savedIntelDao: SavedIntelDao
 ) : ViewModel() {
@@ -339,6 +341,11 @@ class TacticalMapViewModel @Inject constructor(
     fun clearTacticalCircle() {
         tacticalRepository.clearTacticalCircle()
         _isSniperModeActive.value = false
+    }
+
+    /** Was never callable before — searchMarker only ever got SET, never cleared, so the "Get directions" FAB stayed visible for the rest of the session after the first-ever search. */
+    fun clearSearchMarker() {
+        tacticalRepository.setSearchMarker(null)
     }
 
     fun onTacticalShapeCompleted(type: String, pointsJson: String) {

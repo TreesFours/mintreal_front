@@ -2,6 +2,7 @@ package com.example.mistreal_mini.di
 
 import com.example.mistreal_mini.data.api.AiApiService
 import com.example.mistreal_mini.data.api.AiProviderApiService
+import com.example.mistreal_mini.data.api.ErrorNotifyInterceptor
 import com.example.mistreal_mini.data.api.InfoApiService
 import com.example.mistreal_mini.data.repository.AuthRepository
 import dagger.Module
@@ -42,7 +43,8 @@ object NetworkModule {
     @Singleton
     fun provideOkHttpClient(
         loggingInterceptor: HttpLoggingInterceptor,
-        authRepository: AuthRepository
+        authRepository: AuthRepository,
+        errorNotifyInterceptor: ErrorNotifyInterceptor
     ): OkHttpClient {
         val certificatePinner = CertificatePinner.Builder()
             .add("mistreal-backend.onrender.com", "sha256/fizfE9JVlzlRpIEx7epXfqW9enrbLvwF/LU26XTPEG4=")
@@ -53,18 +55,31 @@ object NetworkModule {
         return OkHttpClient.Builder()
             .certificatePinner(certificatePinner)
             .addInterceptor(loggingInterceptor)
+            // Outermost of the two custom interceptors — sees the FINAL
+            // response (after the auth-retry-on-401 interceptor below has
+            // already done its one retry), so a real failure only notifies
+            // once, not once per retry attempt.
+            .addInterceptor(errorNotifyInterceptor)
             .addInterceptor(Interceptor { chain ->
-                val token = runBlocking(Dispatchers.IO) {
-                    authRepository.getIdToken()
-                }
-                val request = if (token != null) {
-                    chain.request().newBuilder()
-                        .addHeader("Authorization", "Bearer $token")
-                        .build()
+                fun requestWithToken(token: String?) = if (token != null) {
+                    chain.request().newBuilder().addHeader("Authorization", "Bearer $token").build()
                 } else {
                     chain.request()
                 }
-                chain.proceed(request)
+
+                val token = runBlocking(Dispatchers.IO) { authRepository.getIdToken() }
+                val response = chain.proceed(requestWithToken(token))
+
+                // Cached token was rejected (expired/revoked server-side before
+                // our local expiry check caught it) — force exactly one refresh
+                // and retry, rather than caching staleness indefinitely.
+                if (response.code == 401 && token != null) {
+                    response.close()
+                    val freshToken = runBlocking(Dispatchers.IO) { authRepository.getIdToken(forceRefresh = true) }
+                    chain.proceed(requestWithToken(freshToken))
+                } else {
+                    response
+                }
             })
             .dns(object : Dns {
                 override fun lookup(hostname: String): List<InetAddress> {
@@ -115,5 +130,23 @@ object NetworkModule {
     @Singleton
     fun provideMarketApiService(retrofit: Retrofit): com.example.mistreal_mini.data.api.MarketApiService {
         return retrofit.create(com.example.mistreal_mini.data.api.MarketApiService::class.java)
+    }
+
+    @Provides
+    @Singleton
+    fun provideReviewApiService(retrofit: Retrofit): com.example.mistreal_mini.data.api.ReviewApiService {
+        return retrofit.create(com.example.mistreal_mini.data.api.ReviewApiService::class.java)
+    }
+
+    @Provides
+    @Singleton
+    fun provideCloudStorageApiService(retrofit: Retrofit): com.example.mistreal_mini.data.api.CloudStorageApiService {
+        return retrofit.create(com.example.mistreal_mini.data.api.CloudStorageApiService::class.java)
+    }
+
+    @Provides
+    @Singleton
+    fun provideNeedsApiService(retrofit: Retrofit): com.example.mistreal_mini.data.api.NeedsApiService {
+        return retrofit.create(com.example.mistreal_mini.data.api.NeedsApiService::class.java)
     }
 }

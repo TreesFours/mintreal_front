@@ -40,6 +40,7 @@ import kotlinx.coroutines.launch
 fun SellerCommandScreen(
     onBack: () -> Unit,
     onUpgradeClick: () -> Unit = {},
+    onStartLiveView: (businessId: String) -> Unit = {},
     viewModel: BusinessViewModel = hiltViewModel()
 ) {
     val myBusiness by viewModel.myBusiness.collectAsStateWithLifecycle()
@@ -72,6 +73,7 @@ fun SellerCommandScreen(
                 viewModel = viewModel,
                 isPro = isPro,
                 onUpgradeClick = onUpgradeClick,
+                onStartLiveView = onStartLiveView,
                 modifier = Modifier.padding(padding)
             )
         }
@@ -211,6 +213,7 @@ fun InventoryManager(
     viewModel: BusinessViewModel,
     isPro: Boolean = false,
     onUpgradeClick: () -> Unit = {},
+    onStartLiveView: (businessId: String) -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val items by viewModel.getInventory(business.businessId).collectAsStateWithLifecycle(initialValue = emptyList())
@@ -252,6 +255,9 @@ fun InventoryManager(
                 }
                 IconButton(onClick = { showCreateAd = true }) {
                     Icon(Icons.Default.Campaign, "Launch Ad", tint = MaterialTheme.colorScheme.secondary, modifier = Modifier.size(28.dp))
+                }
+                IconButton(onClick = { onStartLiveView(business.businessId) }) {
+                    Icon(Icons.Default.ScreenShare, "Start Live View", tint = Color.Red, modifier = Modifier.size(26.dp))
                 }
                 IconButton(onClick = { showAddItem = true }) {
                     Icon(Icons.Default.AddBox, "Add Item", tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(32.dp))

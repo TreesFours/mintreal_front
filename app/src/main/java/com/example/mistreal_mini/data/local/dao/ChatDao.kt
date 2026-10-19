@@ -10,23 +10,28 @@ import kotlinx.coroutines.flow.Flow
 
 @Dao
 interface ChatDao {
-    @Query("SELECT * FROM chats WHERE userId = :userId ORDER BY timestamp ASC")
+    @Query("SELECT * FROM chats WHERE userId = :userId AND revealAt IS NULL ORDER BY timestamp ASC")
     fun getAllMessages(userId: String): Flow<List<ChatEntity>>
 
-    @Query("SELECT * FROM chats WHERE userId = :userId AND trendTitle = :trendTitle ORDER BY timestamp ASC")
+    @Query("SELECT * FROM chats WHERE userId = :userId AND trendTitle = :trendTitle AND revealAt IS NULL ORDER BY timestamp ASC")
     fun getTrendMessages(userId: String, trendTitle: String): Flow<List<ChatEntity>>
 
-    @Query("SELECT * FROM chats WHERE userId = :userId AND isTrend = 1 ORDER BY timestamp DESC")
+    @Query("SELECT * FROM chats WHERE userId = :userId AND isTrend = 1 AND revealAt IS NULL ORDER BY timestamp DESC")
     fun getTrends(userId: String): Flow<List<ChatEntity>>
 
-    @Query("SELECT * FROM chats WHERE userId = :userId AND isTrend = 0 ORDER BY timestamp DESC")
+    @Query("SELECT * FROM chats WHERE userId = :userId AND isTrend = 0 AND revealAt IS NULL ORDER BY timestamp DESC")
     fun getPagedMessages(userId: String): PagingSource<Int, ChatEntity>
 
-    @Query("SELECT * FROM chats WHERE userId = :userId AND trendTitle = :trendTitle ORDER BY timestamp DESC")
+    @Query("SELECT * FROM chats WHERE userId = :userId AND trendTitle = :trendTitle AND revealAt IS NULL ORDER BY timestamp DESC")
     fun getPagedTrendMessages(userId: String, trendTitle: String): PagingSource<Int, ChatEntity>
 
+    // Returns the generated rowId — needed to schedule RevealDelayedReplyWorker
+    // against the exact row when a message is inserted with revealAt set.
     @Insert(onConflict = OnConflictStrategy.REPLACE)
-    suspend fun insertMessage(message: ChatEntity)
+    suspend fun insertMessage(message: ChatEntity): Long
+
+    @Query("UPDATE chats SET revealAt = NULL WHERE id = :id")
+    suspend fun clearRevealAt(id: Long)
 
     @Query("DELETE FROM chats WHERE userId = :userId AND isTrend = 0")
     suspend fun deleteNonTrendMessages(userId: String)
@@ -61,7 +66,7 @@ interface ChatDao {
     @Query("DELETE FROM chats WHERE trendTitle = :title")
     suspend fun deleteTrend(title: String)
 
-    @Query("SELECT * FROM chats WHERE userId = :userId AND isTrend = 1 GROUP BY trendTitle ORDER BY timestamp DESC")
+    @Query("SELECT * FROM chats WHERE userId = :userId AND isTrend = 1 AND revealAt IS NULL GROUP BY trendTitle ORDER BY timestamp DESC")
     fun getUniqueTrends(userId: String): Flow<List<ChatEntity>>
 
     @Query("SELECT COUNT(DISTINCT trendTitle) FROM chats WHERE userId = :userId AND isTrend = 1")

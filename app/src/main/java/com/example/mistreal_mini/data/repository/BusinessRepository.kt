@@ -2,17 +2,18 @@ package com.example.mistreal_mini.data.repository
 
 import android.content.Context
 import android.net.Uri
-import android.provider.Settings
 import com.example.mistreal_mini.data.Resource
 import com.example.mistreal_mini.data.api.BusinessAdResponse
 import com.example.mistreal_mini.data.api.BusinessPlatformHandle
 import com.example.mistreal_mini.data.api.InfoApiService
 import com.example.mistreal_mini.data.api.RegisterBusinessRequest
 import com.example.mistreal_mini.data.api.RemoteBusiness
+import com.example.mistreal_mini.data.api.RemoteDiscoveryPoi
 import com.example.mistreal_mini.data.api.UploadOwnerPhotoRequest
 import com.example.mistreal_mini.data.local.dao.business.BusinessDao
 import com.example.mistreal_mini.data.local.entity.BusinessEntity
 import com.example.mistreal_mini.data.local.entity.BusinessItemEntity
+import com.example.mistreal_mini.util.DeviceIdProvider
 import com.example.mistreal_mini.util.FileUtil
 import com.google.gson.Gson
 import com.google.gson.reflect.TypeToken
@@ -22,18 +23,21 @@ import timber.log.Timber
 import javax.inject.Inject
 import javax.inject.Singleton
 
+data class BusinessSearchResult(val native: List<RemoteBusiness>, val external: List<RemoteDiscoveryPoi>)
+
 @Singleton
 class BusinessRepository @Inject constructor(
     private val businessDao: BusinessDao,
     private val authRepository: AuthRepository,
     private val api: InfoApiService,
-    @ApplicationContext private val context: Context
+    @ApplicationContext private val context: Context,
+    private val deviceIdProvider: DeviceIdProvider
 ) {
     val currentUserId: String
         get() = authRepository.currentUser?.uid ?: "guest"
 
     private val deviceId: String
-        get() = Settings.Secure.getString(context.contentResolver, Settings.Secure.ANDROID_ID)
+        get() = deviceIdProvider.deviceId
 
     fun getMyBusiness(): Flow<BusinessEntity?> {
         return businessDao.getBusinessByOwner(currentUserId)
@@ -133,11 +137,33 @@ class BusinessRepository @Inject constructor(
      * exist at all: /business only had a /register endpoint, so a business
      * was only ever visible on the device that registered it.
      */
-    suspend fun searchBusinessesRemote(category: String, city: String): Resource<List<RemoteBusiness>> {
+    suspend fun searchBusinessesRemote(category: String, city: String, lat: Double? = null, lon: Double? = null): Resource<List<RemoteBusiness>> {
         return try {
-            val response = api.searchBusinessesRemote(category.takeIf { it != "All" }, city.takeIf { it.isNotBlank() })
+            val response = api.searchBusinessesRemote(category.takeIf { it != "All" }, city.takeIf { it.isNotBlank() }, lat, lon)
             if (response.success) Resource.Success(response.businesses ?: emptyList())
             else Resource.Error(response.error ?: "Failed to search businesses")
+        } catch (e: Exception) {
+            Resource.Error(e.message ?: "Failed to search businesses")
+        }
+    }
+
+    /**
+     * Same search, but also surfaces the external (non-Mistreal) fallback
+     * results the backend only populates when `businesses` comes back
+     * empty — kept separate from searchBusinessesRemote() above so
+     * DiscoverySearchScreen's existing native-only consumption is
+     * untouched; only the new Market screen needs the external half.
+     */
+    suspend fun searchBusinessesRemoteFull(
+        category: String, city: String, lat: Double? = null, lon: Double? = null
+    ): Resource<BusinessSearchResult> {
+        return try {
+            val response = api.searchBusinessesRemote(category.takeIf { it != "All" }, city.takeIf { it.isNotBlank() }, lat, lon)
+            if (response.success) {
+                Resource.Success(BusinessSearchResult(response.businesses ?: emptyList(), response.externalBusinesses ?: emptyList()))
+            } else {
+                Resource.Error(response.error ?: "Failed to search businesses")
+            }
         } catch (e: Exception) {
             Resource.Error(e.message ?: "Failed to search businesses")
         }
@@ -149,6 +175,16 @@ class BusinessRepository @Inject constructor(
             if (response.success) Resource.Success(response) else Resource.Error(response.error ?: "Business not found")
         } catch (e: Exception) {
             Resource.Error(e.message ?: "Failed to load business")
+        }
+    }
+
+    /** Null if this business has no live Watch Hub session right now — not an error, just "nothing to watch." */
+    suspend fun getLiveWatchSession(businessId: String): String? {
+        return try {
+            val response = api.getWatchSessions("market", businessId)
+            response.sessions?.firstOrNull { it.status == "live" }?.id
+        } catch (e: Exception) {
+            null
         }
     }
 

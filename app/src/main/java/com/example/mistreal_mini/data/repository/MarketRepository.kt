@@ -1,13 +1,13 @@
 package com.example.mistreal_mini.data.repository
 
 import android.content.Context
-import android.provider.Settings
 import com.example.mistreal_mini.data.Resource
 import com.example.mistreal_mini.data.api.CreateMarketAlertRequest
 import com.example.mistreal_mini.data.api.MarketAlert
 import com.example.mistreal_mini.data.api.MarketApiService
 import com.example.mistreal_mini.data.api.MarketCandle
 import com.example.mistreal_mini.data.api.MarketQuote
+import com.example.mistreal_mini.util.DeviceIdProvider
 import dagger.hilt.android.qualifiers.ApplicationContext
 import timber.log.Timber
 import javax.inject.Inject
@@ -17,10 +17,11 @@ import javax.inject.Singleton
 class MarketRepository @Inject constructor(
     private val api: MarketApiService,
     private val authRepository: AuthRepository,
-    @ApplicationContext private val context: Context
+    @ApplicationContext private val context: Context,
+    private val deviceIdProvider: DeviceIdProvider
 ) {
     private val deviceId: String
-        get() = Settings.Secure.getString(context.contentResolver, Settings.Secure.ANDROID_ID)
+        get() = deviceIdProvider.deviceId
 
     suspend fun getWatchlist(): Resource<List<MarketQuote>> {
         return try {

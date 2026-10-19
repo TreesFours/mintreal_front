@@ -39,12 +39,14 @@ fun FeedPostCard(
     post: SocialPost,
     isActive: Boolean,
     onAiClick: () -> Unit,
+    onVoiceAsk: () -> Unit = {},
     onReadAloud: (String) -> Unit,
     onLikeClick: () -> Unit,
     onBookmarkClick: () -> Unit,
     onFollowClick: (currentlyFollowing: Boolean, onResult: (Boolean) -> Unit) -> Unit,
     onSendComment: (String) -> Unit,
     onShareClick: () -> Unit,
+    onAuthorClick: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val capabilities = remember(post.platform) { PlatformCapabilityRegistry.forPlatform(post.platform) }
@@ -72,9 +74,9 @@ fun FeedPostCard(
         }
 
         if (isMediaPost) {
-            MediaPostBody(post, isActive, brandColor, capabilities, isFollowing, onFollowClick = followClickHandler)
+            MediaPostBody(post, isActive, brandColor, capabilities, isFollowing, onFollowClick = followClickHandler, onAuthorClick = onAuthorClick)
         } else {
-            TextPostBody(post, brandColor, capabilities, isFollowing, onAiClick, onReadAloud, onFollowClick = followClickHandler)
+            TextPostBody(post, brandColor, capabilities, isFollowing, onAiClick, onReadAloud, onFollowClick = followClickHandler, onAuthorClick = onAuthorClick)
         }
 
         // Right-edge action rail — common to every post type.
@@ -86,6 +88,7 @@ fun FeedPostCard(
             onBookmarkClick = onBookmarkClick,
             onShareClick = onShareClick,
             onAiClick = onAiClick,
+            onVoiceAsk = onVoiceAsk,
             modifier = Modifier.align(Alignment.CenterEnd).padding(end = 12.dp)
         )
 
@@ -109,7 +112,8 @@ private fun BoxScope.MediaPostBody(
     brandColor: Color,
     capabilities: com.example.mistreal_mini.data.model.PlatformCapabilities,
     isFollowing: Boolean,
-    onFollowClick: () -> Unit
+    onFollowClick: () -> Unit,
+    onAuthorClick: () -> Unit = {}
 ) {
     if (post.platform == "youtube") {
         var showPlayer by remember(post.id) { mutableStateOf(false) }
@@ -167,7 +171,12 @@ private fun BoxScope.MediaPostBody(
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(post.platformIcon, fontSize = 16.sp)
                 Spacer(Modifier.width(8.dp))
-                Text(post.author, color = Color.White, fontWeight = FontWeight.Bold)
+                Text(
+                    post.author,
+                    color = Color.White,
+                    fontWeight = FontWeight.Bold,
+                    modifier = if (post.authorDeviceId != null) Modifier.clickable { onAuthorClick() } else Modifier
+                )
                 if (capabilities.supportsFollow) {
                     Spacer(Modifier.width(8.dp))
                     Text(
@@ -206,7 +215,8 @@ private fun TextPostBody(
     isFollowing: Boolean,
     onAiClick: () -> Unit,
     onReadAloud: (String) -> Unit,
-    onFollowClick: () -> Unit
+    onFollowClick: () -> Unit,
+    onAuthorClick: () -> Unit = {}
 ) {
     val scrollState = rememberScrollState()
     Card(
@@ -249,7 +259,12 @@ private fun TextPostBody(
                         }
                     }
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text(post.author, style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold)
+                        Text(
+                            post.author,
+                            style = MaterialTheme.typography.labelLarge,
+                            fontWeight = FontWeight.Bold,
+                            modifier = if (post.authorDeviceId != null) Modifier.clickable { onAuthorClick() } else Modifier
+                        )
                         if (capabilities.supportsFollow) {
                             Spacer(Modifier.width(8.dp))
                             Text(
@@ -311,6 +326,7 @@ private fun ActionRail(
     onBookmarkClick: () -> Unit,
     onShareClick: () -> Unit,
     onAiClick: () -> Unit,
+    onVoiceAsk: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     Column(
@@ -351,6 +367,14 @@ private fun ActionRail(
             tint = Color.White,
             label = null,
             onClick = onAiClick
+        )
+        // Quick voice question — lighter than the full AI-analysis popup,
+        // see ui/util/QuickVoiceAskDialog.kt.
+        RailButton(
+            icon = Icons.Default.Mic,
+            tint = Color.White,
+            label = null,
+            onClick = onVoiceAsk
         )
     }
 }
