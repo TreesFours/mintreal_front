@@ -2,6 +2,7 @@ package com.example.mistreal_mini.data.repository
 
 import android.content.Context
 import com.example.mistreal_mini.data.Resource
+import com.example.mistreal_mini.data.safeApiCall
 import com.example.mistreal_mini.data.api.AiApiService
 import com.example.mistreal_mini.data.api.AiModelResponse
 import com.example.mistreal_mini.data.local.dao.ChatDao
@@ -14,6 +15,7 @@ import com.example.mistreal_mini.data.model.ChatMessage
 import com.example.mistreal_mini.data.model.ChatResponse
 import com.example.mistreal_mini.util.DeviceIdProvider
 import com.google.gson.Gson
+import timber.log.Timber
 import androidx.paging.Pager
 import androidx.paging.PagingConfig
 import androidx.paging.PagingData
@@ -164,62 +166,54 @@ class AiRepository @Inject constructor(
         confirmArchRender: Boolean = false,
         archUnderstanding: String? = null,
         retryCount: Int = 0
-    ): Resource<ChatResponse> {
-        return try {
-            val gson = Gson()
-            val historyJson = gson.toJson(history)
-            val firebaseUid = authRepository.currentUser?.uid
-            val imageRolesJson = imageRoles?.let { gson.toJson(it) }
+    ): Resource<ChatResponse> = safeApiCall("Network failure. Check your connection.") {
+        val gson = Gson()
+        val historyJson = gson.toJson(history)
+        val firebaseUid = authRepository.currentUser?.uid
+        val imageRolesJson = imageRoles?.let { gson.toJson(it) }
 
-            val response = api.sendMessage(
-                prompt = prompt.toRequestBody("text/plain".toMediaTypeOrNull()),
-                provider = provider.toRequestBody("text/plain".toMediaTypeOrNull()),
-                history = historyJson.toRequestBody("application/json".toMediaTypeOrNull()),
-                deviceId = this@AiRepository.deviceId.toRequestBody("text/plain".toMediaTypeOrNull()),
-                firebaseUid = firebaseUid?.toRequestBody("text/plain".toMediaTypeOrNull()),
-                images = images,
-                imageRoles = imageRolesJson?.toRequestBody("application/json".toMediaTypeOrNull()),
-                audio = audio,
-                video = video,
-                confirmArchRender = confirmArchRender.toString().toRequestBody("text/plain".toMediaTypeOrNull()),
-                archUnderstanding = archUnderstanding?.toRequestBody("application/json".toMediaTypeOrNull())
-            )
+        val response = api.sendMessage(
+            prompt = prompt.toRequestBody("text/plain".toMediaTypeOrNull()),
+            provider = provider.toRequestBody("text/plain".toMediaTypeOrNull()),
+            history = historyJson.toRequestBody("application/json".toMediaTypeOrNull()),
+            deviceId = this@AiRepository.deviceId.toRequestBody("text/plain".toMediaTypeOrNull()),
+            firebaseUid = firebaseUid?.toRequestBody("text/plain".toMediaTypeOrNull()),
+            images = images,
+            imageRoles = imageRolesJson?.toRequestBody("application/json".toMediaTypeOrNull()),
+            audio = audio,
+            video = video,
+            confirmArchRender = confirmArchRender.toString().toRequestBody("text/plain".toMediaTypeOrNull()),
+            archUnderstanding = archUnderstanding?.toRequestBody("application/json".toMediaTypeOrNull())
+        )
 
-            if (response.success) {
-                Resource.Success(response)
-            } else {
-                // 🛠️ Handle 429 Too Many Requests with exponential backoff
-                val isRateLimit = response.error?.contains("429") == true || response.error?.contains("RATE_LIMIT") == true
+        if (response.success) {
+            Resource.Success(response)
+        } else {
+            // 🛠️ Handle 429 Too Many Requests with exponential backoff
+            val isRateLimit = response.error?.contains("429") == true || response.error?.contains("RATE_LIMIT") == true
 
-                if (isRateLimit && retryCount < 3) {
-                    val waitTime = 2000L * (retryCount + 1)
-                    kotlinx.coroutines.delay(waitTime)
-                    return sendMessage(prompt, provider, history, deviceId, images, audio, video, imageRoles, confirmArchRender, archUnderstanding, retryCount + 1)
-                }
-
-                if (retryCount < 2 && (response.error?.contains("Timeout") == true || response.error?.contains("503") == true)) {
-                    kotlinx.coroutines.delay(2000L * (retryCount + 1))
-                    return sendMessage(prompt, provider, history, deviceId, images, audio, video, imageRoles, confirmArchRender, archUnderstanding, retryCount + 1)
-                }
-                
-                // Final error message for the user if all retries fail
-                val finalError = if (isRateLimit)
-                    "AI is catching its breath (Rate Limit). Please wait a few seconds." 
-                    else (response.error ?: "Unknown error")
-                
-                Resource.Error(finalError)
+            if (isRateLimit && retryCount < 3) {
+                val waitTime = 2000L * (retryCount + 1)
+                kotlinx.coroutines.delay(waitTime)
+                return@safeApiCall sendMessage(prompt, provider, history, deviceId, images, audio, video, imageRoles, confirmArchRender, archUnderstanding, retryCount + 1)
             }
-        } catch (e: Exception) {
-            Resource.Error(e.message ?: "Network failure. Check your connection.")
+
+            if (retryCount < 2 && (response.error?.contains("Timeout") == true || response.error?.contains("503") == true)) {
+                kotlinx.coroutines.delay(2000L * (retryCount + 1))
+                return@safeApiCall sendMessage(prompt, provider, history, deviceId, images, audio, video, imageRoles, confirmArchRender, archUnderstanding, retryCount + 1)
+            }
+
+            // Final error message for the user if all retries fail
+            val finalError = if (isRateLimit)
+                "AI is catching its breath (Rate Limit). Please wait a few seconds."
+                else (response.error ?: "Unknown error")
+
+            Resource.Error(finalError)
         }
     }
 
-    suspend fun getAvailableModels(deviceId: String?): Resource<List<AiModelResponse>> {
-        return try {
-            Resource.Success(api.getAvailableModels(this.deviceId))
-        } catch (e: Exception) {
-            Resource.Error(e.message ?: "Failed to fetch models")
-        }
+    suspend fun getAvailableModels(deviceId: String?): Resource<List<AiModelResponse>> = safeApiCall("Failed to fetch models") {
+        Resource.Success(api.getAvailableModels(this@AiRepository.deviceId))
     }
 
     suspend fun warmupBackend(): Boolean {
@@ -227,6 +221,7 @@ class AiRepository @Inject constructor(
             val response = api.warmupBackend()
             response.isSuccessful || response.code() == 404 // 404 or success means server is awake/responding
         } catch (e: Exception) {
+            Timber.w(e, "AiRepository: warmupBackend failed")
             false
         }
     }

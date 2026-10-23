@@ -1,11 +1,10 @@
 package com.example.mistreal_mini.data.api
 
-import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.content.Context
-import android.os.Build
 import androidx.core.app.NotificationCompat
 import com.example.mistreal_mini.data.local.PreferenceManager
+import com.example.mistreal_mini.util.NotificationChannels
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.first
@@ -47,13 +46,16 @@ class ErrorNotifyInterceptor @Inject constructor(
                 } catch (e: Exception) {
                     "(couldn't read response body: ${e.message})"
                 }
+                val detail = bodySnippet.ifBlank { response.message.ifBlank { "No error detail returned." } }
+                Timber.w("API error ${response.code} — ${request.method} ${request.url.encodedPath}: $detail")
                 notify(
                     title = "API Error ${response.code} — ${request.method} ${request.url.encodedPath}",
-                    detail = bodySnippet.ifBlank { response.message.ifBlank { "No error detail returned." } }
+                    detail = detail
                 )
             }
             return response
         } catch (e: IOException) {
+            Timber.e(e, "Network error — ${request.method} ${request.url.encodedPath}")
             notify(
                 title = "Network error — ${request.method} ${request.url.encodedPath}",
                 detail = e.message ?: e.toString()
@@ -90,11 +92,9 @@ class ErrorNotifyInterceptor @Inject constructor(
     }
 
     private fun ensureChannel() {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            val channel = NotificationChannel(CHANNEL_ID, "API Errors", NotificationManager.IMPORTANCE_DEFAULT).apply {
-                description = "Shows the exact backend/network error when something fails, so it can be copied and shared for debugging."
-            }
-            context.getSystemService(NotificationManager::class.java).createNotificationChannel(channel)
-        }
+        NotificationChannels.ensure(
+            context, CHANNEL_ID, "API Errors", NotificationManager.IMPORTANCE_DEFAULT,
+            description = "Shows the exact backend/network error when something fails, so it can be copied and shared for debugging."
+        )
     }
 }

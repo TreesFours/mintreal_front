@@ -3,6 +3,7 @@ package com.example.mistreal_mini.data.repository
 import android.content.Context
 import android.net.Uri
 import com.example.mistreal_mini.data.Resource
+import com.example.mistreal_mini.data.safeApiCall
 import com.example.mistreal_mini.data.api.BusinessAdResponse
 import com.example.mistreal_mini.data.api.BusinessPlatformHandle
 import com.example.mistreal_mini.data.api.InfoApiService
@@ -93,9 +94,9 @@ class BusinessRepository @Inject constructor(
      * URL forward on its next routine re-save instead of needing a second
      * round-trip.
      */
-    suspend fun uploadOwnerPhoto(business: BusinessEntity, photoUri: Uri, context: Context): Resource<String> {
-        return try {
-            val base64 = FileUtil.uriToBase64(context, photoUri) ?: return Resource.Error("Couldn't read the selected photo.")
+    suspend fun uploadOwnerPhoto(business: BusinessEntity, photoUri: Uri, context: Context): Resource<String> =
+        safeApiCall("Failed to upload owner photo") {
+            val base64 = FileUtil.uriToBase64(context, photoUri) ?: return@safeApiCall Resource.Error("Couldn't read the selected photo.")
             val mimeType = FileUtil.getMimeType(context, photoUri) ?: "image/jpeg"
             val response = api.uploadOwnerPhoto(business.businessId, UploadOwnerPhotoRequest(deviceId, base64, mimeType))
             if (response.success && response.ownerPhotoUrl != null) {
@@ -104,27 +105,16 @@ class BusinessRepository @Inject constructor(
             } else {
                 Resource.Error(response.error ?: "Failed to upload owner photo")
             }
-        } catch (e: Exception) {
-            Resource.Error(e.message ?: "Failed to upload owner photo")
         }
+
+    suspend fun canShareBusiness(businessId: String): Resource<Boolean> = safeApiCall("Failed to check share eligibility") {
+        val response = api.canShareBusiness(businessId, deviceId)
+        if (response.success) Resource.Success(response.canShare) else Resource.Error(response.error ?: "Failed to check share eligibility")
     }
 
-    suspend fun canShareBusiness(businessId: String): Resource<Boolean> {
-        return try {
-            val response = api.canShareBusiness(businessId, deviceId)
-            if (response.success) Resource.Success(response.canShare) else Resource.Error(response.error ?: "Failed to check share eligibility")
-        } catch (e: Exception) {
-            Resource.Error(e.message ?: "Failed to check share eligibility")
-        }
-    }
-
-    suspend fun getAdForBusiness(businessId: String): Resource<BusinessAdResponse> {
-        return try {
-            val response = api.getAdForBusiness(businessId)
-            if (response.success) Resource.Success(response) else Resource.Error(response.error ?: "No ad found")
-        } catch (e: Exception) {
-            Resource.Error(e.message ?: "Failed to load ad")
-        }
+    suspend fun getAdForBusiness(businessId: String): Resource<BusinessAdResponse> = safeApiCall("Failed to load ad") {
+        val response = api.getAdForBusiness(businessId)
+        if (response.success) Resource.Success(response) else Resource.Error(response.error ?: "No ad found")
     }
 
     /** Local-only cache of the owner's own business (used by SellerCommandScreen). */
@@ -137,15 +127,12 @@ class BusinessRepository @Inject constructor(
      * exist at all: /business only had a /register endpoint, so a business
      * was only ever visible on the device that registered it.
      */
-    suspend fun searchBusinessesRemote(category: String, city: String, lat: Double? = null, lon: Double? = null): Resource<List<RemoteBusiness>> {
-        return try {
+    suspend fun searchBusinessesRemote(category: String, city: String, lat: Double? = null, lon: Double? = null): Resource<List<RemoteBusiness>> =
+        safeApiCall("Failed to search businesses") {
             val response = api.searchBusinessesRemote(category.takeIf { it != "All" }, city.takeIf { it.isNotBlank() }, lat, lon)
             if (response.success) Resource.Success(response.businesses ?: emptyList())
             else Resource.Error(response.error ?: "Failed to search businesses")
-        } catch (e: Exception) {
-            Resource.Error(e.message ?: "Failed to search businesses")
         }
-    }
 
     /**
      * Same search, but also surfaces the external (non-Mistreal) fallback
@@ -156,27 +143,20 @@ class BusinessRepository @Inject constructor(
      */
     suspend fun searchBusinessesRemoteFull(
         category: String, city: String, lat: Double? = null, lon: Double? = null
-    ): Resource<BusinessSearchResult> {
-        return try {
-            val response = api.searchBusinessesRemote(category.takeIf { it != "All" }, city.takeIf { it.isNotBlank() }, lat, lon)
-            if (response.success) {
-                Resource.Success(BusinessSearchResult(response.businesses ?: emptyList(), response.externalBusinesses ?: emptyList()))
-            } else {
-                Resource.Error(response.error ?: "Failed to search businesses")
-            }
-        } catch (e: Exception) {
-            Resource.Error(e.message ?: "Failed to search businesses")
+    ): Resource<BusinessSearchResult> = safeApiCall("Failed to search businesses") {
+        val response = api.searchBusinessesRemote(category.takeIf { it != "All" }, city.takeIf { it.isNotBlank() }, lat, lon)
+        if (response.success) {
+            Resource.Success(BusinessSearchResult(response.businesses ?: emptyList(), response.externalBusinesses ?: emptyList()))
+        } else {
+            Resource.Error(response.error ?: "Failed to search businesses")
         }
     }
 
-    suspend fun getBusinessDetail(businessId: String): Resource<com.example.mistreal_mini.data.api.BusinessDetailResponse> {
-        return try {
+    suspend fun getBusinessDetail(businessId: String): Resource<com.example.mistreal_mini.data.api.BusinessDetailResponse> =
+        safeApiCall("Failed to load business") {
             val response = api.getBusinessDetail(businessId)
             if (response.success) Resource.Success(response) else Resource.Error(response.error ?: "Business not found")
-        } catch (e: Exception) {
-            Resource.Error(e.message ?: "Failed to load business")
         }
-    }
 
     /** Null if this business has no live Watch Hub session right now — not an error, just "nothing to watch." */
     suspend fun getLiveWatchSession(businessId: String): String? {
@@ -184,6 +164,7 @@ class BusinessRepository @Inject constructor(
             val response = api.getWatchSessions("market", businessId)
             response.sessions?.firstOrNull { it.status == "live" }?.id
         } catch (e: Exception) {
+            Timber.w(e, "BusinessRepository: getLiveWatchSession failed for $businessId")
             null
         }
     }

@@ -15,10 +15,21 @@ sealed class Resource<T>(val data: T? = null, val message: String? = null) {
  * THROWN exception and turns it into a Resource.Error with [fallbackMessage]
  * when the exception itself has no message.
  */
-suspend fun <T> safeApiCall(fallbackMessage: String = "Request failed", block: suspend () -> Resource<T>): Resource<T> {
+suspend fun <T> safeApiCall(
+    fallbackMessage: String = "Request failed",
+    // Most call sites also logged the exception via Timber before this
+    // existed — passing a tag here preserves that instead of silently
+    // dropping it during the migration to this shared wrapper. Always logs
+    // even without one (falling back to fallbackMessage as the tag), since a
+    // caller forgetting to pass logTag used to mean the exception vanished
+    // with zero trace anywhere — that was true for 89 of ~100 call sites.
+    logTag: String? = null,
+    block: suspend () -> Resource<T>
+): Resource<T> {
     return try {
         block()
     } catch (e: Exception) {
+        timber.log.Timber.e(e, logTag ?: fallbackMessage)
         Resource.Error(e.message ?: fallbackMessage)
     }
 }
