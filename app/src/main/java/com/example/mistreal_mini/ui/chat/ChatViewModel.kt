@@ -526,8 +526,24 @@ class ChatViewModel @Inject constructor(
         viewModelScope.launch { preferenceManager.setVoiceNoteAutoplay(enabled) }
     }
 
-    // Voice Recording Logic
+    // Voice Recording Logic — recordingTargetIsAi tracks which button started
+    // the recording (the shared mic can only record one thing at a time
+    // anyway), so stopRecording/sendRecordedVoiceNote know whether to route
+    // the result to the human contact or to the AI.
+    private var recordingTargetIsAi = false
+
     fun startRecording() {
+        recordingTargetIsAi = false
+        startRecordingInternal()
+    }
+
+    /** Used by the "voice note to AI" button inside a social (human) chat — see sendVoiceNoteToAi(). */
+    fun startAiVoiceNoteRecording() {
+        recordingTargetIsAi = true
+        startRecordingInternal()
+    }
+
+    private fun startRecordingInternal() {
         if (!_isSttEnabled.value) {
             viewModelScope.launch { _errorEvents.emit("Voice input disabled in settings") }
             return
@@ -542,7 +558,7 @@ class ChatViewModel @Inject constructor(
         }
         _isRecording.value = true
         _recordedFile.value = voiceRecorder.startRecording()
-        
+
         recordingTimerJob?.cancel()
         recordingTimerJob = viewModelScope.launch {
             _recordingDuration.intValue = 0
@@ -558,7 +574,7 @@ class ChatViewModel @Inject constructor(
         voiceRecorder.stopRecording()
         recordingTimerJob?.cancel()
         if (_voiceAutoSendOnRelease.value) {
-            sendVoiceMessage()
+            sendRecordedVoiceNote()
         }
     }
 
@@ -576,11 +592,55 @@ class ChatViewModel @Inject constructor(
         }
     }
 
+    /** Dispatches a finished recording to whichever destination started it — see startAiVoiceNoteRecording(). */
+    fun sendRecordedVoiceNote() {
+        if (recordingTargetIsAi) sendVoiceNoteToAi() else sendVoiceMessage()
+    }
+
     fun sendVoiceMessage() {
         _recordedFile.value?.let {
             handleAudioInput(Uri.fromFile(it))
         }
         _recordedFile.value = null
+    }
+
+    /**
+     * Records a voice note for the AI from inside a human-to-human chat —
+     * replaces Conversation Mode there. Reuses draftSocialReply()'s
+     * local-only-message trick: the AI's reply renders in this thread but
+     * is never sent to the counterparty via performSocialAction.
+     */
+    fun sendVoiceNoteToAi() {
+        val file = _recordedFile.value ?: return
+        _recordedFile.value = null
+        val uri = Uri.fromFile(file)
+        _isLoading.value = true
+        viewModelScope.launch {
+            val result = sendMessageUseCase(
+                context = context,
+                prompt = "Listen to this voice note and respond helpfully.",
+                persona = _currentPersona.value,
+                history = _messages.takeLast(5),
+                provider = _selectedProvider.value,
+                deviceId = deviceIdProvider.deviceId,
+                audioUri = uri
+            )
+            if (result is Resource.Success) {
+                _messages.add(ChatMessage(
+                    role = "user", content = "", type = "audio",
+                    attachmentPaths = listOf(uri.toString()), provider = "you"
+                ))
+                _messages.add(ChatMessage(
+                    role = "assistant",
+                    content = result.data?.content ?: "",
+                    provider = "ai_draft",
+                    type = "social_draft"
+                ))
+            } else {
+                _errorEvents.emit("Failed to reach AI: ${(result as? Resource.Error)?.message}")
+            }
+            _isLoading.value = false
+        }
     }
 
     fun handleAudioInput(uri: Uri?) {

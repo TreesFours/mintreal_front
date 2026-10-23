@@ -778,7 +778,6 @@ fun InteractiveMapView(
                                 onVideoClick = {},
                                 onFileClick = { mapFilePickerLauncher.launch("*/*") },
                                 onVoiceClick = { viewModel.startRecording() },
-                                onConversationClick = {},
                                 onScribeClick = {},
                                 isLoading = false,
                                 pendingAttachments = viewModel.pendingAttachments,

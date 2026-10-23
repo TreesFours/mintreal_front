@@ -352,7 +352,7 @@ fun ChatScreen(
                     onStopRecording = { viewModel.stopRecording() },
                     onDelete = { viewModel.deleteRecording() },
                     onPlay = { viewModel.playRecording() },
-                    onSend = { viewModel.sendVoiceMessage() },
+                    onSend = { viewModel.sendRecordedVoiceNote() },
                     onTrim = { startMs, endMs -> viewModel.trimRecording(startMs, endMs) }
                 )
             } else {
@@ -382,13 +382,9 @@ fun ChatScreen(
                     onVideoClick = { captureVideo() },
                     onFileClick = { filePickerLauncher.launch("*/*") },
                     onVoiceClick = { viewModel.startRecording() },
-                    onConversationClick = {
-                        if (isHandsFree) viewModel.advanceHandsFreeTurn() else viewModel.startHandsFreeLoop(textState)
-                    },
                     onScribeClick = {
                         if (isScribing) viewModel.stopScribe() else viewModel.startScribe()
                     },
-                    isHandsFreeActive = isHandsFree,
                     isScribing = isScribing,
                     onClearScribe = { textState = "" },
                     onSaveScribe = { 
@@ -396,8 +392,11 @@ fun ChatScreen(
                         textState = ""
                         viewModel.stopScribe()
                     },
-                    onDraftClick = if (viewModel.isSocialChat.value) { 
-                        { viewModel.draftSocialReply(textState); textState = "" } 
+                    onDraftClick = if (viewModel.isSocialChat.value) {
+                        { viewModel.draftSocialReply(textState); textState = "" }
+                    } else null,
+                    onAiVoiceNoteClick = if (viewModel.isSocialChat.value) {
+                        { viewModel.startAiVoiceNoteRecording() }
                     } else null,
                     isLoading = isLoading,
                     pendingAttachments = viewModel.pendingAttachments,
