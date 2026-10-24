@@ -22,6 +22,9 @@ android {
         vectorDrawables {
             useSupportLibrary = true
         }
+
+        buildConfigField("String", "BACKEND_HOST", "\"mistreal-backend.onrender.com\"")
+        buildConfigField("String", "BASE_URL", "\"https://\" + BACKEND_HOST + \"/\"")
     }
 
     buildTypes {
@@ -63,13 +66,14 @@ dependencies {
     implementation(libs.androidx.paging.runtime)
     implementation(libs.androidx.paging.compose)
 
-    // CameraX — headless SOS photo capture only (ImageCapture use case, no
-    // Preview/PreviewView anywhere — see util/SosCameraCapture.kt). Stable,
-    // well-documented public API; minSdk 26 is well above CameraX's own
-    // minSdk 21 floor.
+    // CameraX — was headless-only (ImageCapture, no Preview/PreviewView — see
+    // util/SosCameraCapture.kt). camera-view added for Live AI's self-view
+    // camera preview (ImageAnalysis feeds frames to Gemini; PreviewView is
+    // just what the user sees of themselves, same idea as a video call).
     implementation("androidx.camera:camera-core:1.3.4")
     implementation("androidx.camera:camera-camera2:1.3.4")
     implementation("androidx.camera:camera-lifecycle:1.3.4")
+    implementation("androidx.camera:camera-view:1.3.4")
 
     // Hilt
     implementation(libs.hilt.android)
@@ -145,6 +149,7 @@ dependencies {
     // Firebase
     implementation(platform(libs.firebase.bom))
     implementation(libs.firebase.auth)
+    implementation(libs.firebase.messaging)
     implementation(libs.play.services.auth)
 
     // SQLCipher (Database Encryption)

@@ -46,10 +46,11 @@ object NetworkModule {
         authRepository: AuthRepository,
         errorNotifyInterceptor: ErrorNotifyInterceptor
     ): OkHttpClient {
+        val backendHost = com.example.mistreal_mini.BuildConfig.BACKEND_HOST
         val certificatePinner = CertificatePinner.Builder()
-            .add("mistreal-backend.onrender.com", "sha256/fizfE9JVlzlRpIEx7epXfqW9enrbLvwF/LU26XTPEG4=")
-            .add("mistreal-backend.onrender.com", "sha256/kldp6NNEd8wsugYyyIYFsi1yIMCED3hZbSR8ZFsa/A4=")
-            .add("mistreal-backend.onrender.com", "sha256/mEflZT5enoR1FuXLgYYGqnVEoZvmf9c2bVBpiOjYQ0c=")
+            .add(backendHost, "sha256/fizfE9JVlzlRpIEx7epXfqW9enrbLvwF/LU26XTPEG4=")
+            .add(backendHost, "sha256/kldp6NNEd8wsugYyyIYFsi1yIMCED3hZbSR8ZFsa/A4=")
+            .add(backendHost, "sha256/mEflZT5enoR1FuXLgYYGqnVEoZvmf9c2bVBpiOjYQ0c=")
             .build()
 
         return OkHttpClient.Builder()
@@ -102,7 +103,7 @@ object NetworkModule {
     @Singleton
     fun provideRetrofit(okHttpClient: OkHttpClient): Retrofit {
         return Retrofit.Builder()
-            .baseUrl("https://mistreal-backend.onrender.com/") // I've updated this to your repo name, update if different
+            .baseUrl(com.example.mistreal_mini.BuildConfig.BASE_URL)
             .client(okHttpClient)
             .addConverterFactory(GsonConverterFactory.create())
             .build()

@@ -1,8 +1,10 @@
 package com.example.mistreal_mini.ui.chat.components
 
 import android.net.Uri
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.itemsIndexed
@@ -27,8 +29,12 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import coil.compose.AsyncImage
+import com.example.mistreal_mini.ui.util.VideoPlayer
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun ChatInputBar(
     text: String,
@@ -81,6 +87,10 @@ fun ChatInputBar(
     var showMediaTools by remember { mutableStateOf(false) }
     var showCaptureTools by remember { mutableStateOf(false) }
     var previewUri by remember { mutableStateOf<Uri?>(null) }
+    // Tap = quick look (just see what it is); hold = the full editor below,
+    // which already has crop/trim/Split-into-6/AI-edit — no need to rebuild
+    // any of that for the "I actually want to edit this" path.
+    var quickPreviewUri by remember { mutableStateOf<Uri?>(null) }
 
     Surface(
         tonalElevation = 8.dp, 
@@ -121,7 +131,12 @@ fun ChatInputBar(
                                 val isVideo = context.contentResolver.getType(uri)?.startsWith("video") == true
                                 
                                 if (isImage || isVideo) {
-                                    Box(modifier = Modifier.fillMaxSize().clickable { previewUri = uri }) {
+                                    Box(
+                                        modifier = Modifier.fillMaxSize().combinedClickable(
+                                            onClick = { quickPreviewUri = uri },
+                                            onLongClick = { previewUri = uri }
+                                        )
+                                    ) {
                                         AsyncImage(
                                             model = uri,
                                             contentDescription = null,
@@ -373,5 +388,57 @@ fun ChatInputBar(
             isAiEditingImage = isAiEditingImage,
             onAiEditImage = onAiEditImage
         )
+    }
+
+    if (quickPreviewUri != null) {
+        val uri = quickPreviewUri!!
+        val isVideo = context.contentResolver.getType(uri)?.startsWith("video") == true
+        QuickPreviewDialog(
+            uri = uri,
+            isVideo = isVideo,
+            onDismiss = { quickPreviewUri = null },
+            onOpenEditor = {
+                quickPreviewUri = null
+                previewUri = uri
+            }
+        )
+    }
+}
+
+/**
+ * The "just let me see what this actually is" step — no toolbar, no edit
+ * state, just the image/video full-bleed plus a close button and a way
+ * into the real editor (AttachmentEditorDialog) for anyone who decides
+ * they want to crop/trim/split/AI-edit after all.
+ */
+@Composable
+private fun QuickPreviewDialog(uri: Uri, isVideo: Boolean, onDismiss: () -> Unit, onOpenEditor: () -> Unit) {
+    Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false)) {
+        Box(modifier = Modifier.fillMaxSize().background(Color.Black)) {
+            if (isVideo) {
+                VideoPlayer(videoUrl = uri.toString(), modifier = Modifier.fillMaxSize())
+            } else {
+                AsyncImage(
+                    model = uri,
+                    contentDescription = "Preview",
+                    modifier = Modifier.fillMaxSize(),
+                    contentScale = ContentScale.Fit
+                )
+            }
+            IconButton(
+                onClick = onDismiss,
+                modifier = Modifier.align(Alignment.TopStart).padding(16.dp).background(Color.Black.copy(alpha = 0.6f), CircleShape)
+            ) {
+                Icon(Icons.Default.Close, "Close", tint = Color.White)
+            }
+            OutlinedButton(
+                onClick = onOpenEditor,
+                modifier = Modifier.align(Alignment.BottomCenter).padding(24.dp)
+            ) {
+                Icon(Icons.Default.Edit, null, modifier = Modifier.size(18.dp))
+                Spacer(modifier = Modifier.width(6.dp))
+                Text("Edit")
+            }
+        }
     }
 }

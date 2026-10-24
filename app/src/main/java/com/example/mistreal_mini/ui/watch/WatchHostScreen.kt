@@ -121,7 +121,7 @@ fun WatchHostScreen(
                 HorizontalDivider()
                 Spacer(modifier = Modifier.height(24.dp))
 
-                val watchUrl = "https://mistreal-backend.onrender.com/watch/${sessionId}"
+                val watchUrl = "${com.example.mistreal_mini.BuildConfig.BASE_URL}watch/${sessionId}"
                 Text(
                     "Casting to a computer, smart TV, or anything else with a browser? Open this link there instead — no app needed:",
                     textAlign = androidx.compose.ui.text.style.TextAlign.Center,

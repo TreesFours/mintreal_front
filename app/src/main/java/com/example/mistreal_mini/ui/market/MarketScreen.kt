@@ -28,7 +28,6 @@ import com.example.mistreal_mini.ui.business.BusinessCategories
 import com.example.mistreal_mini.ui.business.BusinessResultCard
 import com.example.mistreal_mini.ui.dashboard.components.ads.AdHostViewModel
 import com.example.mistreal_mini.ui.dashboard.components.ads.AdMediaView
-import kotlinx.coroutines.delay
 
 /**
  * Ticker bands + an ad slot + category/search over businesses, native-first
@@ -55,20 +54,6 @@ fun MarketScreen(
     val nativeResults by viewModel.nativeResults.collectAsState()
     val externalResults by viewModel.externalResults.collectAsState()
     val dueAd by adHostViewModel.dueAd.collectAsState()
-
-    LaunchedEffect(Unit) {
-        while (true) {
-            adHostViewModel.checkForDueAd()
-            delay(60_000)
-        }
-    }
-    LaunchedEffect(dueAd) {
-        dueAd?.let { ad ->
-            adHostViewModel.trackImpression(ad.id)
-            delay(ad.durationSeconds * 1000L)
-            adHostViewModel.clearAd()
-        }
-    }
 
     Scaffold(
         topBar = {

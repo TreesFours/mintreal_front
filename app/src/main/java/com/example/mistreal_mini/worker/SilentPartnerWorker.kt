@@ -1,15 +1,14 @@
 package com.example.mistreal_mini.worker
 
-import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.content.Context
-import android.os.Build
 import androidx.core.app.NotificationCompat
 import androidx.hilt.work.HiltWorker
 import androidx.work.CoroutineWorker
 import androidx.work.WorkerParameters
 import com.example.mistreal_mini.R
 import com.example.mistreal_mini.data.local.PreferenceManager
+import com.example.mistreal_mini.util.NotificationChannels
 import dagger.assisted.Assisted
 import dagger.assisted.AssistedInject
 import kotlinx.coroutines.flow.first
@@ -41,11 +40,7 @@ class SilentPartnerWorker @AssistedInject constructor(
     private fun sendShadowNudge() {
         val notificationManager = applicationContext.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
         val channelId = "shadow_nudge"
-
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            val channel = NotificationChannel(channelId, "Shadow Check-in", NotificationManager.IMPORTANCE_DEFAULT)
-            notificationManager.createNotificationChannel(channel)
-        }
+        NotificationChannels.ensure(applicationContext, channelId, "Shadow Check-in", NotificationManager.IMPORTANCE_DEFAULT)
 
         val notification = NotificationCompat.Builder(applicationContext, channelId)
             .setSmallIcon(android.R.drawable.ic_dialog_info) // Placeholder

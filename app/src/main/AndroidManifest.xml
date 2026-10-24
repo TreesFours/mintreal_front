@@ -17,6 +17,12 @@
     <!-- Watch Hub screen-share host: required by Android 14+ (API 34) when a
          foreground service declares foregroundServiceType="mediaProjection". -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PROJECTION" />
+    <!-- CallService: required by Android 14+ (API 34) for a foreground
+         service declaring foregroundServiceType="camera". -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_CAMERA" />
+    <!-- Incoming-call notification: lets it launch straight into the call
+         UI over the lock screen, same as a real phone call. -->
+    <uses-permission android:name="android.permission.USE_FULL_SCREEN_INTENT" />
     <uses-permission android:name="android.permission.WAKE_LOCK" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <!-- SfxHapticPlayer's toggle/alert vibration (SOS alert in particular). -->
@@ -67,6 +73,26 @@
             android:enabled="true"
             android:exported="false"
             android:foregroundServiceType="mediaProjection" />
+
+        <service
+            android:name=".service.CallService"
+            android:enabled="true"
+            android:exported="false"
+            android:foregroundServiceType="camera|microphone" />
+
+        <service
+            android:name=".service.MistrealFirebaseMessagingService"
+            android:enabled="true"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="com.google.firebase.MESSAGING_EVENT" />
+            </intent-filter>
+        </service>
+
+        <receiver
+            android:name=".service.CallDeclineReceiver"
+            android:enabled="true"
+            android:exported="false" />
 
         <activity
             android:name=".ui.startup.PhoenixBootActivity"

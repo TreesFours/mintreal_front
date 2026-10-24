@@ -1,9 +1,7 @@
 package com.example.mistreal_mini.worker
 
-import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.content.Context
-import android.os.Build
 import androidx.core.app.NotificationCompat
 import androidx.hilt.work.HiltWorker
 import androidx.work.CoroutineWorker
@@ -11,6 +9,7 @@ import androidx.work.WorkerParameters
 import com.example.mistreal_mini.data.Resource
 import com.example.mistreal_mini.data.repository.InfoRepository
 import com.example.mistreal_mini.util.DeviceIdProvider
+import com.example.mistreal_mini.util.NotificationChannels
 import dagger.assisted.Assisted
 import dagger.assisted.AssistedInject
 
@@ -45,11 +44,7 @@ class SafeHavenCheckinWorker @AssistedInject constructor(
     private fun sendCheckinReminder() {
         val notificationManager = applicationContext.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
         val channelId = "safe_haven_checkin"
-
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            val channel = NotificationChannel(channelId, "Safe Haven Check-in", NotificationManager.IMPORTANCE_HIGH)
-            notificationManager.createNotificationChannel(channel)
-        }
+        NotificationChannels.ensure(applicationContext, channelId, "Safe Haven Check-in", NotificationManager.IMPORTANCE_HIGH)
 
         val notification = NotificationCompat.Builder(applicationContext, channelId)
             .setSmallIcon(android.R.drawable.ic_dialog_alert)

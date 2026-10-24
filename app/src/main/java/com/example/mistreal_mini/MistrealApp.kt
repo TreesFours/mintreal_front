@@ -19,7 +19,7 @@ class MistrealApp : Application(), Configuration.Provider {
         super.onCreate()
         FirebaseApp.initializeApp(this)
         net.sqlcipher.database.SQLiteDatabase.loadLibs(this)
-        
+
         // 🛡️ The old reflection-based BuildConfig.DEBUG check always failed silently
         // (buildFeatures.buildConfig isn't enabled in build.gradle.kts, so the class
         // doesn't exist), meaning Timber was NEVER planted and every Timber.d/w/e call

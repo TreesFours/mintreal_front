@@ -2,6 +2,7 @@ package com.example.mistreal_mini.data.repository
 
 import android.content.Context
 import com.example.mistreal_mini.data.Resource
+import com.example.mistreal_mini.data.safeApiCall
 import com.example.mistreal_mini.data.api.CreateMarketAlertRequest
 import com.example.mistreal_mini.data.api.MarketAlert
 import com.example.mistreal_mini.data.api.MarketApiService
@@ -23,17 +24,12 @@ class MarketRepository @Inject constructor(
     private val deviceId: String
         get() = deviceIdProvider.deviceId
 
-    suspend fun getWatchlist(): Resource<List<MarketQuote>> {
-        return try {
-            val response = api.getWatchlist()
-            if (response.success) Resource.Success(response.quotes)
-            else {
-                Timber.w("MarketRepository.getWatchlist: backend returned success=false — %s", response.error)
-                Resource.Error(response.error ?: "Markets unavailable")
-            }
-        } catch (e: Exception) {
-            Timber.e(e, "MarketRepository.getWatchlist failed")
-            Resource.Error(e.message ?: "Markets unavailable")
+    suspend fun getWatchlist(): Resource<List<MarketQuote>> = safeApiCall("Markets unavailable", logTag = "MarketRepository.getWatchlist failed") {
+        val response = api.getWatchlist()
+        if (response.success) Resource.Success(response.quotes)
+        else {
+            Timber.w("MarketRepository.getWatchlist: backend returned success=false — %s", response.error)
+            Resource.Error(response.error ?: "Markets unavailable")
         }
     }
 
@@ -45,7 +41,7 @@ class MarketRepository @Inject constructor(
     suspend fun getCandles(symbol: String, assetClass: String): Resource<List<MarketCandle>> {
         val cacheKey = "$assetClass:$symbol"
         candleCache[cacheKey]?.let { return Resource.Success(it) }
-        return try {
+        return safeApiCall("Chart data unavailable", logTag = "MarketRepository.getCandles($symbol, $assetClass) failed") {
             val response = api.getCandles(symbol, assetClass)
             if (response.success) {
                 candleCache[cacheKey] = response.candles
@@ -54,14 +50,11 @@ class MarketRepository @Inject constructor(
                 Timber.w("MarketRepository.getCandles(%s, %s): success=false — %s", symbol, assetClass, response.error)
                 Resource.Error(response.error ?: "Chart data unavailable")
             }
-        } catch (e: Exception) {
-            Timber.e(e, "MarketRepository.getCandles(%s, %s) failed", symbol, assetClass)
-            Resource.Error(e.message ?: "Chart data unavailable")
         }
     }
 
-    suspend fun createAlert(symbol: String, assetClass: String, direction: String, targetPrice: Double): Resource<MarketAlert> {
-        return try {
+    suspend fun createAlert(symbol: String, assetClass: String, direction: String, targetPrice: Double): Resource<MarketAlert> =
+        safeApiCall("Could not create alert", logTag = "MarketRepository.createAlert($symbol) failed") {
             val response = api.createAlert(
                 CreateMarketAlertRequest(
                     deviceId = deviceId,
@@ -77,61 +70,37 @@ class MarketRepository @Inject constructor(
                 Timber.w("MarketRepository.createAlert(%s): success=false — %s", symbol, response.error)
                 Resource.Error(response.error ?: "Could not create alert")
             }
-        } catch (e: Exception) {
-            Timber.e(e, "MarketRepository.createAlert(%s) failed", symbol)
-            Resource.Error(e.message ?: "Could not create alert")
+        }
+
+    suspend fun getAlerts(): Resource<List<MarketAlert>> = safeApiCall("Could not load alerts", logTag = "MarketRepository.getAlerts failed") {
+        val response = api.getAlerts(deviceId)
+        if (response.success) Resource.Success(response.alerts)
+        else {
+            Timber.w("MarketRepository.getAlerts: success=false — %s", response.error)
+            Resource.Error(response.error ?: "Could not load alerts")
         }
     }
 
-    suspend fun getAlerts(): Resource<List<MarketAlert>> {
-        return try {
-            val response = api.getAlerts(deviceId)
-            if (response.success) Resource.Success(response.alerts)
-            else {
-                Timber.w("MarketRepository.getAlerts: success=false — %s", response.error)
-                Resource.Error(response.error ?: "Could not load alerts")
-            }
-        } catch (e: Exception) {
-            Timber.e(e, "MarketRepository.getAlerts failed")
-            Resource.Error(e.message ?: "Could not load alerts")
+    suspend fun deleteAlert(id: Int): Resource<Unit> = safeApiCall("Could not remove alert", logTag = "MarketRepository.deleteAlert($id) failed") {
+        val response = api.deleteAlert(id)
+        if (response.success) Resource.Success(Unit)
+        else {
+            Timber.w("MarketRepository.deleteAlert(%d): success=false — %s", id, response.error)
+            Resource.Error(response.error ?: "Could not remove alert")
         }
     }
 
-    suspend fun deleteAlert(id: Int): Resource<Unit> {
-        return try {
-            val response = api.deleteAlert(id)
-            if (response.success) Resource.Success(Unit)
-            else {
-                Timber.w("MarketRepository.deleteAlert(%d): success=false — %s", id, response.error)
-                Resource.Error(response.error ?: "Could not remove alert")
-            }
-        } catch (e: Exception) {
-            Timber.e(e, "MarketRepository.deleteAlert(%d) failed", id)
-            Resource.Error(e.message ?: "Could not remove alert")
+    suspend fun getPendingAlerts(): Resource<List<MarketAlert>> = safeApiCall("Could not check alerts", logTag = "MarketRepository.getPendingAlerts failed") {
+        val response = api.getPendingAlerts(deviceId)
+        if (response.success) Resource.Success(response.alerts)
+        else {
+            Timber.w("MarketRepository.getPendingAlerts: success=false — %s", response.error)
+            Resource.Error(response.error ?: "Could not check alerts")
         }
     }
 
-    suspend fun getPendingAlerts(): Resource<List<MarketAlert>> {
-        return try {
-            val response = api.getPendingAlerts(deviceId)
-            if (response.success) Resource.Success(response.alerts)
-            else {
-                Timber.w("MarketRepository.getPendingAlerts: success=false — %s", response.error)
-                Resource.Error(response.error ?: "Could not check alerts")
-            }
-        } catch (e: Exception) {
-            Timber.e(e, "MarketRepository.getPendingAlerts failed")
-            Resource.Error(e.message ?: "Could not check alerts")
-        }
-    }
-
-    suspend fun acknowledgeAlert(id: Int): Resource<Unit> {
-        return try {
-            api.acknowledgeAlert(id)
-            Resource.Success(Unit)
-        } catch (e: Exception) {
-            Timber.e(e, "MarketRepository.acknowledgeAlert(%d) failed", id)
-            Resource.Error(e.message ?: "Could not acknowledge alert")
-        }
+    suspend fun acknowledgeAlert(id: Int): Resource<Unit> = safeApiCall("Could not acknowledge alert", logTag = "MarketRepository.acknowledgeAlert($id) failed") {
+        api.acknowledgeAlert(id)
+        Resource.Success(Unit)
     }
 }

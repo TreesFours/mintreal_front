@@ -14,6 +14,7 @@ import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.RateReview
 import androidx.compose.material.icons.filled.Send
+import androidx.compose.material.icons.filled.VideoCall
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -44,6 +45,7 @@ fun OwnerProfileScreen(
     ownerPhotoUrl: String?,
     businessId: String?,
     onBack: () -> Unit,
+    onCallClick: (String) -> Unit = {},
     viewModel: ReviewViewModel = hiltViewModel(),
     needsViewModel: NeedsViewModel = hiltViewModel()
 ) {
@@ -64,7 +66,14 @@ fun OwnerProfileScreen(
         topBar = {
             TopAppBar(
                 title = { Text(ownerName ?: if (isOwnProfile) "My Profile" else "Profile") },
-                navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.Default.ArrowBack, contentDescription = "Back") } }
+                navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.Default.ArrowBack, contentDescription = "Back") } },
+                actions = {
+                    if (!isOwnProfile) {
+                        IconButton(onClick = { onCallClick(revieweeDeviceId) }) {
+                            Icon(Icons.Default.VideoCall, contentDescription = "Call")
+                        }
+                    }
+                }
             )
         },
         floatingActionButton = {

@@ -16,9 +16,11 @@ import com.example.mistreal_mini.data.local.dao.SocialContactDao
 import com.example.mistreal_mini.data.local.entity.SocialContactEntity
 import com.google.gson.Gson
 import com.google.gson.reflect.TypeToken
+import com.google.firebase.messaging.FirebaseMessaging
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.tasks.await
 import javax.inject.Inject
 
 @HiltViewModel
@@ -48,6 +50,24 @@ class SettingsViewModel @Inject constructor(
             val location = locationHelper.getCurrentLocation() ?: return@launch
             val deviceId = deviceIdProvider.deviceId
             infoRepository.updateLocation(deviceId, location.latitude, location.longitude)
+        }
+    }
+
+    /**
+     * Same once-per-app-session pattern as reportLocationOnce — called from
+     * MainActivity on launch so this device has a current FCM token on file
+     * before anyone tries to call it (MistrealFirebaseMessagingService's
+     * onNewToken covers the token-rotates-mid-session case; this covers "the
+     * token Firebase already handed out before this session started").
+     */
+    fun registerFcmTokenOnce() {
+        viewModelScope.launch {
+            try {
+                val token = FirebaseMessaging.getInstance().token.await()
+                infoRepository.registerFcmToken(token)
+            } catch (e: Exception) {
+                // Best-effort — onNewToken will catch it on the next rotation if this fails.
+            }
         }
     }
 
@@ -836,6 +856,14 @@ class SettingsViewModel @Inject constructor(
     fun setErrorNotificationsEnabled(enabled: Boolean) {
         viewModelScope.launch {
             preferenceManager.setErrorNotificationsEnabled(enabled)
+        }
+    }
+
+    suspend fun isCallRingtoneEnabled() = preferenceManager.isCallRingtoneEnabled.first()
+
+    fun setCallRingtoneEnabled(enabled: Boolean) {
+        viewModelScope.launch {
+            preferenceManager.setCallRingtoneEnabled(enabled)
         }
     }
 

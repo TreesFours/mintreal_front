@@ -46,6 +46,7 @@ class PreferenceManager @Inject constructor(
     // the default behavior; this is an opt-in fast path for the manual mic
     // button only (hands-free/Conversation Mode already always auto-sends).
     private val VOICE_AUTO_SEND_ON_RELEASE_KEY = booleanPreferencesKey("voice_auto_send_on_release")
+    private val CALL_RINGTONE_ENABLED_KEY = booleanPreferencesKey("call_ringtone_enabled")
     private val STT_ENABLED_KEY = booleanPreferencesKey("stt_enabled")
     private val TTS_VOICE_NAME_KEY = androidx.datastore.preferences.core.stringPreferencesKey("tts_voice_name")
     private val CUSTOM_PERSONAS_KEY = androidx.datastore.preferences.core.stringPreferencesKey("custom_personas")
@@ -165,6 +166,11 @@ class PreferenceManager @Inject constructor(
     val isVoiceAutoSendOnRelease: Flow<Boolean> = context.dataStore.data
         .map { preferences ->
             preferences[VOICE_AUTO_SEND_ON_RELEASE_KEY] ?: false
+        }
+
+    val isCallRingtoneEnabled: Flow<Boolean> = context.dataStore.data
+        .map { preferences ->
+            preferences[CALL_RINGTONE_ENABLED_KEY] ?: true
         }
 
     val ttsVoiceName: Flow<String?> = context.dataStore.data
@@ -364,6 +370,12 @@ class PreferenceManager @Inject constructor(
     suspend fun setVoiceAutoSendOnRelease(enabled: Boolean) {
         context.dataStore.edit { preferences ->
             preferences[VOICE_AUTO_SEND_ON_RELEASE_KEY] = enabled
+        }
+    }
+
+    suspend fun setCallRingtoneEnabled(enabled: Boolean) {
+        context.dataStore.edit { preferences ->
+            preferences[CALL_RINGTONE_ENABLED_KEY] = enabled
         }
     }
 

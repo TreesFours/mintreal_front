@@ -20,6 +20,7 @@ import com.example.mistreal_mini.data.webrtc.SimpleSdpObserver
 import com.example.mistreal_mini.data.webrtc.WebRtcInitializer
 import com.example.mistreal_mini.monitor.PressureLevel
 import com.example.mistreal_mini.monitor.ResourceMonitor
+import com.example.mistreal_mini.util.NotificationChannels
 import dagger.hilt.android.AndroidEntryPoint
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -320,10 +321,7 @@ class WatchHostService : Service() {
     }
 
     private fun createNotificationChannel() {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            val channel = NotificationChannel("WATCH_CHANNEL", "Mistreal Watch Hub", NotificationManager.IMPORTANCE_LOW)
-            getSystemService(NotificationManager::class.java).createNotificationChannel(channel)
-        }
+        NotificationChannels.ensure(this, "WATCH_CHANNEL", "Mistreal Watch Hub", NotificationManager.IMPORTANCE_LOW)
     }
 
     override fun onBind(intent: Intent?): IBinder? = null

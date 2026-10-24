@@ -136,12 +136,18 @@ class MainActivity : FragmentActivity() {
                             if (isAuthenticated) settingsViewModel.reportLocationOnce()
                         }
 
+                        // So this device is callable the moment the app is ever opened,
+                        // not only after whatever screen happens to touch Settings first.
+                        LaunchedEffect(isAuthenticated) {
+                            if (isAuthenticated) settingsViewModel.registerFcmTokenOnce()
+                        }
+
                         // 🔗 Deep Link Handler
                         LaunchedEffect(intentState) {
                             intentState?.data?.let { uri ->
                                 val isMistrealScheme = uri.scheme == "mistreal" && uri.host == "social-connected"
                                 val isHttpsAppLink = uri.scheme == "https" && 
-                                                    uri.host == "mistreal-backend.onrender.com" && 
+                                                    uri.host == BuildConfig.BACKEND_HOST &&
                                                     uri.path?.contains("social-connected") == true
                                 
                                 if (isMistrealScheme || isHttpsAppLink) {
@@ -167,6 +173,17 @@ class MainActivity : FragmentActivity() {
                             }
                         }
 
+                        // 📞 Incoming-call notification tap (MistrealFirebaseMessagingService's
+                        // full-screen intent) — these extras are only ever present on that path.
+                        LaunchedEffect(intentState) {
+                            val callId = intentState?.getStringExtra("incoming_call_id")
+                            val callerDeviceId = intentState?.getStringExtra("incoming_caller_device_id")
+                            if (callId != null && callerDeviceId != null) {
+                                navController.navigate(Routes.incomingCall(callId, callerDeviceId))
+                                _intentState.value = null
+                            }
+                        }
+
                     // 🛡️ Back Navigation Handler (Survives Rotation & Exit Logic)
                     BackHandler(enabled = true) {
                         if (navController.previousBackStackEntry != null) {
@@ -181,9 +198,16 @@ class MainActivity : FragmentActivity() {
                         }
                     }
 
+                    // An incoming call must be answerable/declinable the same way a real
+                    // phone call is — without first clearing a Face/Firebase auth gate —
+                    // so the auth guard below must never navigate out from under it. Read
+                    // directly off intentState (not a LaunchedEffect) so it's correct in
+                    // the very same composition pass the incoming-call effect above acts on.
+                    val hasPendingIncomingCall = intentState?.getStringExtra("incoming_call_id") != null
+
                     // 🚦 Navigation Guard & Orchestration
-                    LaunchedEffect(isOnboarded, isFirebaseAuthenticated, isAuthenticated) {
-                        if (isOnboarded == true) {
+                    LaunchedEffect(isOnboarded, isFirebaseAuthenticated, isAuthenticated, hasPendingIncomingCall) {
+                        if (isOnboarded == true && !hasPendingIncomingCall) {
                             if (!isFirebaseAuthenticated) {
                                 navController.navigate(Routes.AUTH) {
                                     popUpTo(0) { inclusive = true }
@@ -275,7 +299,8 @@ class MainActivity : FragmentActivity() {
                                 onSubscribeClick = { navController.navigate(Routes.SUBSCRIPTION) },
                                 onSettingsClick = { navController.navigate(Routes.SETTINGS) },
                                 onDashboardClick = { navController.navigate(Routes.DASHBOARD) },
-                                onArchiveClick = { navController.navigate(Routes.ARCHIVE) }
+                                onArchiveClick = { navController.navigate(Routes.ARCHIVE) },
+                                onLiveAiClick = { navController.navigate(Routes.LIVE_AI) }
                             )
                         }
                         composable(Routes.SUBSCRIPTION) {
@@ -363,7 +388,8 @@ class MainActivity : FragmentActivity() {
                                 ownerName = backStackEntry.arguments?.getString("ownerName")?.let(decode),
                                 ownerPhotoUrl = backStackEntry.arguments?.getString("ownerPhotoUrl")?.let(decode),
                                 businessId = backStackEntry.arguments?.getString("businessId")?.let(decode),
-                                onBack = { navController.popBackStack() }
+                                onBack = { navController.popBackStack() },
+                                onCallClick = { deviceId -> navController.navigate(Routes.outgoingCall(deviceId)) }
                             )
                         }
                         composable(Routes.MARKET) {
@@ -416,6 +442,26 @@ class MainActivity : FragmentActivity() {
                             com.example.mistreal_mini.ui.watch.WatchViewerScreen(
                                 onBack = { navController.popBackStack() },
                                 initialSessionId = backStackEntry.arguments?.getString("sessionId")
+                            )
+                        }
+                        composable(
+                            Routes.CALL_TEMPLATE,
+                            arguments = listOf(
+                                navArgument("calleeDeviceId") { type = NavType.StringType; nullable = true; defaultValue = null },
+                                navArgument("callId") { type = NavType.StringType; nullable = true; defaultValue = null },
+                                navArgument("callerDeviceId") { type = NavType.StringType; nullable = true; defaultValue = null }
+                            )
+                        ) { backStackEntry ->
+                            com.example.mistreal_mini.ui.call.CallScreen(
+                                onBack = { navController.popBackStack() },
+                                calleeDeviceId = backStackEntry.arguments?.getString("calleeDeviceId"),
+                                incomingCallId = backStackEntry.arguments?.getString("callId"),
+                                incomingCallerDeviceId = backStackEntry.arguments?.getString("callerDeviceId")
+                            )
+                        }
+                        composable(Routes.LIVE_AI) {
+                            com.example.mistreal_mini.ui.liveai.LiveAiScreen(
+                                onBack = { navController.popBackStack() }
                             )
                         }
                         composable(Routes.GUARDIAN_ALERTS) {

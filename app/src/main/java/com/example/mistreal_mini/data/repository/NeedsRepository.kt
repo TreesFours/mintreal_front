@@ -2,6 +2,7 @@ package com.example.mistreal_mini.data.repository
 
 import android.content.Context
 import com.example.mistreal_mini.data.Resource
+import com.example.mistreal_mini.data.safeApiCall
 import com.example.mistreal_mini.data.api.AddSkillRequest
 import com.example.mistreal_mini.data.api.DeviceIdBody
 import com.example.mistreal_mini.data.api.NeedPost
@@ -30,74 +31,46 @@ class NeedsRepository @Inject constructor(
     private val deviceId: String
         get() = deviceIdProvider.deviceId
 
-    suspend fun addSkill(skillLabel: String): Resource<UserSkill> {
-        return try {
-            val response = api.addSkill(AddSkillRequest(deviceId, skillLabel))
-            if (response.success && response.skill != null) Resource.Success(response.skill)
-            else Resource.Error(response.error ?: "Failed to add skill")
-        } catch (e: Exception) {
-            Resource.Error(e.message ?: "Failed to add skill")
-        }
+    suspend fun addSkill(skillLabel: String): Resource<UserSkill> = safeApiCall("Failed to add skill") {
+        val response = api.addSkill(AddSkillRequest(deviceId, skillLabel))
+        if (response.success && response.skill != null) Resource.Success(response.skill)
+        else Resource.Error(response.error ?: "Failed to add skill")
     }
 
-    suspend fun getMySkills(): Resource<List<UserSkill>> {
-        return try {
-            val response = api.getSkills(deviceId)
-            if (response.success) Resource.Success(response.skills ?: emptyList())
-            else Resource.Error(response.error ?: "Failed to load skills")
-        } catch (e: Exception) {
-            Resource.Error(e.message ?: "Failed to load skills")
-        }
+    suspend fun getMySkills(): Resource<List<UserSkill>> = safeApiCall("Failed to load skills") {
+        val response = api.getSkills(deviceId)
+        if (response.success) Resource.Success(response.skills ?: emptyList())
+        else Resource.Error(response.error ?: "Failed to load skills")
     }
 
-    suspend fun deleteSkill(skillId: Int): Resource<Unit> {
-        return try {
-            val response = api.deleteSkill(skillId, deviceId)
-            if (response.success) Resource.Success(Unit) else Resource.Error(response.error ?: "Failed to remove skill")
-        } catch (e: Exception) {
-            Resource.Error(e.message ?: "Failed to remove skill")
-        }
+    suspend fun deleteSkill(skillId: Int): Resource<Unit> = safeApiCall("Failed to remove skill") {
+        val response = api.deleteSkill(skillId, deviceId)
+        if (response.success) Resource.Success(Unit) else Resource.Error(response.error ?: "Failed to remove skill")
     }
 
-    suspend fun postNeed(skillLabel: String, description: String?): Resource<NeedPost> {
-        return try {
-            val location = locationHelper.getCurrentLocation()
-                ?: return Resource.Error("Couldn't get your location — check location permission and try again.")
-            val response = api.postNeed(PostNeedRequest(deviceId, skillLabel, description, location.latitude, location.longitude))
-            if (response.success && response.need != null) Resource.Success(response.need)
-            else Resource.Error(response.error ?: "Failed to post")
-        } catch (e: Exception) {
-            Resource.Error(e.message ?: "Failed to post")
-        }
+    suspend fun postNeed(skillLabel: String, description: String?): Resource<NeedPost> = safeApiCall("Failed to post") {
+        val location = locationHelper.getCurrentLocation()
+            ?: return@safeApiCall Resource.Error("Couldn't get your location — check location permission and try again.")
+        val response = api.postNeed(PostNeedRequest(deviceId, skillLabel, description, location.latitude, location.longitude))
+        if (response.success && response.need != null) Resource.Success(response.need)
+        else Resource.Error(response.error ?: "Failed to post")
     }
 
-    suspend fun getNearbyNeeds(): Resource<List<NeedPost>> {
-        return try {
-            val location = locationHelper.getCurrentLocation()
-            val response = api.getNearbyNeeds(location?.latitude, location?.longitude)
-            if (response.success) Resource.Success(response.needs ?: emptyList())
-            else Resource.Error(response.error ?: "Failed to load nearby needs")
-        } catch (e: Exception) {
-            Resource.Error(e.message ?: "Failed to load nearby needs")
-        }
+    suspend fun getNearbyNeeds(): Resource<List<NeedPost>> = safeApiCall("Failed to load nearby needs") {
+        val location = locationHelper.getCurrentLocation()
+        val response = api.getNearbyNeeds(location?.latitude, location?.longitude)
+        if (response.success) Resource.Success(response.needs ?: emptyList())
+        else Resource.Error(response.error ?: "Failed to load nearby needs")
     }
 
-    suspend fun getMatchingNeeds(): Resource<List<NeedPost>> {
-        return try {
-            val response = api.getMatchingNeeds(deviceId)
-            if (response.success) Resource.Success(response.needs ?: emptyList())
-            else Resource.Error(response.error ?: "Failed to load matches")
-        } catch (e: Exception) {
-            Resource.Error(e.message ?: "Failed to load matches")
-        }
+    suspend fun getMatchingNeeds(): Resource<List<NeedPost>> = safeApiCall("Failed to load matches") {
+        val response = api.getMatchingNeeds(deviceId)
+        if (response.success) Resource.Success(response.needs ?: emptyList())
+        else Resource.Error(response.error ?: "Failed to load matches")
     }
 
-    suspend fun closeNeed(needId: Int): Resource<Unit> {
-        return try {
-            val response = api.closeNeed(needId, DeviceIdBody(deviceId))
-            if (response.success) Resource.Success(Unit) else Resource.Error(response.error ?: "Failed to close")
-        } catch (e: Exception) {
-            Resource.Error(e.message ?: "Failed to close")
-        }
+    suspend fun closeNeed(needId: Int): Resource<Unit> = safeApiCall("Failed to close") {
+        val response = api.closeNeed(needId, DeviceIdBody(deviceId))
+        if (response.success) Resource.Success(Unit) else Resource.Error(response.error ?: "Failed to close")
     }
 }

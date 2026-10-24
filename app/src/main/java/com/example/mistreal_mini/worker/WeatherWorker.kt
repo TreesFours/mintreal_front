@@ -1,10 +1,9 @@
 package com.example.mistreal_mini.worker
 
-import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.content.Context
-import android.os.Build
 import androidx.core.app.NotificationCompat
+import com.example.mistreal_mini.util.NotificationChannels
 import androidx.hilt.work.HiltWorker
 import androidx.work.CoroutineWorker
 import androidx.work.WorkerParameters
@@ -81,11 +80,7 @@ class WeatherWorker @AssistedInject constructor(
     private fun showNotification(title: String, message: String, notificationId: Int) {
         val manager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
         val channelId = "WEATHER_ALERTS"
-
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            val channel = NotificationChannel(channelId, "Weather Alerts", NotificationManager.IMPORTANCE_DEFAULT)
-            manager.createNotificationChannel(channel)
-        }
+        NotificationChannels.ensure(context, channelId, "Weather Alerts", NotificationManager.IMPORTANCE_DEFAULT)
 
         val notification = NotificationCompat.Builder(context, channelId)
             .setContentTitle(title)

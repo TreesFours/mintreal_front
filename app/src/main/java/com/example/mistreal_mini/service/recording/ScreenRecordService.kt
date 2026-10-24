@@ -1,12 +1,12 @@
 package com.example.mistreal_mini.service.recording
 
-import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.Service
 import android.content.Intent
 import android.os.IBinder
 import androidx.core.app.NotificationCompat
 import com.example.mistreal_mini.R
+import com.example.mistreal_mini.util.NotificationChannels
 
 class ScreenRecordService : Service() {
     override fun onBind(intent: Intent?): IBinder? = null
@@ -40,8 +40,6 @@ class ScreenRecordService : Service() {
     }
 
     private fun createNotificationChannel() {
-        val channel = NotificationChannel("recording", "Screen Recording", NotificationManager.IMPORTANCE_LOW)
-        val manager = getSystemService(NotificationManager::class.java)
-        manager.createNotificationChannel(channel)
+        NotificationChannels.ensure(this, "recording", "Screen Recording", NotificationManager.IMPORTANCE_LOW)
     }
 }

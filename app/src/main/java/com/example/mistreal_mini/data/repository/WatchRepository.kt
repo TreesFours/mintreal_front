@@ -49,7 +49,7 @@ class WatchRepository @Inject constructor() : SignalingChannel {
     fun connect() {
         if (socket?.connected() == true) return
         val opts = IO.Options().apply { forceNew = true }
-        val s = IO.socket("https://mistreal-backend.onrender.com/watch", opts)
+        val s = IO.socket(com.example.mistreal_mini.BuildConfig.BASE_URL + "watch", opts)
 
         s.on("viewer:joined") { args ->
             val json = args.getOrNull(0) as? JSONObject ?: return@on

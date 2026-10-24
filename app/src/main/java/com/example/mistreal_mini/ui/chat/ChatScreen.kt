@@ -61,7 +61,8 @@ fun ChatScreen(
     onSubscribeClick: () -> Unit,
     onSettingsClick: () -> Unit,
     onDashboardClick: () -> Unit,
-    onArchiveClick: () -> Unit
+    onArchiveClick: () -> Unit,
+    onLiveAiClick: () -> Unit = {}
 ) {
     LaunchedEffect(initialProviderOverride) {
         initialProviderOverride?.let { viewModel.setProvider(it) }
@@ -307,6 +308,22 @@ fun ChatScreen(
                                 Icon(Icons.Default.VideoCall, "Open in Messenger to call", tint = Color(0xFF0084FF))
                             }
                         }
+                        // In-app Mistreal-to-Mistreal video calling (CallScreen/CallService)
+                        // needs the contact's actual Mistreal deviceId — a Zernio social
+                        // contact only ever carries a platform-side contactId, with no
+                        // mapping back to a deviceId anywhere in this app yet. Shown
+                        // greyed-out rather than hidden, so it's visible that the
+                        // capability exists, just not reachable for this specific contact
+                        // until that cross-reference is built.
+                        if (viewModel.isSocialChat.value && viewModel.activeSocialContact.value != null) {
+                            IconButton(onClick = {}, enabled = false) {
+                                Icon(
+                                    Icons.Default.VideoCall,
+                                    "Mistreal video call unavailable — this contact isn't verified on Mistreal",
+                                    tint = LocalContentColor.current.copy(alpha = 0.3f)
+                                )
+                            }
+                        }
                         // A scheduled in-person meetup only makes sense with a real
                         // person/business on the other end of the chat, not the AI.
                         if (viewModel.isSocialChat.value && viewModel.activeSocialContact.value != null) {
@@ -333,6 +350,9 @@ fun ChatScreen(
                         }
                         IconButton(onClick = onDashboardClick) {
                             Icon(Icons.Default.Psychology, "Intelligence Hub", tint = MaterialTheme.colorScheme.primary)
+                        }
+                        IconButton(onClick = onLiveAiClick) {
+                            Icon(Icons.Default.Videocam, "Live AI", tint = MaterialTheme.colorScheme.primary)
                         }
                         IconButton(onClick = { viewModel.refreshSocialContacts() }) { Icon(Icons.Default.Sync, "Sync") }
                         IconButton(onClick = onSettingsClick) { Icon(Icons.Default.Settings, "Settings") }

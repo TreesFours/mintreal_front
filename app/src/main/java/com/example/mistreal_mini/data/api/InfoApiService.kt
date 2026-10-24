@@ -93,6 +93,9 @@ interface InfoApiService {
     @POST("api/user/location")
     suspend fun updateLocation(@Body request: LocationRequest): SocialActionResponse
 
+    @POST("api/user/fcm-token")
+    suspend fun registerFcmToken(@Body request: Map<String, String>): SocialActionResponse
+
     @POST("api/emergency/alerts")
     suspend fun fireEmergencyAlert(@Body request: FireEmergencyAlertRequest): EmergencyAlertFireResponse
 

@@ -37,6 +37,9 @@ object Routes {
     const val BUSINESS_SELLER = "business_seller"
     const val GAMES = "games"
     const val GAME_PLAY_TEMPLATE = "game_play?title={title}&playUrl={playUrl}"
+    const val CALL_TEMPLATE = "call?calleeDeviceId={calleeDeviceId}&callId={callId}&callerDeviceId={callerDeviceId}"
+    const val CALL_BASE = "call"
+    const val LIVE_AI = "live_ai"
 
     private fun encode(s: String) = URLEncoder.encode(s, "UTF-8")
 
@@ -67,6 +70,11 @@ object Routes {
     fun watchViewer(sessionId: String) = "watch_viewer?sessionId=${encode(sessionId)}"
 
     fun comfortMeet(meetupId: Int) = "comfort_meet/$meetupId"
+
+    fun outgoingCall(calleeDeviceId: String) = "call?calleeDeviceId=${encode(calleeDeviceId)}"
+
+    fun incomingCall(callId: String, callerDeviceId: String) =
+        "call?callId=${encode(callId)}&callerDeviceId=${encode(callerDeviceId)}"
 
     fun businessDetail(businessId: String) = "business_detail/$businessId"
 

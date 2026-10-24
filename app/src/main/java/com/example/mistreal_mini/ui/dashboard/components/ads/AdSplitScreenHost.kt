@@ -36,21 +36,6 @@ fun AdSplitScreenHost(
     val dueAd by adHostViewModel.dueAd.collectAsState()
     var isFullscreen by remember { mutableStateOf(false) }
 
-    LaunchedEffect(Unit) {
-        while (true) {
-            adHostViewModel.checkForDueAd()
-            delay(60_000)
-        }
-    }
-
-    LaunchedEffect(dueAd) {
-        dueAd?.let { ad ->
-            adHostViewModel.trackImpression(ad.id)
-            delay(ad.durationSeconds * 1000L)
-            adHostViewModel.clearAd()
-        }
-    }
-
     Row(modifier = Modifier.fillMaxSize()) {
         Box(modifier = Modifier.weight(if (dueAd != null) 0.76f else 1f)) {
             content()

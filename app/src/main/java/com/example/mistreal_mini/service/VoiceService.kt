@@ -6,6 +6,7 @@ import android.os.*
 import androidx.core.app.NotificationCompat
 import com.example.mistreal_mini.MainActivity
 import com.example.mistreal_mini.R
+import com.example.mistreal_mini.util.NotificationChannels
 import com.example.mistreal_mini.util.VoiceManager
 import dagger.hilt.android.AndroidEntryPoint
 import javax.inject.Inject
@@ -88,10 +89,7 @@ class VoiceService : Service() {
     }
 
     private fun createNotificationChannel() {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            val channel = NotificationChannel("VOICE_CHANNEL", "Mistreal Voice Hub", NotificationManager.IMPORTANCE_LOW)
-            getSystemService(NotificationManager::class.java).createNotificationChannel(channel)
-        }
+        NotificationChannels.ensure(this, "VOICE_CHANNEL", "Mistreal Voice Hub", NotificationManager.IMPORTANCE_LOW)
     }
 
     override fun onBind(intent: Intent?): IBinder? = null

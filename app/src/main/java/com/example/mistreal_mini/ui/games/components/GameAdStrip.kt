@@ -16,7 +16,6 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.example.mistreal_mini.ui.dashboard.components.ads.AdHostViewModel
 import com.example.mistreal_mini.ui.dashboard.components.ads.AdMediaView
-import kotlinx.coroutines.delay
 
 /**
  * Deliberately NOT AdSplitScreenHost — that pattern narrows content to 76%
@@ -31,21 +30,6 @@ fun GameAdStrip(modifier: Modifier = Modifier) {
     val adHostViewModel: AdHostViewModel = hiltViewModel()
     val dueAd by adHostViewModel.dueAd.collectAsState()
     val context = LocalContext.current
-
-    LaunchedEffect(Unit) {
-        while (true) {
-            adHostViewModel.checkForDueAd()
-            delay(60_000)
-        }
-    }
-
-    LaunchedEffect(dueAd) {
-        dueAd?.let { ad ->
-            adHostViewModel.trackImpression(ad.id)
-            delay(ad.durationSeconds * 1000L)
-            adHostViewModel.clearAd()
-        }
-    }
 
     val ad = dueAd ?: return
     Row(

@@ -3,6 +3,7 @@ package com.example.mistreal_mini.data.repository
 import android.content.Context
 import android.net.Uri
 import com.example.mistreal_mini.data.Resource
+import com.example.mistreal_mini.data.safeApiCall
 import com.example.mistreal_mini.data.api.AdEventRequest
 import com.example.mistreal_mini.data.api.AdPayload
 import com.example.mistreal_mini.data.api.InfoApiService
@@ -37,36 +38,31 @@ class AdRepository @Inject constructor(
         ctaLabel: String?,
         videoUri: Uri?,
         imageUris: List<Uri>?
-    ): Resource<Int> {
-        return try {
-            // Compressed before upload — raw camera footage went out
-            // uncompressed until now, often 4-5x the bitrate a feed video
-            // actually needs to look good.
-            val compressedVideoUri = videoUri?.let { MediaEditorUtil.compressVideo(context, it) }
-            val videoPart = compressedVideoUri?.let { FileUtil.uriToMultipart(context, it, "video") }
-            val imageParts = imageUris?.mapNotNull { FileUtil.uriToMultipart(context, it, "images") }
+    ): Resource<Int> = safeApiCall("Failed to create ad", logTag = "AdRepository.createAd failed") {
+        // Compressed before upload — raw camera footage went out
+        // uncompressed until now, often 4-5x the bitrate a feed video
+        // actually needs to look good.
+        val compressedVideoUri = videoUri?.let { MediaEditorUtil.compressVideo(context, it) }
+        val videoPart = compressedVideoUri?.let { FileUtil.uriToMultipart(context, it, "video") }
+        val imageParts = imageUris?.mapNotNull { FileUtil.uriToMultipart(context, it, "images") }
 
-            val response = api.createAd(
-                deviceId = deviceId.toTextBody(),
-                firebaseUid = authRepository.currentUser?.uid?.toTextBody(),
-                businessId = businessId.toTextBody(),
-                mediaType = mediaType.toTextBody(),
-                durationSeconds = durationSeconds.toString().toTextBody(),
-                caption = caption?.toTextBody(),
-                targetUrl = targetUrl?.toTextBody(),
-                ctaLabel = ctaLabel?.toTextBody(),
-                video = videoPart,
-                images = imageParts
-            )
-            if (response.success && response.adId != null) {
-                Resource.Success(response.adId)
-            } else {
-                Timber.w("AdRepository.createAd: backend rejected — %s", response.error)
-                Resource.Error(response.error ?: "Failed to create ad")
-            }
-        } catch (e: Exception) {
-            Timber.e(e, "AdRepository.createAd failed")
-            Resource.Error(e.message ?: "Failed to create ad")
+        val response = api.createAd(
+            deviceId = deviceId.toTextBody(),
+            firebaseUid = authRepository.currentUser?.uid?.toTextBody(),
+            businessId = businessId.toTextBody(),
+            mediaType = mediaType.toTextBody(),
+            durationSeconds = durationSeconds.toString().toTextBody(),
+            caption = caption?.toTextBody(),
+            targetUrl = targetUrl?.toTextBody(),
+            ctaLabel = ctaLabel?.toTextBody(),
+            video = videoPart,
+            images = imageParts
+        )
+        if (response.success && response.adId != null) {
+            Resource.Success(response.adId)
+        } else {
+            Timber.w("AdRepository.createAd: backend rejected — %s", response.error)
+            Resource.Error(response.error ?: "Failed to create ad")
         }
     }
 

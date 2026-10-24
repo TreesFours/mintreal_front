@@ -81,6 +81,7 @@ fun SettingsScreen(
     var localIntelligenceEnabled by remember { mutableStateOf(false) }
     var ttsEnabled by remember { mutableStateOf(true) }
     var errorNotificationsEnabled by remember { mutableStateOf(true) }
+    var callRingtoneEnabled by remember { mutableStateOf(true) }
     var voiceAutoSendOnRelease by remember { mutableStateOf(false) }
     var sttEnabled by remember { mutableStateOf(true) }
     var translationLang by remember { mutableStateOf("English") }
@@ -117,6 +118,7 @@ fun SettingsScreen(
         ttsEnabled = viewModel.isTtsEnabled()
         sttEnabled = viewModel.isSttEnabled()
         errorNotificationsEnabled = viewModel.isErrorNotificationsEnabled()
+        callRingtoneEnabled = viewModel.isCallRingtoneEnabled()
         voiceAutoSendOnRelease = viewModel.isVoiceAutoSendOnRelease()
         translationLang = viewModel.getDefaultTranslationLang()
         selectedTheme = viewModel.getThemeMode()
@@ -1155,6 +1157,32 @@ fun SettingsScreen(
                                         sfx?.playToggle()
                                         errorNotificationsEnabled = it
                                         viewModel.setErrorNotificationsEnabled(it)
+                                    }
+                                )
+                            }
+                        }
+
+                        Spacer(modifier = Modifier.height(8.dp))
+
+                        OutlinedCard(modifier = Modifier.fillMaxWidth()) {
+                            Row(
+                                modifier = Modifier.padding(16.dp).fillMaxWidth(),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text("Call Ringtone", style = MaterialTheme.typography.labelSmall)
+                                    Text(
+                                        "Plays a ringtone for incoming calls and a ring-back tone while one of yours is ringing.",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = Color.Gray
+                                    )
+                                }
+                                Switch(
+                                    checked = callRingtoneEnabled,
+                                    onCheckedChange = {
+                                        sfx?.playToggle()
+                                        callRingtoneEnabled = it
+                                        viewModel.setCallRingtoneEnabled(it)
                                     }
                                 )
                             }
