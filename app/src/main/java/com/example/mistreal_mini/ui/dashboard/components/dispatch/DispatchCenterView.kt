@@ -1,7 +1,12 @@
 package com.example.mistreal_mini.ui.dashboard.components.dispatch
 
+import android.net.Uri
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
@@ -11,11 +16,16 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import coil.compose.AsyncImage
 import com.example.mistreal_mini.data.model.PlatformIcons
+import com.example.mistreal_mini.util.FileUtil
 import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -23,7 +33,7 @@ import kotlinx.coroutines.launch
 fun DispatchCenterView(
     deviceId: String,
     connectedSocials: List<String>,
-    onPostToSocial: suspend (String, String, String, String, Boolean) -> Boolean,
+    onPostToSocial: suspend (String, String, String, String, Boolean, String?, String?) -> Boolean,
     snackbarHostState: SnackbarHostState
 ) {
     var content by remember { mutableStateOf("") }
@@ -31,8 +41,22 @@ fun DispatchCenterView(
     var postType by remember { mutableStateOf("post") }
     var mistrealOnly by remember { mutableStateOf(false) }
     var isPosting by remember { mutableStateOf(false) }
+    // Zernio's own sendAction only ever accepts one media item per post —
+    // performSocialAction (InfoRepository.kt) already reflects that single-
+    // item shape, so this only ever holds at most one attachment, by design,
+    // not a current limitation of this screen.
+    var attachedUri by remember { mutableStateOf<Uri?>(null) }
+    var attachedMimeType by remember { mutableStateOf<String?>(null) }
+    val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val scrollState = rememberScrollState()
+
+    val attachLauncher = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
+        if (uri != null) {
+            attachedUri = uri
+            attachedMimeType = FileUtil.getMimeType(context, uri)
+        }
+    }
 
     val isTwitterSelected = selectedPlatforms.contains("twitter") || selectedPlatforms.contains("x")
     val charLimit = if (isTwitterSelected) 280 else 2000
@@ -95,6 +119,46 @@ fun DispatchCenterView(
             },
             isError = isCharLimitExceeded
         )
+
+        Spacer(modifier = Modifier.height(12.dp))
+
+        if (attachedUri == null) {
+            OutlinedButton(onClick = { attachLauncher.launch("image/*,video/*") }) {
+                Icon(Icons.Default.AttachFile, null, modifier = Modifier.size(16.dp))
+                Spacer(modifier = Modifier.width(6.dp))
+                Text("Attach Photo or Video")
+            }
+        } else {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Box(modifier = Modifier.size(64.dp)) {
+                    if (attachedMimeType?.startsWith("video") == true) {
+                        Box(
+                            modifier = Modifier.fillMaxSize().clip(RoundedCornerShape(10.dp))
+                                .background(MaterialTheme.colorScheme.surfaceVariant),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(Icons.Default.Videocam, null)
+                        }
+                    } else {
+                        AsyncImage(
+                            model = attachedUri,
+                            contentDescription = null,
+                            modifier = Modifier.fillMaxSize().clip(RoundedCornerShape(10.dp)),
+                            contentScale = ContentScale.Crop
+                        )
+                    }
+                    IconButton(
+                        onClick = { attachedUri = null; attachedMimeType = null },
+                        modifier = Modifier.size(20.dp).align(Alignment.TopEnd)
+                            .background(Color.Black.copy(alpha = 0.6f), CircleShape)
+                    ) {
+                        Icon(Icons.Default.Close, null, tint = Color.White, modifier = Modifier.size(12.dp))
+                    }
+                }
+                Spacer(modifier = Modifier.width(12.dp))
+                Text("Attached — will go out with this broadcast", style = MaterialTheme.typography.labelSmall, color = Color.Gray)
+            }
+        }
 
         Spacer(modifier = Modifier.height(16.dp))
 
@@ -228,22 +292,24 @@ fun DispatchCenterView(
                 } else if (mistrealOnly) {
                     scope.launch {
                         isPosting = true
-                        val result = onPostToSocial(deviceId, "mistreal", postType, content, true)
+                        val mediaBase64 = attachedUri?.let { FileUtil.uriToBase64(context, it) }
+                        val result = onPostToSocial(deviceId, "mistreal", postType, content, true, mediaBase64, attachedMimeType)
                         isPosting = false
                         snackbarHostState.showSnackbar(if (result) "Posted to the Mistreal community feed!" else "Failed to post.")
-                        if (result) content = ""
+                        if (result) { content = ""; attachedUri = null; attachedMimeType = null }
                     }
                 } else {
                     scope.launch {
                         isPosting = true
+                        val mediaBase64 = attachedUri?.let { FileUtil.uriToBase64(context, it) }
                         var successCount = 0
                         selectedPlatforms.forEach { platform ->
-                            val result = onPostToSocial(deviceId, platform, postType, content, false)
+                            val result = onPostToSocial(deviceId, platform, postType, content, false, mediaBase64, attachedMimeType)
                             if (result) successCount++
                         }
                         isPosting = false
                         snackbarHostState.showSnackbar("Broadcast transmitted to $successCount channels!")
-                        if (successCount == selectedPlatforms.size) content = ""
+                        if (successCount == selectedPlatforms.size) { content = ""; attachedUri = null; attachedMimeType = null }
                     }
                 }
             },

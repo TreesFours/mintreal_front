@@ -1,12 +1,14 @@
 package com.example.mistreal_mini.service
 
 import android.app.*
+import android.content.ContentValues
 import android.content.Context
 import android.content.Intent
 import android.content.pm.ServiceInfo
 import android.media.projection.MediaProjection
 import android.media.projection.MediaProjectionManager
 import android.os.*
+import android.provider.MediaStore
 import android.provider.Settings
 import androidx.core.app.NotificationCompat
 import com.example.mistreal_mini.MainActivity
@@ -17,6 +19,7 @@ import com.example.mistreal_mini.data.webrtc.NearbyTransport
 import com.example.mistreal_mini.data.webrtc.SignalingChannel
 import com.example.mistreal_mini.data.webrtc.SimplePeerConnectionObserver
 import com.example.mistreal_mini.data.webrtc.SimpleSdpObserver
+import com.example.mistreal_mini.data.webrtc.WatchRecorder
 import com.example.mistreal_mini.data.webrtc.WebRtcInitializer
 import com.example.mistreal_mini.monitor.PressureLevel
 import com.example.mistreal_mini.monitor.ResourceMonitor
@@ -29,6 +32,8 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
 import org.webrtc.*
+import timber.log.Timber
+import java.io.File
 import javax.inject.Inject
 
 /**
@@ -54,6 +59,12 @@ class WatchHostService : Service() {
     private var videoTrack: VideoTrack? = null
     private var surfaceTextureHelper: SurfaceTextureHelper? = null
     private var sessionId: String? = null
+    // Lets the host save their own broadcast — exactly the same captured
+    // screen viewers get, recorded locally too (same WatchRecorder viewers
+    // already use; this was previously host-side-only missing).
+    private var recorder: WatchRecorder? = null
+    private var recorderFile: File? = null
+    private var recorderStarted = false
     private val peerConnections = mutableMapOf<String, PeerConnection>()
     // Tracks which transport each viewer actually came in on (Socket.IO
     // over the internet, or Nearby over Bluetooth/Wi-Fi-Direct) so replies
@@ -66,6 +77,7 @@ class WatchHostService : Service() {
     companion object {
         const val ACTION_START = "ACTION_START"
         const val ACTION_STOP = "ACTION_STOP"
+        const val ACTION_SAVE_RECORDING = "ACTION_SAVE_RECORDING"
         const val EXTRA_RESULT_CODE = "EXTRA_RESULT_CODE"
         const val EXTRA_RESULT_DATA = "EXTRA_RESULT_DATA"
         const val EXTRA_CONTEXT_TYPE = "EXTRA_CONTEXT_TYPE"
@@ -82,6 +94,13 @@ class WatchHostService : Service() {
 
         private val _pressureState = MutableStateFlow(PressureLevel.NONE)
         val pressureState: StateFlow<PressureLevel> = _pressureState.asStateFlow()
+
+        private val _hasRecordingState = MutableStateFlow(false)
+        val hasRecordingState: StateFlow<Boolean> = _hasRecordingState.asStateFlow()
+
+        // null | "saving" | "saved" | "failed" — same shape as WatchViewerViewModel's.
+        private val _saveState = MutableStateFlow<String?>(null)
+        val saveState: StateFlow<String?> = _saveState.asStateFlow()
 
         // How many concurrent viewers this host accepts at each pressure
         // level — feature-local policy, not something ResourceMonitor itself
@@ -116,6 +135,7 @@ class WatchHostService : Service() {
                 if (resultData != null) startSharing(resultCode, resultData, contextType, contextId)
             }
             ACTION_STOP -> stopSharing()
+            ACTION_SAVE_RECORDING -> saveRecording()
         }
         return START_NOT_STICKY
     }
@@ -146,7 +166,9 @@ class WatchHostService : Service() {
         capturer.startCapture(metrics.widthPixels, metrics.heightPixels, 30)
         videoCapturer = capturer
 
-        videoTrack = factory.createVideoTrack("screen_video_$deviceId", videoSource)
+        val track = factory.createVideoTrack("screen_video_$deviceId", videoSource)
+        videoTrack = track
+        attachRecorder(track)
 
         watchRepository.connect()
         serviceScope.launch { watchRepository.viewerJoined.collect { onViewerJoined(it, watchRepository) } }
@@ -185,6 +207,78 @@ class WatchHostService : Service() {
                 updateNotification("Sharing failed to start", it.message ?: "Unknown error")
             }
         }
+    }
+
+    /**
+     * Same shim WatchViewerViewModel.attachRecorder uses — screen
+     * resolution isn't known until the first captured frame, so the real
+     * WatchRecorder is created lazily on it, then every frame (viewers'
+     * copy included) also forwards here. Independent of how many viewers
+     * are connected, or whether there are zero.
+     */
+    private fun attachRecorder(track: VideoTrack) {
+        track.addSink(object : VideoSink {
+            override fun onFrame(frame: VideoFrame) {
+                if (!recorderStarted) {
+                    recorderStarted = true
+                    if (resourceMonitor.pressureNow() == PressureLevel.SEVERE) {
+                        return
+                    }
+                    val eb = eglBase ?: return
+                    val sid = sessionId ?: "session"
+                    val file = File(cacheDir, "watch_host_${sid}_${System.currentTimeMillis()}.mp4")
+                    val r = WatchRecorder(eb.eglBaseContext, file, frame.rotatedWidth, frame.rotatedHeight)
+                    try {
+                        r.start()
+                        recorder = r
+                        recorderFile = file
+                        _hasRecordingState.value = true
+                    } catch (e: Exception) {
+                        Timber.e(e, "WatchHost: failed to start recorder")
+                    }
+                }
+                recorder?.onFrame(frame)
+            }
+        })
+    }
+
+    /** Copies the host's own recording of their broadcast to the device's gallery (Movies/Mistreal). */
+    fun saveRecording() {
+        val file = recorderFile ?: return
+        _saveState.value = "saving"
+        serviceScope.launch(Dispatchers.IO) {
+            try {
+                val resolver = contentResolver
+                val values = ContentValues().apply {
+                    put(MediaStore.Video.Media.DISPLAY_NAME, "mistreal_watch_host_${System.currentTimeMillis()}.mp4")
+                    put(MediaStore.Video.Media.MIME_TYPE, "video/mp4")
+                    put(MediaStore.Video.Media.RELATIVE_PATH, "Movies/Mistreal")
+                }
+                val destUri = resolver.insert(MediaStore.Video.Media.EXTERNAL_CONTENT_URI, values)
+                if (destUri == null) {
+                    _saveState.value = "failed"
+                    return@launch
+                }
+                resolver.openOutputStream(destUri)?.use { out ->
+                    file.inputStream().use { input -> input.copyTo(out) }
+                }
+                _saveState.value = "saved"
+            } catch (e: Exception) {
+                Timber.e(e, "WatchHost: failed to save recording")
+                _saveState.value = "failed"
+            }
+        }
+    }
+
+    /** Transient cache copy only — same "delete unless explicitly saved" rule WatchViewerViewModel uses. */
+    private fun finishRecording() {
+        recorder?.stop()
+        recorder = null
+        recorderStarted = false
+        recorderFile?.let { if (it.exists()) it.delete() }
+        recorderFile = null
+        _hasRecordingState.value = false
+        _saveState.value = null
     }
 
     private fun onViewerJoined(event: ViewerJoinedEvent, channel: SignalingChannel) {
@@ -278,6 +372,7 @@ class WatchHostService : Service() {
     }
 
     private fun stopSharing() {
+        finishRecording()
         sessionId?.let { watchRepository.stopHosting(it) }
         peerConnections.values.forEach { it.close() }
         peerConnections.clear()

@@ -242,13 +242,18 @@ class FeedViewModel @Inject constructor(
         }
     }
 
-    suspend fun postToSocial(deviceId: String, platform: String, type: String, content: String, targetId: String = "self", mistrealOnly: Boolean = false): Boolean {
+    suspend fun postToSocial(
+        deviceId: String, platform: String, type: String, content: String, targetId: String = "self",
+        mistrealOnly: Boolean = false, mediaBase64: String? = null, mediaMimeType: String? = null
+    ): Boolean {
         val result = infoRepository.performSocialAction(
             deviceId = deviceId,
             type = type,
             platform = platform,
             content = content,
             targetId = targetId,
+            mediaBase64 = mediaBase64,
+            mediaMimeType = mediaMimeType,
             mistrealOnly = mistrealOnly
         )
         return result is Resource.Success

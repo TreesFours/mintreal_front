@@ -251,8 +251,11 @@ fun DashboardScreen(
                     (isArchitectMode && selectedTab == 4) || (!isArchitectMode && selectedTab == 3) -> DispatchCenterView(
                         deviceId = deviceId,
                         connectedSocials = chatViewModel.availablePlatforms.filter { it.isConnected }.map { it.id.lowercase() },
-                        onPostToSocial = { _, platform, type, content, mistrealOnly ->
-                            feedViewModel.postToSocial(deviceId, platform, type, content, mistrealOnly = mistrealOnly)
+                        onPostToSocial = { _, platform, type, content, mistrealOnly, mediaBase64, mediaMimeType ->
+                            feedViewModel.postToSocial(
+                                deviceId, platform, type, content, mistrealOnly = mistrealOnly,
+                                mediaBase64 = mediaBase64, mediaMimeType = mediaMimeType
+                            )
                         },
                         snackbarHostState = snackbarHostState
                     )

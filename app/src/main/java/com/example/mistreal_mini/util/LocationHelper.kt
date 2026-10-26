@@ -1,13 +1,17 @@
 package com.example.mistreal_mini.util
 
+import android.Manifest
 import android.annotation.SuppressLint
 import android.content.Context
+import android.content.pm.PackageManager
 import android.location.Address
 import android.location.Geocoder
 import android.location.Location
+import androidx.core.content.ContextCompat
 import com.google.android.gms.location.LocationServices
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.tasks.await
+import timber.log.Timber
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -18,6 +22,20 @@ class LocationHelper @Inject constructor(
     private val fusedLocationClient = LocationServices.getFusedLocationProviderClient(context)
     private val geocoder = Geocoder(context)
 
+    /**
+     * Callers (the map's "my location" button in particular) were calling
+     * getCurrentLocation() with no way to tell "permission was never
+     * granted" apart from "GPS just couldn't get a fix" apart from "no
+     * error at all, just slow" — all three looked identical: nothing
+     * happens, no feedback. This lets a caller check first and show the
+     * right message instead of silently doing nothing.
+     */
+    fun hasLocationPermission(): Boolean {
+        val fine = ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED
+        val coarse = ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED
+        return fine || coarse
+    }
+
     @SuppressLint("MissingPermission")
     suspend fun getCurrentLocation(): Location? {
         return try {
@@ -27,6 +45,7 @@ class LocationHelper @Inject constructor(
                 null
             ).await()
         } catch (e: Exception) {
+            Timber.w(e, "LocationHelper: getCurrentLocation failed")
             null
         }
     }
@@ -43,6 +62,7 @@ class LocationHelper @Inject constructor(
                 null
             }
         } catch (e: Exception) {
+            Timber.w(e, "LocationHelper: getCityName failed")
             null
         }
     }
@@ -61,6 +81,7 @@ class LocationHelper @Inject constructor(
                 null
             }
         } catch (e: Exception) {
+            Timber.w(e, "LocationHelper: getCoordinates failed")
             null
         }
     }

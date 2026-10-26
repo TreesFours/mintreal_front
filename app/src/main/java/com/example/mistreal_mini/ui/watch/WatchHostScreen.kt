@@ -8,6 +8,7 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.*
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
+import androidx.compose.material.icons.filled.Save
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -40,6 +41,8 @@ fun WatchHostScreen(
     val sessionId by WatchHostService.sessionIdState.collectAsState()
     val viewerCount by WatchHostService.viewerCountState.collectAsState()
     val pressure by WatchHostService.pressureState.collectAsState()
+    val hasRecording by WatchHostService.hasRecordingState.collectAsState()
+    val saveState by WatchHostService.saveState.collectAsState()
     var isRequesting by remember { mutableStateOf(false) }
 
     val launcher = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
@@ -143,6 +146,26 @@ fun WatchHostScreen(
                 }
 
                 Spacer(modifier = Modifier.height(24.dp))
+                Button(
+                    onClick = {
+                        context.startService(Intent(context, WatchHostService::class.java).apply {
+                            action = WatchHostService.ACTION_SAVE_RECORDING
+                        })
+                    },
+                    enabled = hasRecording && saveState != "saving" && saveState != "saved"
+                ) {
+                    Icon(Icons.Default.Save, contentDescription = null, modifier = Modifier.size(18.dp))
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text(
+                        when (saveState) {
+                            "saving" -> "Saving..."
+                            "saved" -> "Saved"
+                            "failed" -> "Retry Save"
+                            else -> "Save My Broadcast"
+                        }
+                    )
+                }
+                Spacer(modifier = Modifier.height(12.dp))
                 Button(onClick = {
                     context.startService(Intent(context, WatchHostService::class.java).apply {
                         action = WatchHostService.ACTION_STOP

@@ -245,15 +245,31 @@ fun InteractiveMapView(
     // the moment location tracking is toggled off.
     LaunchedEffect(isLocationEnabled, isMapReady) {
         if (isLocationEnabled && isMapReady) {
+            // Previously: permission-denied, no-GPS-fix, and "still waiting"
+            // all looked identical — the button just turned on and nothing
+            // ever happened, with zero feedback either way. Checked and
+            // surfaced explicitly now instead of silently doing nothing.
+            if (!mapViewModel.locationHelper.hasLocationPermission()) {
+                android.widget.Toast.makeText(mapSearchContext, "Location permission is required for this — enable it in Settings.", android.widget.Toast.LENGTH_LONG).show()
+                return@LaunchedEffect
+            }
             mapViewModel.resourceMonitor.ensureMonitoring()
             var isFirstFix = true
+            var firstFixFailedOnce = false
             while (true) {
-                mapViewModel.locationHelper.getCurrentLocation()?.let { loc ->
+                val loc = mapViewModel.locationHelper.getCurrentLocation()
+                if (loc != null) {
                     webViewInstance?.evaluateJavascript("updateGpsLocation(${loc.latitude}, ${loc.longitude}, $isFirstFix)", null)
                     if (isFirstFix) {
                         webViewInstance?.evaluateJavascript("teleportTo(${loc.latitude}, ${loc.longitude}, 15)", null)
                         isFirstFix = false
                     }
+                } else if (isFirstFix && !firstFixFailedOnce) {
+                    // Only once, not every poll — permission is fine here,
+                    // this is "GPS hasn't produced a fix yet" (indoors, cold
+                    // start, location services off at the OS level).
+                    firstFixFailedOnce = true
+                    android.widget.Toast.makeText(mapSearchContext, "Couldn't get your location — check that location/GPS is turned on.", android.widget.Toast.LENGTH_SHORT).show()
                 }
                 // Backs off under battery/thermal/network pressure instead of
                 // polling GPS at a fixed rate regardless of device state.
@@ -492,13 +508,18 @@ fun InteractiveMapView(
                             placeholder = { Text("Search coordinates or city...", fontSize = 14.sp) },
                             leadingIcon = { Icon(Icons.Default.Search, null, modifier = Modifier.size(18.dp)) },
                             trailingIcon = {
-                                IconButton(onClick = { performMapSearch() }) {
-                                    Icon(Icons.Default.Search, "Search", tint = MaterialTheme.colorScheme.primary)
+                                if (isMapLoading) {
+                                    CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp)
+                                } else {
+                                    IconButton(onClick = { performMapSearch() }) {
+                                        Icon(Icons.Default.Search, "Search", tint = MaterialTheme.colorScheme.primary)
+                                    }
                                 }
                             },
                             keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
                             keyboardActions = KeyboardActions(onSearch = { performMapSearch() }),
                             singleLine = true,
+                            enabled = !isMapLoading,
                             shape = RoundedCornerShape(12.dp)
                         )
                     }
