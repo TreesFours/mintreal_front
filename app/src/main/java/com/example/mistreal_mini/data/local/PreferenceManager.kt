@@ -38,10 +38,13 @@ class PreferenceManager @Inject constructor(
     private val EMERGENCY_CONTACTS_KEY = androidx.datastore.preferences.core.stringPreferencesKey("emergency_contacts")
     private val LOCATION_ENABLED_KEY = booleanPreferencesKey("location_enabled")
     private val TTS_ENABLED_KEY = booleanPreferencesKey("tts_enabled")
-    // Posts a local notification with the full error detail whenever an API
-    // call fails — default on since right now you're the only user testing
-    // in production; flip off once real users are on the app.
+    // Default false so end users never see raw backend network errors as notifications.
     private val ERROR_NOTIFICATIONS_ENABLED_KEY = booleanPreferencesKey("error_notifications_enabled")
+    private val DISASTER_LOCATION_SHARING_ENABLED_KEY = booleanPreferencesKey("disaster_location_sharing_enabled")
+    private val DISASTER_CHECKIN_INTERVAL_HOURS_KEY = androidx.datastore.preferences.core.intPreferencesKey("disaster_checkin_interval_hours")
+    private val LOCATION_SHARING_AI_KEY = booleanPreferencesKey("location_sharing_ai_enabled")
+    private val ORIENTATION_SHARING_AI_KEY = booleanPreferencesKey("orientation_sharing_ai_enabled")
+    private val BYOK_CLOUD_BACKUP_ENABLED_KEY = booleanPreferencesKey("byok_cloud_backup_enabled")
     // Default false — the existing play/delete/trim/send preview step stays
     // the default behavior; this is an opt-in fast path for the manual mic
     // button only (hands-free/Conversation Mode already always auto-sends).
@@ -160,7 +163,32 @@ class PreferenceManager @Inject constructor(
 
     val isErrorNotificationsEnabled: Flow<Boolean> = context.dataStore.data
         .map { preferences ->
-            preferences[ERROR_NOTIFICATIONS_ENABLED_KEY] ?: true
+            preferences[ERROR_NOTIFICATIONS_ENABLED_KEY] ?: false
+        }
+
+    val isDisasterLocationSharingEnabled: Flow<Boolean> = context.dataStore.data
+        .map { preferences ->
+            preferences[DISASTER_LOCATION_SHARING_ENABLED_KEY] ?: true
+        }
+
+    val disasterCheckInIntervalHours: Flow<Int> = context.dataStore.data
+        .map { preferences ->
+            preferences[DISASTER_CHECKIN_INTERVAL_HOURS_KEY] ?: 2
+        }
+
+    val isLocationSharingAiEnabled: Flow<Boolean> = context.dataStore.data
+        .map { preferences ->
+            preferences[LOCATION_SHARING_AI_KEY] ?: true
+        }
+
+    val isOrientationSharingAiEnabled: Flow<Boolean> = context.dataStore.data
+        .map { preferences ->
+            preferences[ORIENTATION_SHARING_AI_KEY] ?: true
+        }
+
+    val isByokCloudBackupEnabled: Flow<Boolean> = context.dataStore.data
+        .map { preferences ->
+            preferences[BYOK_CLOUD_BACKUP_ENABLED_KEY] ?: false
         }
 
     val isVoiceAutoSendOnRelease: Flow<Boolean> = context.dataStore.data
@@ -364,6 +392,36 @@ class PreferenceManager @Inject constructor(
     suspend fun setErrorNotificationsEnabled(enabled: Boolean) {
         context.dataStore.edit { preferences ->
             preferences[ERROR_NOTIFICATIONS_ENABLED_KEY] = enabled
+        }
+    }
+
+    suspend fun setDisasterLocationSharingEnabled(enabled: Boolean) {
+        context.dataStore.edit { preferences ->
+            preferences[DISASTER_LOCATION_SHARING_ENABLED_KEY] = enabled
+        }
+    }
+
+    suspend fun setDisasterCheckInIntervalHours(hours: Int) {
+        context.dataStore.edit { preferences ->
+            preferences[DISASTER_CHECKIN_INTERVAL_HOURS_KEY] = hours
+        }
+    }
+
+    suspend fun setLocationSharingAiEnabled(enabled: Boolean) {
+        context.dataStore.edit { preferences ->
+            preferences[LOCATION_SHARING_AI_KEY] = enabled
+        }
+    }
+
+    suspend fun setOrientationSharingAiEnabled(enabled: Boolean) {
+        context.dataStore.edit { preferences ->
+            preferences[ORIENTATION_SHARING_AI_KEY] = enabled
+        }
+    }
+
+    suspend fun setByokCloudBackupEnabled(enabled: Boolean) {
+        context.dataStore.edit { preferences ->
+            preferences[BYOK_CLOUD_BACKUP_ENABLED_KEY] = enabled
         }
     }
 

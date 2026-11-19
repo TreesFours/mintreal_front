@@ -7,6 +7,8 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.Send
@@ -16,7 +18,9 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.mistreal_mini.data.model.PlatformBrandColors
@@ -24,10 +28,11 @@ import com.example.mistreal_mini.data.model.PlatformIcons
 import com.example.mistreal_mini.ui.chat.ChatViewModel
 
 @Composable
-fun ContactListDrawer(
+fun ContactListDrawerContent(
     viewModel: ChatViewModel,
     onClose: () -> Unit
 ) {
+    val focusManager = LocalFocusManager.current
     var selectedCategory by remember { mutableStateOf("ai") }
     var modelTab by remember { mutableStateOf(0) } // 0 = Free, 1 = Premium
     var expandedModelCategory by remember { mutableStateOf("COMMAND CENTER") }
@@ -43,10 +48,7 @@ fun ContactListDrawer(
     
     val availablePlatforms = viewModel.availablePlatforms
 
-    ModalNavigationDrawer(
-        drawerContent = {
-            ModalDrawerSheet {
-                Row(modifier = Modifier.fillMaxSize()) {
+    Row(modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.surface)) {
                     Column(
                         modifier = Modifier
                             .fillMaxHeight()
@@ -126,14 +128,17 @@ fun ContactListDrawer(
                         if (selectedCategory != "ai" && selectedCategory != "unread" && selectedCategory != "emergency" && selectedCategory != "email") {
                             OutlinedTextField(
                                 value = searchPlatformQuery,
-                                onValueChange = { 
+                                onValueChange = {
                                     searchPlatformQuery = it
                                     if (it.length >= 3) viewModel.searchContacts(selectedCategory, it)
                                 },
                                 modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
                                 placeholder = { Text("Search...", fontSize = 12.sp) },
                                 leadingIcon = { Icon(Icons.Default.Search, null, modifier = Modifier.size(16.dp)) },
-                                shape = RoundedCornerShape(8.dp)
+                                shape = RoundedCornerShape(8.dp),
+                                singleLine = true,
+                                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
+                                keyboardActions = KeyboardActions(onSearch = { focusManager.clearFocus() })
                             )
                         }
 
@@ -292,10 +297,6 @@ fun ContactListDrawer(
                         }
                     }
                 }
-            }
-        },
-        content = {}
-    )
 
     if (showSosConfirm) {
         AlertDialog(
@@ -320,6 +321,16 @@ fun ContactListDrawer(
                 TextButton(onClick = { showSosConfirm = false }) { Text("Cancel") }
             }
         )
+    }
+}
+
+@Composable
+fun ContactListDrawer(
+    viewModel: ChatViewModel,
+    onClose: () -> Unit
+) {
+    ModalDrawerSheet {
+        ContactListDrawerContent(viewModel = viewModel, onClose = onClose)
     }
 }
 
@@ -488,6 +499,7 @@ private fun EmailPanel(viewModel: ChatViewModel) {
                     placeholder = { Text("Subject", fontSize = 12.sp) },
                     modifier = Modifier.fillMaxWidth(),
                     singleLine = true,
+                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Next),
                     shape = RoundedCornerShape(8.dp)
                 )
                 Spacer(modifier = Modifier.height(4.dp))
@@ -523,19 +535,22 @@ private fun EmailPanel(viewModel: ChatViewModel) {
                 OutlinedTextField(
                     value = toEmailInput, onValueChange = { toEmailInput = it },
                     placeholder = { Text("To (email address)", fontSize = 12.sp) },
-                    modifier = Modifier.fillMaxWidth(), singleLine = true, shape = RoundedCornerShape(8.dp)
+                    modifier = Modifier.fillMaxWidth(), singleLine = true, shape = RoundedCornerShape(8.dp),
+                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Next)
                 )
                 Spacer(modifier = Modifier.height(4.dp))
                 OutlinedTextField(
                     value = toNameInput, onValueChange = { toNameInput = it },
                     placeholder = { Text("Name (optional)", fontSize = 12.sp) },
-                    modifier = Modifier.fillMaxWidth(), singleLine = true, shape = RoundedCornerShape(8.dp)
+                    modifier = Modifier.fillMaxWidth(), singleLine = true, shape = RoundedCornerShape(8.dp),
+                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Next)
                 )
                 Spacer(modifier = Modifier.height(4.dp))
                 OutlinedTextField(
                     value = subjectInput, onValueChange = { subjectInput = it },
                     placeholder = { Text("Subject", fontSize = 12.sp) },
-                    modifier = Modifier.fillMaxWidth(), singleLine = true, shape = RoundedCornerShape(8.dp)
+                    modifier = Modifier.fillMaxWidth(), singleLine = true, shape = RoundedCornerShape(8.dp),
+                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Next)
                 )
                 Spacer(modifier = Modifier.height(4.dp))
                 OutlinedTextField(

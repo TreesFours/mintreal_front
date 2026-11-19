@@ -82,6 +82,32 @@ object NetworkModule {
                     response
                 }
             })
+            // Innermost interceptor — retries a pure transport failure
+            // (connection refused/reset/timed out) before giving up, since
+            // this backend is on Render's free tier: it spins down after
+            // ~15 min idle, and the first request after that can hit the
+            // server mid-restart and get a real IOException rather than
+            // just a slow-but-successful connect. A short retry almost
+            // always lands after the cold start finishes, instead of
+            // surfacing a "Network error" for what's actually a transient
+            // restart window. Placed after the auth-retry interceptor so
+            // each retry is a pure re-send, not a second token fetch.
+            .addInterceptor(Interceptor { chain ->
+                val maxAttempts = 3
+                var lastException: java.io.IOException? = null
+                for (attempt in 1..maxAttempts) {
+                    try {
+                        return@Interceptor chain.proceed(chain.request())
+                    } catch (e: java.io.IOException) {
+                        lastException = e
+                        if (attempt < maxAttempts) {
+                            Timber.w("Transport attempt $attempt/$maxAttempts failed for ${chain.request().url.encodedPath}, retrying: ${e.message}")
+                            Thread.sleep(2_000L * attempt)
+                        }
+                    }
+                }
+                throw lastException!!
+            })
             .dns(object : Dns {
                 override fun lookup(hostname: String): List<InetAddress> {
                     return try {
@@ -149,5 +175,11 @@ object NetworkModule {
     @Singleton
     fun provideNeedsApiService(retrofit: Retrofit): com.example.mistreal_mini.data.api.NeedsApiService {
         return retrofit.create(com.example.mistreal_mini.data.api.NeedsApiService::class.java)
+    }
+
+    @Provides
+    @Singleton
+    fun provideEmailAccountApiService(retrofit: Retrofit): com.example.mistreal_mini.data.api.EmailAccountApiService {
+        return retrofit.create(com.example.mistreal_mini.data.api.EmailAccountApiService::class.java)
     }
 }

@@ -4,6 +4,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Search
@@ -11,6 +12,8 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -31,6 +34,7 @@ fun AddEmergencyContactDialog(
     viewModel: SettingsViewModel,
     onDismiss: () -> Unit
 ) {
+    val focusManager = LocalFocusManager.current
     var selectedTab by remember { mutableIntStateOf(0) }
     var searchQuery by remember { mutableStateOf("") }
     var manualName by remember { mutableStateOf("") }
@@ -73,7 +77,9 @@ fun AddEmergencyContactDialog(
                         modifier = Modifier.fillMaxWidth(),
                         placeholder = { Text("Search linked contacts...") },
                         leadingIcon = { Icon(Icons.Default.Search, null) },
-                        singleLine = true
+                        singleLine = true,
+                        keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
+                        keyboardActions = KeyboardActions(onSearch = { focusManager.clearFocus() })
                     )
 
                     Spacer(modifier = Modifier.height(8.dp))
@@ -102,32 +108,40 @@ fun AddEmergencyContactDialog(
                     }
                 } else if (selectedTab == 1) {
                     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        val canAddEmailContact = !isSaving && manualName.isNotBlank() && manualEmail.isNotBlank()
+                        // Shared by the Send Confirmation Request button and the
+                        // email field's keyboard Done action.
+                        val onAddEmailContact: () -> Unit = {
+                            if (manualName.isNotBlank() && manualEmail.isNotBlank()) {
+                                viewModel.addEmergencyContact(
+                                    name = manualName,
+                                    channel = "email",
+                                    email = manualEmail
+                                )
+                                onDismiss()
+                            }
+                        }
                         OutlinedTextField(
                             value = manualName,
                             onValueChange = { manualName = it },
                             label = { Text("Contact Name") },
-                            modifier = Modifier.fillMaxWidth()
+                            modifier = Modifier.fillMaxWidth(),
+                            singleLine = true,
+                            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Next)
                         )
                         OutlinedTextField(
                             value = manualEmail,
                             onValueChange = { manualEmail = it },
                             label = { Text("Email Address") },
                             modifier = Modifier.fillMaxWidth(),
-                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email)
+                            singleLine = true,
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email, imeAction = ImeAction.Done),
+                            keyboardActions = KeyboardActions(onDone = { if (canAddEmailContact) onAddEmailContact() })
                         )
                         Button(
-                            onClick = {
-                                if (manualName.isNotBlank() && manualEmail.isNotBlank()) {
-                                    viewModel.addEmergencyContact(
-                                        name = manualName,
-                                        channel = "email",
-                                        email = manualEmail
-                                    )
-                                    onDismiss()
-                                }
-                            },
+                            onClick = onAddEmailContact,
                             modifier = Modifier.fillMaxWidth(),
-                            enabled = !isSaving && manualName.isNotBlank() && manualEmail.isNotBlank()
+                            enabled = canAddEmailContact
                         ) {
                             if (isSaving) CircularProgressIndicator(modifier = Modifier.size(18.dp), color = Color.White)
                             else Text("Send Confirmation Request")
@@ -142,32 +156,40 @@ fun AddEmergencyContactDialog(
                         )
                     } else {
                         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            val canAddSmsContact = !isSaving && manualName.isNotBlank() && manualPhone.isNotBlank()
+                            // Shared by the Send Confirmation Request button and the
+                            // phone field's keyboard Done action.
+                            val onAddSmsContact: () -> Unit = {
+                                if (manualName.isNotBlank() && manualPhone.isNotBlank()) {
+                                    viewModel.addEmergencyContact(
+                                        name = manualName,
+                                        channel = "sms",
+                                        phoneNumber = manualPhone
+                                    )
+                                    onDismiss()
+                                }
+                            }
                             OutlinedTextField(
                                 value = manualName,
                                 onValueChange = { manualName = it },
                                 label = { Text("Contact Name") },
-                                modifier = Modifier.fillMaxWidth()
+                                modifier = Modifier.fillMaxWidth(),
+                                singleLine = true,
+                                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Next)
                             )
                             OutlinedTextField(
                                 value = manualPhone,
                                 onValueChange = { manualPhone = it },
                                 label = { Text("Phone Number (+1...)") },
                                 modifier = Modifier.fillMaxWidth(),
-                                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Phone)
+                                singleLine = true,
+                                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Phone, imeAction = ImeAction.Done),
+                                keyboardActions = KeyboardActions(onDone = { if (canAddSmsContact) onAddSmsContact() })
                             )
                             Button(
-                                onClick = {
-                                    if (manualName.isNotBlank() && manualPhone.isNotBlank()) {
-                                        viewModel.addEmergencyContact(
-                                            name = manualName,
-                                            channel = "sms",
-                                            phoneNumber = manualPhone
-                                        )
-                                        onDismiss()
-                                    }
-                                },
+                                onClick = onAddSmsContact,
                                 modifier = Modifier.fillMaxWidth(),
-                                enabled = !isSaving && manualName.isNotBlank() && manualPhone.isNotBlank()
+                                enabled = canAddSmsContact
                             ) {
                                 if (isSaving) CircularProgressIndicator(modifier = Modifier.size(18.dp), color = Color.White)
                                 else Text("Send Confirmation Request")

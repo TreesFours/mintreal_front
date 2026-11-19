@@ -59,11 +59,11 @@ class FeedViewModel @Inject constructor(
         }
     }
 
-    fun loadFeed(deviceId: String) {
+    fun loadFeed(deviceId: String, forceRefresh: Boolean = false) {
         viewModelScope.launch {
             _isLoading.value = true
             supervisorScope {
-                val intelDeferred = async { fetchIntelligence(fastLoad = true) }
+                val intelDeferred = async { fetchIntelligence(fastLoad = !forceRefresh, refresh = forceRefresh) }
                 val socialDeferred = async { syncSocials(deviceId) }
                 val youtubeDeferred = async { loadYoutubeVideos() }
                 val sosDeferred = async { fetchNearbySos(deviceId) }
@@ -122,8 +122,8 @@ class FeedViewModel @Inject constructor(
         }
     }
 
-    private suspend fun fetchIntelligence(fastLoad: Boolean) {
-        when (val result = getIntelligenceFeedUseCase.getNews(fastLoad = fastLoad)) {
+    private suspend fun fetchIntelligence(fastLoad: Boolean, refresh: Boolean = false) {
+        when (val result = getIntelligenceFeedUseCase.getNews(fastLoad = fastLoad, refresh = refresh)) {
             is Resource.Success -> {
                 result.data?.articles?.let { articles ->
                     _newsArticles.clear()
@@ -244,7 +244,8 @@ class FeedViewModel @Inject constructor(
 
     suspend fun postToSocial(
         deviceId: String, platform: String, type: String, content: String, targetId: String = "self",
-        mistrealOnly: Boolean = false, mediaBase64: String? = null, mediaMimeType: String? = null
+        mistrealOnly: Boolean = false, mediaBase64: String? = null, mediaMimeType: String? = null,
+        shareToCommunity: Boolean = false
     ): Boolean {
         val result = infoRepository.performSocialAction(
             deviceId = deviceId,
@@ -254,7 +255,8 @@ class FeedViewModel @Inject constructor(
             targetId = targetId,
             mediaBase64 = mediaBase64,
             mediaMimeType = mediaMimeType,
-            mistrealOnly = mistrealOnly
+            mistrealOnly = mistrealOnly,
+            shareToCommunity = shareToCommunity
         )
         return result is Resource.Success
     }

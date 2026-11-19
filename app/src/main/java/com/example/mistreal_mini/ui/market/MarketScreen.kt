@@ -7,6 +7,8 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.Call
@@ -18,7 +20,9 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.example.mistreal_mini.data.api.MarketQuote
@@ -47,6 +51,7 @@ fun MarketScreen(
     adHostViewModel: AdHostViewModel = hiltViewModel()
 ) {
     val context = LocalContext.current
+    val focusManager = LocalFocusManager.current
     val tickerBands by viewModel.tickerBands.collectAsState()
     val selectedCategory by viewModel.selectedCategory.collectAsState()
     val searchQuery by viewModel.searchQuery.collectAsState()
@@ -64,10 +69,10 @@ fun MarketScreen(
         }
     ) { padding ->
         LazyColumn(modifier = Modifier.padding(padding).fillMaxSize()) {
-            // --- Ticker bands ---
-            item { TickerBandRow(label = "CRYPTO", quotes = tickerBands["crypto"].orEmpty()) }
-            item { TickerBandRow(label = "FOREX", quotes = tickerBands["forex"].orEmpty()) }
-            item { TickerBandRow(label = "TICKERS", quotes = tickerBands["tickers"].orEmpty()) }
+            // --- Ticker bands (Endless Auto-Scrolling Marquee) ---
+            item { MarqueeTickerRow(label = "CRYPTO", quotes = tickerBands["crypto"].orEmpty()) }
+            item { MarqueeTickerRow(label = "FOREX", quotes = tickerBands["forex"].orEmpty()) }
+            item { MarqueeTickerRow(label = "TICKERS & COMMODITIES", quotes = tickerBands["tickers"].orEmpty()) }
 
             // --- Ad slot ---
             dueAd?.let { ad ->
@@ -102,7 +107,10 @@ fun MarketScreen(
                         modifier = Modifier.fillMaxWidth(),
                         placeholder = { Text("Search goods, services, or a business...") },
                         leadingIcon = { Icon(Icons.Default.Search, null) },
-                        shape = RoundedCornerShape(12.dp)
+                        shape = RoundedCornerShape(12.dp),
+                        singleLine = true,
+                        keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
+                        keyboardActions = KeyboardActions(onSearch = { focusManager.clearFocus() })
                     )
                 }
             }
@@ -167,15 +175,28 @@ fun MarketScreen(
 }
 
 @Composable
-private fun TickerBandRow(label: String, quotes: List<MarketQuote>) {
+private fun MarqueeTickerRow(label: String, quotes: List<MarketQuote>) {
     if (quotes.isEmpty()) return
+    val listState = androidx.compose.foundation.lazy.rememberLazyListState()
+    val endlessQuotes = remember(quotes) { quotes + quotes + quotes }
+
+    LaunchedEffect(quotes) {
+        while (true) {
+            kotlinx.coroutines.delay(2200)
+            val currentIdx = listState.firstVisibleItemIndex
+            val targetIdx = (currentIdx + 1) % endlessQuotes.size
+            listState.animateScrollToItem(targetIdx)
+        }
+    }
+
     Column(modifier = Modifier.padding(top = 8.dp)) {
         Text(label, style = MaterialTheme.typography.labelSmall, color = Color.Gray, modifier = Modifier.padding(horizontal = 16.dp))
         LazyRow(
+            state = listState,
             contentPadding = PaddingValues(horizontal = 16.dp, vertical = 4.dp),
             horizontalArrangement = Arrangement.spacedBy(10.dp)
         ) {
-            items(quotes) { quote -> TickerChip(quote) }
+            items(endlessQuotes) { quote -> TickerChip(quote) }
         }
     }
 }

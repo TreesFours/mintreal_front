@@ -153,5 +153,24 @@ class DashboardViewModel @Inject constructor(
             else -> null
         }
     }
+
+    fun searchCityWeather(cityName: String) {
+        if (cityName.isBlank()) return
+        _isLoading.value = true
+        viewModelScope.launch {
+            val geocoder = android.location.Geocoder(context)
+            val addresses = try { geocoder.getFromLocationName(cityName, 1) } catch (e: Exception) { null }
+            val addr = addresses?.firstOrNull()
+            if (addr != null) {
+                when (val result = infoRepository.getWeather(addr.latitude, addr.longitude)) {
+                    is Resource.Success -> {
+                        result.data?.let { _weather.value = it }
+                    }
+                    else -> {}
+                }
+            }
+            _isLoading.value = false
+        }
+    }
 }
 

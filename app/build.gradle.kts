@@ -51,6 +51,10 @@ android {
     }
 }
 
+hilt {
+    enableAggregatingTask = false
+}
+
 dependencies {
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.lifecycle.runtime.ktx)
@@ -102,9 +106,6 @@ dependencies {
 
     // Coil (Image Loading)
     implementation(libs.coil.compose)
-
-    // Lottie (Animations)
-    implementation(libs.lottie.compose)
 
     // WorkManager (Background Tasks)
     implementation(libs.androidx.work.runtime.ktx)

@@ -166,8 +166,15 @@ fun TargetingControls(
 
 @Composable
 fun ScanTabView(viewModel: TacticalMapViewModel) {
-    val categories = listOf("restaurant", "cafe", "atm", "hospital", "police", "pharmacy", "gas_station")
-    Column(modifier = Modifier.fillMaxSize().padding(8.dp)) {
+    val categories = listOf("restaurant", "cafe", "atm", "hospital", "police", "pharmacy", "gas_station", "government")
+    val activeCategories = viewModel.discoveryResults.map { it.category.lowercase() }.toSet()
+    
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(8.dp)
+            .padding(bottom = 72.dp)
+    ) {
         Text("SELECT SCAN FREQUENCY", style = MaterialTheme.typography.labelSmall, color = Color.Gray)
         Spacer(modifier = Modifier.height(8.dp))
         FlowRow(
@@ -176,10 +183,22 @@ fun ScanTabView(viewModel: TacticalMapViewModel) {
             crossAxisSpacing = 8.dp
         ) {
             categories.forEach { cat ->
-                AssistChip(
-                    onClick = { viewModel.fetchDiscoveryData(cat) },
-                    label = { Text(cat.uppercase(), fontSize = 9.sp) },
-                    leadingIcon = { Icon(Icons.Default.Radar, null, modifier = Modifier.size(12.dp)) }
+                val isSelected = activeCategories.contains(cat)
+                FilterChip(
+                    selected = isSelected,
+                    onClick = { 
+                        if (isSelected) {
+                            viewModel.clearAllDiscoveryData()
+                        } else {
+                            viewModel.fetchDiscoveryData(cat)
+                        }
+                    },
+                    label = { Text(cat.uppercase(), fontSize = 10.sp, fontWeight = FontWeight.Bold) },
+                    leadingIcon = { Icon(Icons.Default.Radar, null, modifier = Modifier.size(14.dp)) },
+                    colors = FilterChipDefaults.filterChipColors(
+                        selectedContainerColor = MaterialTheme.colorScheme.primary,
+                        selectedLabelColor = Color.White
+                    )
                 )
             }
         }
@@ -189,7 +208,7 @@ fun ScanTabView(viewModel: TacticalMapViewModel) {
             modifier = Modifier.fillMaxWidth(),
             colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error.copy(alpha = 0.7f))
         ) {
-            Text("CLEAR ALL TACTICAL DATA", fontSize = 10.sp)
+            Text("CLEAR ALL TACTICAL DATA", fontSize = 10.sp, fontWeight = FontWeight.Bold)
         }
     }
 }

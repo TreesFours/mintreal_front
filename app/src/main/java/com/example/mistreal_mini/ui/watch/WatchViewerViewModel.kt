@@ -84,6 +84,14 @@ class WatchViewerViewModel @Inject constructor(
     private val _saveState = mutableStateOf<String?>(null) // null | "saving" | "saved" | "failed"
     val saveState: State<String?> = _saveState
 
+    data class NearbyBroadcast(val endpointId: String, val code: String)
+
+    private val _nearbyBroadcasts = MutableStateFlow<List<NearbyBroadcast>>(emptyList())
+    val nearbyBroadcasts: StateFlow<List<NearbyBroadcast>> = _nearbyBroadcasts.asStateFlow()
+
+    private val _isBrowsingNearby = mutableStateOf(false)
+    val isBrowsingNearby: State<Boolean> = _isBrowsingNearby
+
     init {
         WebRtcInitializer.ensureInitialized(context)
         resourceMonitor.ensureMonitoring()
@@ -112,6 +120,39 @@ class WatchViewerViewModel @Inject constructor(
 
         viewModelScope.launch { watchRepository.viewerRejected.collect { onViewerRejected() } }
         viewModelScope.launch { nearbyTransport.viewerRejected.collect { onViewerRejected() } }
+
+        viewModelScope.launch {
+            nearbyTransport.nearbyBroadcastFound.collect { (endpointId, code) ->
+                if (_nearbyBroadcasts.value.none { it.endpointId == endpointId }) {
+                    _nearbyBroadcasts.value = _nearbyBroadcasts.value + NearbyBroadcast(endpointId, code)
+                }
+            }
+        }
+        viewModelScope.launch {
+            nearbyTransport.nearbyBroadcastLost.collect { endpointId ->
+                _nearbyBroadcasts.value = _nearbyBroadcasts.value.filterNot { it.endpointId == endpointId }
+            }
+        }
+    }
+
+    /** Scans for every nearby broadcast instead of requiring a share code upfront — previously there was no way to find a host without already knowing its code. */
+    fun startBrowsingNearby() {
+        _nearbyBroadcasts.value = emptyList()
+        _isBrowsingNearby.value = true
+        _status.value = "Scanning for nearby broadcasts..."
+        nearbyTransport.startBrowsing(deviceId)
+    }
+
+    fun stopBrowsingNearby() {
+        _isBrowsingNearby.value = false
+        nearbyTransport.stopBrowsing()
+    }
+
+    fun connectToNearbyBroadcast(broadcast: NearbyBroadcast) {
+        currentSessionId = broadcast.code
+        _status.value = "Connecting..."
+        stopBrowsingNearby()
+        nearbyTransport.connectToBroadcast(broadcast.endpointId)
     }
 
     private fun onViewerRejected() {

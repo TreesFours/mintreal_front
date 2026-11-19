@@ -38,15 +38,20 @@ class LocationHelper @Inject constructor(
 
     @SuppressLint("MissingPermission")
     suspend fun getCurrentLocation(): Location? {
+        if (!hasLocationPermission()) return null
         return try {
-            // Priority High Accuracy ensures it doesn't just return cached stale location
-            fusedLocationClient.getCurrentLocation(
+            val fresh = fusedLocationClient.getCurrentLocation(
                 com.google.android.gms.location.Priority.PRIORITY_HIGH_ACCURACY,
                 null
             ).await()
+            fresh ?: fusedLocationClient.lastLocation.await()
         } catch (e: Exception) {
-            Timber.w(e, "LocationHelper: getCurrentLocation failed")
-            null
+            try {
+                fusedLocationClient.lastLocation.await()
+            } catch (e2: Exception) {
+                Timber.w(e, "LocationHelper: getCurrentLocation failed")
+                null
+            }
         }
     }
 
@@ -63,6 +68,21 @@ class LocationHelper @Inject constructor(
             }
         } catch (e: Exception) {
             Timber.w(e, "LocationHelper: getCityName failed")
+            null
+        }
+    }
+
+    // Reverse geocode to a full street address line (not just city) — for
+    // business registration's "Physical Address" field, which getCityName
+    // alone isn't detailed enough to fill in.
+    suspend fun getFullAddress(latitude: Double, longitude: Double): String? {
+        return try {
+            val addresses: List<Address> = geocoder.getFromLocation(latitude, longitude, 1) ?: emptyList()
+            val address = addresses.firstOrNull() ?: return null
+            address.getAddressLine(0) ?: listOfNotNull(address.locality, address.adminArea, address.countryName)
+                .joinToString(", ").takeIf { it.isNotBlank() }
+        } catch (e: Exception) {
+            Timber.w(e, "LocationHelper: getFullAddress failed")
             null
         }
     }

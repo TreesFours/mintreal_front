@@ -4,6 +4,8 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Reply
@@ -20,6 +22,7 @@ import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
@@ -463,7 +466,7 @@ fun ChatBubble(
                             DropdownMenuItem(
                                 text = { Text("Delete", color = Color.Red) },
                                 onClick = {
-                                    viewModel.deleteMessage(message)
+                                    viewModel.requestDeleteMessage(message)
                                     showMenu = false
                                 },
                                 leadingIcon = { Icon(Icons.Default.Delete, null, tint = Color.Red) }
@@ -491,14 +494,15 @@ fun ChatBubble(
 
                         Spacer(modifier = Modifier.width(4.dp))
 
-                        IconButton(
-                            onClick = { onAiInsight(message.content) },
-                            modifier = Modifier.size(24.dp)
-                        ) {
-                            Icon(Icons.Default.AutoAwesome, "Insight", modifier = Modifier.size(14.dp), tint = textColor.copy(alpha = 0.5f))
+                        if (viewModel.isSocialChat.value) {
+                            IconButton(
+                                onClick = { onAiInsight(message.content) },
+                                modifier = Modifier.size(24.dp)
+                            ) {
+                                Icon(Icons.Default.AutoAwesome, "Insight", modifier = Modifier.size(14.dp), tint = textColor.copy(alpha = 0.5f))
+                            }
+                            Spacer(modifier = Modifier.width(4.dp))
                         }
-                        
-                        Spacer(modifier = Modifier.width(4.dp))
                         
                         val isReadingThis = viewModel.currentlyReadingContent.value == message.content
                         IconButton(
@@ -728,14 +732,21 @@ private fun SendToContactDialog(
                         onValueChange = { targetId = it },
                         label = { Text("Contact username/ID") },
                         modifier = Modifier.fillMaxWidth(),
-                        singleLine = true
+                        singleLine = true,
+                        keyboardOptions = KeyboardOptions(imeAction = ImeAction.Next)
                     )
                     Spacer(modifier = Modifier.height(8.dp))
                     OutlinedTextField(
                         value = caption,
                         onValueChange = { caption = it },
                         label = { Text("Caption (optional)") },
-                        modifier = Modifier.fillMaxWidth()
+                        modifier = Modifier.fillMaxWidth(),
+                        singleLine = true,
+                        keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
+                        // Mirrors the Send button's own enabled check below.
+                        keyboardActions = KeyboardActions(onDone = {
+                            if (selectedPlatform.isNotBlank() && targetId.isNotBlank()) onSend(selectedPlatform, targetId.trim(), caption)
+                        })
                     )
                 }
             }

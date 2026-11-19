@@ -60,10 +60,11 @@ class SensorRepository @Inject constructor(
             }
 
             private fun processRotationMatrix(matrix: FloatArray) {
+                // Remap X and Y for portrait hand-held orientation
                 SensorManager.remapCoordinateSystem(
                     matrix,
                     SensorManager.AXIS_X,
-                    SensorManager.AXIS_Z,
+                    SensorManager.AXIS_Y,
                     adjustedRotationMatrix
                 )
                 SensorManager.getOrientation(adjustedRotationMatrix, rotationAngles)
@@ -82,19 +83,16 @@ class SensorRepository @Inject constructor(
             }
         }
 
+        // Register accelerometer + magnetometer as fallback listeners concurrently
         val rotationVector = sensorManager.getDefaultSensor(Sensor.TYPE_ROTATION_VECTOR)
+        val accel = sensorManager.getDefaultSensor(Sensor.TYPE_ACCELEROMETER)
+        val mag = sensorManager.getDefaultSensor(Sensor.TYPE_MAGNETIC_FIELD)
+
         if (rotationVector != null) {
             sensorManager.registerListener(listener, rotationVector, SensorManager.SENSOR_DELAY_UI)
-            // Register magnetometer for accuracy signals if needed elsewhere, 
-            // but here we focus on orientation.
-        } else {
-            val accel = sensorManager.getDefaultSensor(Sensor.TYPE_ACCELEROMETER)
-            val mag = sensorManager.getDefaultSensor(Sensor.TYPE_MAGNETIC_FIELD)
-            if (accel != null && mag != null) {
-                sensorManager.registerListener(listener, accel, SensorManager.SENSOR_DELAY_UI)
-                sensorManager.registerListener(listener, mag, SensorManager.SENSOR_DELAY_UI)
-            }
         }
+        if (accel != null) sensorManager.registerListener(listener, accel, SensorManager.SENSOR_DELAY_UI)
+        if (mag != null) sensorManager.registerListener(listener, mag, SensorManager.SENSOR_DELAY_UI)
 
         awaitClose {
             sensorManager.unregisterListener(listener)

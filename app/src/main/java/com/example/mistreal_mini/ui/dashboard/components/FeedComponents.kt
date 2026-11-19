@@ -1,6 +1,7 @@
 package com.example.mistreal_mini.ui.dashboard.components
 
 import androidx.compose.animation.*
+import androidx.compose.animation.core.*
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -25,6 +26,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
@@ -120,6 +122,32 @@ fun IntelligenceFeedView(
         contentPadding = PaddingValues(16.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
+        // Bearing/orientation were already being computed and passed in
+        // here, but nothing ever rendered them — only the Map tab showed a
+        // compass. Same indicator, same tap-to-calibrate action, now visible
+        // here too.
+        if (dashboardViewModel.compassSupported.value) {
+            item {
+                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+                    Row(
+                        modifier = Modifier
+                            .background(Color.Black.copy(alpha = 0.7f), RoundedCornerShape(12.dp))
+                            .clickable { dashboardViewModel.toggleCalibrationWizard(true) }
+                            .padding(horizontal = 12.dp, vertical = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(
+                            Icons.Default.Navigation, null,
+                            modifier = Modifier.size(20.dp).graphicsLayer { rotationZ = -bearing },
+                            tint = Color.White
+                        )
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text("$orientation · ${bearing.toInt()}°", color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                    }
+                }
+            }
+        }
+
         item {
             WeatherCard(
                 weather = weather,
@@ -289,9 +317,86 @@ fun IntelDetailPopup(
 }
 
 @Composable
+fun WeatherAnimationCanvas(condition: String, modifier: Modifier = Modifier) {
+    val infiniteTransition = rememberInfiniteTransition(label = "weather_anim")
+    val time by infiniteTransition.animateFloat(
+        initialValue = 0f,
+        targetValue = 1000f,
+        animationSpec = infiniteRepeatable(tween(20000, easing = LinearEasing)),
+        label = "weather_time"
+    )
+
+    val condLower = condition.lowercase()
+    androidx.compose.foundation.Canvas(modifier = modifier) {
+        val w = size.width
+        val h = size.height
+
+        when {
+            condLower.contains("rain") || condLower.contains("shower") || condLower.contains("drizzle") -> {
+                for (i in 0..18) {
+                    val x = ((i * 57 + time * 2f) % w)
+                    val y = ((i * 31 + time * 8f) % h)
+                    drawLine(
+                        color = Color.Cyan.copy(alpha = 0.6f),
+                        start = androidx.compose.ui.geometry.Offset(x, y),
+                        end = androidx.compose.ui.geometry.Offset(x - 2f, y + 14f),
+                        strokeWidth = 3f
+                    )
+                }
+            }
+            condLower.contains("thunder") || condLower.contains("storm") || condLower.contains("tornado") || condLower.contains("cyclone") -> {
+                val flashAlpha = if ((time.toInt() / 40) % 7 == 0) 0.8f else 0.1f
+                drawRect(color = Color.Yellow.copy(alpha = flashAlpha))
+                for (i in 0..12) {
+                    val radius = (i * 12f + (time % 50f))
+                    drawCircle(
+                        color = Color.LightGray.copy(alpha = 0.2f),
+                        radius = radius,
+                        center = androidx.compose.ui.geometry.Offset(w * 0.5f, h * 0.5f)
+                    )
+                }
+            }
+            condLower.contains("fog") || condLower.contains("mist") || condLower.contains("haze") -> {
+                for (i in 0..4) {
+                    val y = (i * (h / 4f))
+                    val xOffset = ((time * 3f + i * 80) % w)
+                    drawCircle(
+                        color = Color.White.copy(alpha = 0.15f),
+                        radius = 45f,
+                        center = androidx.compose.ui.geometry.Offset(xOffset, y + 20f)
+                    )
+                }
+            }
+            condLower.contains("snow") || condLower.contains("blizzard") -> {
+                for (i in 0..15) {
+                    val x = ((i * 43 + Math.sin((time + i).toDouble()) * 20).toFloat() % w)
+                    val y = ((i * 27 + time * 3f) % h)
+                    drawCircle(
+                        color = Color.White.copy(alpha = 0.8f),
+                        radius = 4f,
+                        center = androidx.compose.ui.geometry.Offset(x, y)
+                    )
+                }
+            }
+            condLower.contains("cloud") || condLower.contains("overcast") -> {
+                val cloudX1 = ((time * 1.5f) % (w + 100)) - 50
+                val cloudX2 = (((time + 300) * 1.2f) % (w + 100)) - 50
+                drawCircle(color = Color.White.copy(alpha = 0.12f), radius = 55f, center = androidx.compose.ui.geometry.Offset(cloudX1, 30f))
+                drawCircle(color = Color.White.copy(alpha = 0.12f), radius = 45f, center = androidx.compose.ui.geometry.Offset(cloudX2, 50f))
+            }
+            else -> {
+                val pulse = (Math.sin(time.toDouble() / 20.0).toFloat() * 10f) + 40f
+                drawCircle(color = Color.Yellow.copy(alpha = 0.25f), radius = pulse, center = androidx.compose.ui.geometry.Offset(w - 40f, 40f))
+            }
+        }
+    }
+}
+
+@Composable
 fun WeatherCard(
     weather: WeatherResponse?,
-    onAskAi: (String) -> Unit
+    onAskAi: (String) -> Unit,
+    onSearchCity: (String) -> Unit = {}
 ) {
     var showWeatherDetail by remember { mutableStateOf(false) }
 
@@ -300,21 +405,27 @@ fun WeatherCard(
         shape = RoundedCornerShape(20.dp),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
     ) {
-        Column(modifier = Modifier.padding(16.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Column(modifier = Modifier.weight(1f)) {
-                    Text(weather?.location?.uppercase() ?: "SEARCHING...", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Black)
-                    Text(weather?.summary ?: "Calibrating sensors...", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Black)
-                }
-                Icon(Icons.Default.Cloud, null, modifier = Modifier.size(32.dp), tint = MaterialTheme.colorScheme.primary)
-            }
-            
-            if (weather?.rainExpected == true) {
-                Spacer(modifier = Modifier.height(8.dp))
+        Box(modifier = Modifier.fillMaxWidth()) {
+            WeatherAnimationCanvas(
+                condition = weather?.summary ?: "",
+                modifier = Modifier.matchParentSize()
+            )
+            Column(modifier = Modifier.padding(16.dp)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(Icons.Default.Umbrella, null, tint = Color.Cyan, modifier = Modifier.size(16.dp))
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text("PRECIPITATION ALERT: Rain in ${weather.timeToRain} mins", color = Color.Cyan, style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold)
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(weather?.location?.uppercase() ?: "SEARCHING...", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Black)
+                        Text(weather?.summary ?: "Calibrating sensors...", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Black)
+                    }
+                    Icon(Icons.Default.Cloud, null, modifier = Modifier.size(32.dp), tint = MaterialTheme.colorScheme.primary)
+                }
+                
+                if (weather?.rainExpected == true) {
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(Icons.Default.Umbrella, null, tint = Color.Cyan, modifier = Modifier.size(16.dp))
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text("PRECIPITATION ALERT: Rain in ${weather.timeToRain} mins", color = Color.Cyan, style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold)
+                    }
                 }
             }
         }
@@ -324,7 +435,8 @@ fun WeatherCard(
         WeatherDetailPopup(
             weather = weather,
             onDismiss = { showWeatherDetail = false },
-            onAskAi = onAskAi
+            onAskAi = onAskAi,
+            onSearchCity = onSearchCity
         )
     }
 }
@@ -333,13 +445,33 @@ fun WeatherCard(
 fun WeatherDetailPopup(
     weather: WeatherResponse?,
     onDismiss: () -> Unit,
-    onAskAi: (String) -> Unit
+    onAskAi: (String) -> Unit,
+    onSearchCity: (String) -> Unit = {}
 ) {
+    var cityQuery by remember { mutableStateOf("") }
+
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text("STRATEGIC WEATHER REPORT", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Black) },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
+                OutlinedTextField(
+                    value = cityQuery,
+                    onValueChange = { cityQuery = it },
+                    modifier = Modifier.fillMaxWidth(),
+                    placeholder = { Text("Search city weather (e.g. Tokyo)", fontSize = 12.sp) },
+                    trailingIcon = {
+                        IconButton(onClick = {
+                            if (cityQuery.isNotBlank()) {
+                                onSearchCity(cityQuery)
+                                onDismiss()
+                            }
+                        }) {
+                            Icon(Icons.Default.Search, "Search city")
+                        }
+                    },
+                    singleLine = true
+                )
                 if (weather == null) {
                     Text("Weather data unavailable. Please verify location permissions.")
                 } else {

@@ -48,8 +48,12 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.platform.LocalLifecycleOwner
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
@@ -111,9 +115,8 @@ fun InteractiveMapView(
     var mapSearchQuery by remember { mutableStateOf("") }
     val focusManager = LocalFocusManager.current
     
-    val mapIntelTitle = remember(location) {
-        if (location.contains(",")) "MAP_INTEL: COORDINATES" else "MAP_INTEL: $location"
-    }
+    // Stable map minichat session key so messages persist across map pans/zooms
+    val mapIntelTitle = "MAP_INTEL_SESSION"
     
     val messages = viewModel.messages
     val listState = rememberLazyListState()
@@ -145,6 +148,7 @@ fun InteractiveMapView(
     var isChatVisible by remember { mutableStateOf(false) }
     var selectedNavTab by remember { mutableIntStateOf(0) }
     var isHudExpanded by remember { mutableStateOf(false) }
+    var isTopBarVisible by remember { mutableStateOf(true) }
     var isSatelliteOn by remember { mutableStateOf(false) }
     var isMapReady by remember { mutableStateOf(false) }
     var isComputingRoute by remember { mutableStateOf(false) }
@@ -159,10 +163,7 @@ fun InteractiveMapView(
     val savedIntel by mapViewModel.savedIntel.collectAsState()
     
     val isMapLoading = mapViewModel.isMapLoading.value
-    val isCompassCalibrated = dashboardViewModel.isCompassCalibrated.value
     val tacticalCircle = mapViewModel.tacticalCircle.value
-    val isCalibrationWizardVisible = dashboardViewModel.isCalibrationWizardVisible.value
-    val calibrationProgress = dashboardViewModel.calibrationProgress.value
     val isLocationEnabled = mapViewModel.isLocationEnabled.value
     val searchMarker = mapViewModel.searchMarker.value
     val teleportRequest = mapViewModel.teleportRequest.value
@@ -297,6 +298,30 @@ fun InteractiveMapView(
         onDispose { viewModel.exitTrend() }
     }
 
+    // WebView has no lifecycle awareness of its own — without this, it keeps
+    // running (and rendering) while the Activity is backgrounded (a
+    // notification drawer, the recents screen, a permission prompt), and on
+    // some devices resumes to a blank black/white surface instead of
+    // repainting, since nothing ever told it to pause/resume. configChanges
+    // handling orientation (no Activity recreation) makes this worse, not
+    // better — the same WebView instance survives a rotation with no resume
+    // signal unless this observer provides one.
+    val lifecycleOwner = LocalLifecycleOwner.current
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            when (event) {
+                Lifecycle.Event.ON_RESUME -> webViewInstance?.onResume()
+                Lifecycle.Event.ON_PAUSE -> webViewInstance?.onPause()
+                else -> {}
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose {
+            lifecycleOwner.lifecycle.removeObserver(observer)
+            webViewInstance?.destroy()
+        }
+    }
+
     val hudHeight by animateDpAsState(
         targetValue = if (isHudExpanded) 340.dp else 72.dp,
         animationSpec = tween(400, easing = FastOutSlowInEasing), label = "hud_height"
@@ -334,6 +359,9 @@ fun InteractiveMapView(
                                 ViewGroup.LayoutParams.MATCH_PARENT
                             )
                             settings.javaScriptEnabled = true
+                            settings.domStorageEnabled = true
+                            settings.databaseEnabled = true
+                            settings.userAgentString = "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36 MistrealApp/1.0"
                             // JS calls fired before the page (and the CDN-hosted Leaflet
                             // script it loads) finish loading hit undefined functions and
                             // fail silently — this is the root cause behind several
@@ -381,6 +409,30 @@ fun InteractiveMapView(
                                         val mins = (durationSeconds / 60).toInt()
                                         val km = distanceMeters / 1000.0
                                         routeInfo = "%.1f km · %d min".format(km, mins)
+                                    }
+                                }
+                                @android.webkit.JavascriptInterface
+                                fun onRequestRoute(destLat: Double, destLon: Double) {
+                                    coroutineScope.launch {
+                                        isComputingRoute = true
+                                        val currentLoc = mapViewModel.locationHelper.getCurrentLocation()
+                                        if (currentLoc != null) {
+                                            webViewInstance?.evaluateJavascript(
+                                                "showRoute(${currentLoc.latitude}, ${currentLoc.longitude}, $destLat, $destLon)",
+                                                null
+                                            )
+                                        } else {
+                                            val focus = mapViewModel.mapFocusCoords.value
+                                            if (focus != null) {
+                                                webViewInstance?.evaluateJavascript(
+                                                    "showRoute(${focus.first}, ${focus.second}, $destLat, $destLon)",
+                                                    null
+                                                )
+                                            } else {
+                                                isComputingRoute = false
+                                                snackbarHostState.showSnackbar("Turn on location or search a place first to get directions.")
+                                            }
+                                        }
                                     }
                                 }
                                 @android.webkit.JavascriptInterface
@@ -446,86 +498,116 @@ fun InteractiveMapView(
             }
 
             Column(modifier = Modifier.fillMaxSize()) {
-                Surface(
-                    color = MaterialTheme.colorScheme.surface.copy(alpha = 0.94f),
-                    tonalElevation = 8.dp,
-                    shape = RoundedCornerShape(bottomStart = 24.dp, bottomEnd = 24.dp)
+                AnimatedVisibility(
+                    visible = isTopBarVisible,
+                    enter = slideInVertically(initialOffsetY = { -it }) + fadeIn(),
+                    exit = slideOutVertically(targetOffsetY = { -it }) + fadeOut()
                 ) {
-                    Column(modifier = Modifier.padding(16.dp)) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            IconButton(onClick = onClose) { Icon(Icons.AutoMirrored.Filled.ArrowBack, null) }
-                            Column(modifier = Modifier.weight(1f)) {
-                                Text(location.uppercase(), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Black)
-                                Text("TACTICAL SATELLITE OVERLAY", style = MaterialTheme.typography.labelSmall, color = Color.Gray)
-                            }
-                            IconButton(onClick = {
-                                mapViewModel.toggleLocation(!isLocationEnabled)
-                            }) {
-                                Icon(Icons.Default.MyLocation, null, tint = if(isLocationEnabled) Color(0xFF4CAF50) else Color.Gray)
-                            }
-                            IconButton(onClick = {
-                                isSatelliteOn = !isSatelliteOn
-                                webViewInstance?.evaluateJavascript("toggleSatellite($isSatelliteOn)", null)
-                            }) {
-                                Icon(Icons.Default.Satellite, "Toggle satellite view", tint = if (isSatelliteOn) Color(0xFF4CAF50) else Color.Gray)
-                            }
-                            IconButton(onClick = {
-                                // Correct BECAUSE this screen shares the exact same
-                                // chatViewModel instance as the "chat" destination
-                                // (both given the one instantiated in MainActivity,
-                                // outside the NavHost) — see the comment at this
-                                // button's onOpenAiRender wiring in MainActivity.kt.
-                                viewModel.setProvider(ChatViewModel.ARCH_IMAGE_PROVIDER_ID)
-                                onOpenAiRender()
-                            }) {
-                                Icon(Icons.Default.Architecture, "AI Render", tint = MaterialTheme.colorScheme.secondary)
-                            }
-                            IconButton(onClick = {
-                                (mapChatContext as? Activity)?.let { activity ->
-                                    coroutineScope.launch {
-                                        val uri = ScreenshotHelper.captureAndSave(activity)
-                                        if (uri != null && ScreenshotHelper.saveToGallery(activity, uri) != null) {
-                                            snackbarHostState.showSnackbar("Saved to Photos > Mistreal")
-                                        } else {
-                                            snackbarHostState.showSnackbar("Failed to save to gallery")
+                    Surface(
+                        color = MaterialTheme.colorScheme.surface.copy(alpha = 0.94f),
+                        tonalElevation = 8.dp,
+                        shape = RoundedCornerShape(bottomStart = 24.dp, bottomEnd = 24.dp)
+                    ) {
+                        Column(modifier = Modifier.padding(16.dp)) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                IconButton(onClick = onClose) { Icon(Icons.AutoMirrored.Filled.ArrowBack, null) }
+                                Column(modifier = Modifier.weight(1f, fill = false)) {
+                                    Text(
+                                        location.uppercase(),
+                                        style = MaterialTheme.typography.titleMedium,
+                                        fontWeight = FontWeight.Black,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis
+                                    )
+                                    Text(
+                                        "TACTICAL OVERLAY",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = Color.Gray,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis
+                                    )
+                                }
+                                IconButton(onClick = { isTopBarVisible = false }) {
+                                    Icon(Icons.Default.ExpandLess, "Hide Top Controls", tint = Color.Gray)
+                                }
+                                IconButton(onClick = {
+                                    val newState = !isLocationEnabled
+                                    mapViewModel.toggleLocation(newState)
+                                    if (!newState) {
+                                        webViewInstance?.evaluateJavascript("if(typeof clearGpsLocation === 'function') clearGpsLocation(); else if(typeof gpsMarker !== 'undefined' && gpsMarker) map.removeLayer(gpsMarker);", null)
+                                    }
+                                }) {
+                                    Icon(Icons.Default.MyLocation, null, tint = if(isLocationEnabled) Color(0xFF4CAF50) else Color.Gray)
+                                }
+                                IconButton(onClick = {
+                                    isSatelliteOn = !isSatelliteOn
+                                    webViewInstance?.evaluateJavascript("toggleSatellite($isSatelliteOn)", null)
+                                }) {
+                                    Icon(Icons.Default.Satellite, "Toggle satellite view", tint = if (isSatelliteOn) Color(0xFF4CAF50) else Color.Gray)
+                                }
+                                IconButton(onClick = {
+                                    viewModel.setProvider(ChatViewModel.ARCH_IMAGE_PROVIDER_ID)
+                                    onOpenAiRender()
+                                }) {
+                                    Icon(Icons.Default.Architecture, "AI Render", tint = MaterialTheme.colorScheme.secondary)
+                                }
+                                IconButton(onClick = {
+                                    (mapChatContext as? Activity)?.let { activity ->
+                                        coroutineScope.launch {
+                                            val uri = ScreenshotHelper.captureAndSave(activity)
+                                            if (uri != null && ScreenshotHelper.saveToGallery(activity, uri) != null) {
+                                                snackbarHostState.showSnackbar("Saved to Photos > Mistreal")
+                                            } else {
+                                                snackbarHostState.showSnackbar("Failed to save to gallery")
+                                            }
                                         }
                                     }
+                                }) {
+                                    Icon(Icons.Default.Download, "Save map to gallery", tint = Color.Gray)
                                 }
-                            }) {
-                                Icon(Icons.Default.Download, "Save map to gallery", tint = Color.Gray)
-                            }
-                            if (isHudExpanded) {
-                                IconButton(onClick = { isHudExpanded = false }) {
-                                    Icon(Icons.Default.Close, "Collapse HUD")
-                                }
-                            }
-                        }
-                        Spacer(modifier = Modifier.height(8.dp))
-                        OutlinedTextField(
-                            value = mapSearchQuery,
-                            onValueChange = { mapSearchQuery = it },
-                            modifier = Modifier.fillMaxWidth().height(52.dp),
-                            placeholder = { Text("Search coordinates or city...", fontSize = 14.sp) },
-                            leadingIcon = { Icon(Icons.Default.Search, null, modifier = Modifier.size(18.dp)) },
-                            trailingIcon = {
-                                if (isMapLoading) {
-                                    CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp)
-                                } else {
-                                    IconButton(onClick = { performMapSearch() }) {
-                                        Icon(Icons.Default.Search, "Search", tint = MaterialTheme.colorScheme.primary)
+                                if (isHudExpanded) {
+                                    IconButton(onClick = { isHudExpanded = false }) {
+                                        Icon(Icons.Default.Close, "Collapse HUD")
                                     }
                                 }
-                            },
-                            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
-                            keyboardActions = KeyboardActions(onSearch = { performMapSearch() }),
-                            singleLine = true,
-                            enabled = !isMapLoading,
-                            shape = RoundedCornerShape(12.dp)
-                        )
+                            }
+                            Spacer(modifier = Modifier.height(8.dp))
+                            OutlinedTextField(
+                                value = mapSearchQuery,
+                                onValueChange = { mapSearchQuery = it },
+                                modifier = Modifier.fillMaxWidth().height(52.dp),
+                                placeholder = { Text("Search coordinates or city...", fontSize = 14.sp) },
+                                leadingIcon = { Icon(Icons.Default.Search, null, modifier = Modifier.size(18.dp)) },
+                                trailingIcon = {
+                                    if (isMapLoading) {
+                                        CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp)
+                                    } else {
+                                        IconButton(onClick = { performMapSearch() }) {
+                                            Icon(Icons.Default.Search, "Search", tint = MaterialTheme.colorScheme.primary)
+                                        }
+                                    }
+                                },
+                                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
+                                keyboardActions = KeyboardActions(onSearch = { performMapSearch() }),
+                                singleLine = true,
+                                enabled = !isMapLoading,
+                                shape = RoundedCornerShape(12.dp)
+                            )
+                        }
                     }
                 }
 
                 Box(modifier = Modifier.fillMaxWidth().padding(16.dp)) {
+                    if (!isTopBarVisible) {
+                        FloatingActionButton(
+                            onClick = { isTopBarVisible = true },
+                            containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.85f),
+                            modifier = Modifier.align(Alignment.TopCenter).size(36.dp)
+                        ) {
+                            Icon(Icons.Default.ExpandMore, "Show Top Controls", tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(20.dp))
+                        }
+                    }
+
                     if (dashboardViewModel.compassSupported.value) {
                         Column(
                             modifier = Modifier.align(Alignment.TopEnd)
@@ -555,15 +637,15 @@ fun InteractiveMapView(
                         FloatingActionButton(
                             onClick = {
                                 coroutineScope.launch {
-                                    val origin = mapViewModel.locationHelper.getCurrentLocation()
-                                    if (origin == null) {
-                                        snackbarHostState.showSnackbar("Enable location to get directions")
-                                        return@launch
-                                    }
+                                    val loc = mapViewModel.locationHelper.getCurrentLocation()
+                                    val focus = mapViewModel.mapFocusCoords.value
+                                    val startLat = loc?.latitude ?: focus?.first ?: searchMarker.latitude
+                                    val startLon = loc?.longitude ?: focus?.second ?: searchMarker.longitude
+
                                     isComputingRoute = true
                                     routeInfo = null
                                     webViewInstance?.evaluateJavascript(
-                                        "showRoute(${origin.latitude}, ${origin.longitude}, ${searchMarker.latitude}, ${searchMarker.longitude})",
+                                        "showRoute($startLat, $startLon, ${searchMarker.latitude}, ${searchMarker.longitude})",
                                         null
                                     )
                                 }
@@ -630,10 +712,18 @@ fun InteractiveMapView(
                 Surface(
                     color = MaterialTheme.colorScheme.surface.copy(alpha = 0.96f),
                     tonalElevation = 12.dp,
+                    shadowElevation = 8.dp,
                     shape = RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp),
                     modifier = Modifier.height(hudHeight).clickable { isHudExpanded = true }
                 ) {
                     Column {
+                        // Was tap-to-expand with no visual cue that it's a
+                        // sheet at all — the standard Material drag-handle
+                        // signals "this panel is interactive" even though
+                        // the actual interaction here is tap, not drag.
+                        Box(modifier = Modifier.fillMaxWidth(), contentAlignment = Alignment.TopCenter) {
+                            BottomSheetDefaults.DragHandle()
+                        }
                         if (isDrawMode) {
                             TargetingControls(
                                 points = targetPoints,
@@ -726,30 +816,11 @@ fun InteractiveMapView(
                 }
             }
 
-            if (isCalibrationWizardVisible) {
-                AlertDialog(
-                    onDismissRequest = { dashboardViewModel.toggleCalibrationWizard(false) },
-                    title = { Text("Precision Calibration") },
-                    text = {
-                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                            Text("Rotate device in figure-8 path", fontSize = 12.sp)
-                            Spacer(modifier = Modifier.height(20.dp))
-                            Box(contentAlignment = Alignment.Center) {
-                                CircularProgressIndicator(
-                                    progress = { calibrationProgress }, 
-                                    modifier = Modifier.size(100.dp), 
-                                    strokeWidth = 8.dp
-                                )
-                                Icon(Icons.Default.Sync, null, modifier = Modifier.size(40.dp).graphicsLayer { rotationZ = calibrationProgress * 360 * 5 })
-                            }
-                            Spacer(modifier = Modifier.height(16.dp))
-                            Text(if(calibrationProgress < 1f) "CONTINUE MOTION..." else "VERIFIED", fontWeight = FontWeight.Black, color = if(calibrationProgress < 1f) Color.Yellow else Color.Green)
-                        }
-                    },
-                    confirmButton = { Button(onClick = { dashboardViewModel.toggleCalibrationWizard(false) }, enabled = calibrationProgress >= 1f) { Text("COMPLETE") } }
-                )
-            }
-            
+            // Calibration wizard dialog moved to DashboardScreen.kt (hoisted
+            // above the tab switch) — previously only reachable from the Map
+            // tab's compass icon even though the Intel feed also shows one now;
+            // the dialog itself is shared state, not tab-specific.
+
             if (isChatVisible) {
                 Surface(modifier = Modifier.fillMaxWidth().height(550.dp).align(Alignment.BottomCenter).imePadding(), color = MaterialTheme.colorScheme.surface, shape = RoundedCornerShape(topStart = 32.dp, topEnd = 32.dp), tonalElevation = 16.dp) {
                     Column(modifier = Modifier.padding(16.dp)) {
@@ -851,7 +922,9 @@ fun SaveIntelDialog(
                     onValueChange = { groupName = it },
                     placeholder = { Text("Group name (optional)") },
                     modifier = Modifier.fillMaxWidth(),
-                    singleLine = true
+                    singleLine = true,
+                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
+                    keyboardActions = KeyboardActions(onDone = { onConfirm(groupName) })
                 )
                 if (existingGroups.isNotEmpty()) {
                     Spacer(modifier = Modifier.height(8.dp))
@@ -916,8 +989,28 @@ private fun getMapHtml(): String = """
             </svg>
         </div>
         <script>
-            var map = L.map('map', { zoomControl: false, attributionControl: false }).setView([0,0], 2);
-            var baseLayer = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(map);
+            // zoomControl was off with nothing replacing it — no +/- buttons
+            // and whole-level-only zoom steps, which is why this never felt
+            // like a real map app. zoomSnap/zoomDelta at 0.5 lets pinch-zoom
+            // land on half-steps instead of snapping to the nearest whole
+            // level, the same smooth-zoom feel Google Maps has.
+            var map = L.map('map', { zoomControl: false, attributionControl: false, zoomSnap: 0.5, zoomDelta: 0.5, minZoom: 2, maxZoom: 19 }).setView([0,0], 2);
+            L.control.zoom({ position: 'topright' }).addTo(map);
+            var baseLayer = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+                maxZoom: 19,
+                subdomains: ['a','b','c']
+            }).addTo(map);
+            var fallbackLayer = L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png', {
+                subdomains: 'abcd',
+                maxZoom: 20
+            });
+            baseLayer.on('tileerror', function(e) {
+                if (!map.hasLayer(fallbackLayer) && !map.hasLayer(satLayer)) {
+                    console.warn('OSM tile load error, falling back to CartoDB Voyager');
+                    map.removeLayer(baseLayer);
+                    fallbackLayer.addTo(map);
+                }
+            });
             var satLayer = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {
                 attribution: 'Tiles &copy; Esri'
             });
@@ -998,7 +1091,10 @@ private fun getMapHtml(): String = """
 
             function updateSearchMarker(lat, lon, label) {
                 if(searchMarker) map.removeLayer(searchMarker);
-                searchMarker = L.marker([lat, lon]).addTo(map).bindPopup(label).openPopup();
+                searchMarker = L.marker([lat, lon]).addTo(map);
+                if (label && label.trim().length > 0) {
+                    searchMarker.bindPopup("<b>" + label + "</b>").openPopup();
+                }
                 ghostMarkers.clearLayers();
             }
             function addTacticalPin(lat, lon, label) {
@@ -1010,11 +1106,18 @@ private fun getMapHtml(): String = """
             }
             function showFocusPlaceMarker(lat, lon, label) {
                 if(focusPlaceMarker) map.removeLayer(focusPlaceMarker);
-                focusPlaceMarker = L.marker([lat, lon]).addTo(map).bindPopup(label).openPopup();
+                focusPlaceMarker = L.marker([lat, lon]).addTo(map);
+                if (label && label.trim().length > 0) {
+                    focusPlaceMarker.bindPopup("<b>" + label + "</b>").openPopup();
+                }
             }
             function updateGpsLocation(lat, lon, center) {
                 if(gpsMarker) map.removeLayer(gpsMarker);
                 gpsMarker = L.circleMarker([lat, lon], { radius: 8, color: 'green', weight: 3, fillOpacity: 0.8 }).addTo(map);
+            }
+            function clearGpsLocation() {
+                if(gpsMarker) { map.removeLayer(gpsMarker); gpsMarker = null; }
+            }
             }
             function reportMapCenter() {
                 var center = map.getCenter();
@@ -1033,7 +1136,9 @@ private fun getMapHtml(): String = """
                     results.forEach(function(r) {
                         var marker = L.marker([r.latitude, r.longitude]).addTo(discoveryLayer);
                         marker.bindTooltip(r.name, { permanent: true, direction: 'top', className: 'tactical-tooltip' });
-                        marker.bindPopup("<b>" + r.name + "</b><br>" + r.category.toUpperCase());
+                        var popupContent = "<div style='min-width:140px;'><b>" + r.name + "</b><br><small>" + r.category.toUpperCase() + "</small>" +
+                            "<br><br><button style='background:#00E5FF;color:#000;border:none;padding:5px 10px;border-radius:6px;font-weight:bold;cursor:pointer;width:100%;' onclick='AndroidMap.onRequestRoute(" + r.latitude + "," + r.longitude + ")'>Get Directions</button></div>";
+                        marker.bindPopup(popupContent);
                     });
                 } catch(e) { console.error("Discovery Parse Error:", e); }
             }

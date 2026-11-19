@@ -35,11 +35,15 @@ object Routes {
     const val BUSINESS_DISCOVERY = "business_discovery"
     const val BUSINESS_DETAIL_TEMPLATE = "business_detail/{businessId}"
     const val BUSINESS_SELLER = "business_seller"
+    const val BUSINESS_ADVERTISE = "business_advertise"
     const val GAMES = "games"
     const val GAME_PLAY_TEMPLATE = "game_play?title={title}&playUrl={playUrl}"
     const val CALL_TEMPLATE = "call?calleeDeviceId={calleeDeviceId}&callId={callId}&callerDeviceId={callerDeviceId}"
     const val CALL_BASE = "call"
     const val LIVE_AI = "live_ai"
+    const val EMAIL = "email"
+    const val EMAIL_COMPOSE = "email_compose"
+    const val EMAIL_MESSAGE_TEMPLATE = "email_message/{uid}"
 
     private fun encode(s: String) = URLEncoder.encode(s, "UTF-8")
 
@@ -79,4 +83,6 @@ object Routes {
     fun businessDetail(businessId: String) = "business_detail/$businessId"
 
     fun gamePlay(title: String, playUrl: String) = "game_play?title=${encode(title)}&playUrl=${encode(playUrl)}"
+
+    fun emailMessage(uid: Int) = "email_message/$uid"
 }

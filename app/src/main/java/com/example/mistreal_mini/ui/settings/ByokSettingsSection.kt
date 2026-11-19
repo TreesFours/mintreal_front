@@ -2,6 +2,8 @@ package com.example.mistreal_mini.ui.settings
 
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.CheckCircle
@@ -13,6 +15,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 
@@ -38,6 +41,13 @@ fun ByokSettingsSection(viewModel: SettingsViewModel) {
     var baseUrl by remember { mutableStateOf("") }
     var modelName by remember { mutableStateOf("") }
     var providerMenuExpanded by remember { mutableStateOf(false) }
+
+    val canSaveKey = !isSaving && apiKey.length >= 10
+    // Shared by the SAVE KEY button and the model-name field's keyboard Done action.
+    val onSaveKey: () -> Unit = {
+        viewModel.saveByokKey(providerType, apiKey, baseUrl.ifBlank { null }, modelName.ifBlank { null })
+        apiKey = "" // never keep the raw key in on-screen state after submit
+    }
 
     SettingsSection(title = "AI PROVIDER (BRING YOUR OWN KEY)", icon = Icons.Default.Key) {
         if (status?.configured == true) {
@@ -88,7 +98,8 @@ fun ByokSettingsSection(viewModel: SettingsViewModel) {
             label = { Text("API Key") },
             visualTransformation = PasswordVisualTransformation(),
             modifier = Modifier.fillMaxWidth(),
-            singleLine = true
+            singleLine = true,
+            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Next)
         )
 
         Spacer(modifier = Modifier.height(8.dp))
@@ -99,7 +110,8 @@ fun ByokSettingsSection(viewModel: SettingsViewModel) {
                 onValueChange = { baseUrl = it },
                 label = { Text("Base URL (e.g. https://api.groq.com/openai/v1)") },
                 modifier = Modifier.fillMaxWidth(),
-                singleLine = true
+                singleLine = true,
+                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Next)
             )
             Spacer(modifier = Modifier.height(8.dp))
         }
@@ -109,17 +121,16 @@ fun ByokSettingsSection(viewModel: SettingsViewModel) {
             onValueChange = { modelName = it },
             label = { Text("Model name (optional)") },
             modifier = Modifier.fillMaxWidth(),
-            singleLine = true
+            singleLine = true,
+            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
+            keyboardActions = KeyboardActions(onDone = { if (canSaveKey) onSaveKey() })
         )
 
         Spacer(modifier = Modifier.height(12.dp))
 
         Button(
-            onClick = {
-                viewModel.saveByokKey(providerType, apiKey, baseUrl.ifBlank { null }, modelName.ifBlank { null })
-                apiKey = "" // never keep the raw key in on-screen state after submit
-            },
-            enabled = !isSaving && apiKey.length >= 10,
+            onClick = onSaveKey,
+            enabled = canSaveKey,
             modifier = Modifier.fillMaxWidth(),
             shape = RoundedCornerShape(8.dp)
         ) {
@@ -160,6 +171,13 @@ fun ByokVideoSettingsSection(viewModel: SettingsViewModel) {
     var baseUrl by remember { mutableStateOf("") }
     var modelName by remember { mutableStateOf("") }
     var providerMenuExpanded by remember { mutableStateOf(false) }
+
+    val canSaveVideoKey = !isSaving && apiKey.length >= 10 && baseUrl.isNotBlank()
+    // Shared by the SAVE VIDEO PROVIDER button and the model-name field's keyboard Done action.
+    val onSaveVideoKey: () -> Unit = {
+        viewModel.saveByokVideoKey(providerType, apiKey, baseUrl.ifBlank { null }, modelName.ifBlank { null })
+        apiKey = ""
+    }
 
     SettingsSection(title = "VIDEO EDITING PROVIDER (BRING YOUR OWN KEY)", icon = Icons.Default.Key) {
         Text(
@@ -217,7 +235,8 @@ fun ByokVideoSettingsSection(viewModel: SettingsViewModel) {
             label = { Text("API Key") },
             visualTransformation = PasswordVisualTransformation(),
             modifier = Modifier.fillMaxWidth(),
-            singleLine = true
+            singleLine = true,
+            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Next)
         )
 
         Spacer(modifier = Modifier.height(8.dp))
@@ -227,7 +246,8 @@ fun ByokVideoSettingsSection(viewModel: SettingsViewModel) {
             onValueChange = { baseUrl = it },
             label = { Text("Endpoint URL") },
             modifier = Modifier.fillMaxWidth(),
-            singleLine = true
+            singleLine = true,
+            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Next)
         )
 
         Spacer(modifier = Modifier.height(8.dp))
@@ -237,17 +257,16 @@ fun ByokVideoSettingsSection(viewModel: SettingsViewModel) {
             onValueChange = { modelName = it },
             label = { Text("Model name (optional)") },
             modifier = Modifier.fillMaxWidth(),
-            singleLine = true
+            singleLine = true,
+            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
+            keyboardActions = KeyboardActions(onDone = { if (canSaveVideoKey) onSaveVideoKey() })
         )
 
         Spacer(modifier = Modifier.height(12.dp))
 
         Button(
-            onClick = {
-                viewModel.saveByokVideoKey(providerType, apiKey, baseUrl.ifBlank { null }, modelName.ifBlank { null })
-                apiKey = ""
-            },
-            enabled = !isSaving && apiKey.length >= 10 && baseUrl.isNotBlank(),
+            onClick = onSaveVideoKey,
+            enabled = canSaveVideoKey,
             modifier = Modifier.fillMaxWidth(),
             shape = RoundedCornerShape(8.dp)
         ) {
@@ -280,6 +299,14 @@ fun MediaGenProviderSection(viewModel: SettingsViewModel, capability: String, ti
     val configs = response?.configs ?: emptyList()
     val activeId = response?.activeConfigId
     val activeLabel = if (activeId == null) recommendedLabel else configs.find { it.id == activeId }?.label ?: recommendedLabel
+
+    val canAddConfig = !isSaving && label.isNotBlank() && providerType.isNotBlank() && apiKey.length >= 10 && baseUrl.isNotBlank()
+    // Shared by the SAVE button and the model-name field's keyboard Done action.
+    val onAddConfig: () -> Unit = {
+        viewModel.addMediaProviderConfig(capability, label, providerType, apiKey, baseUrl, modelName.ifBlank { null })
+        label = ""; providerType = ""; apiKey = ""; baseUrl = ""; modelName = ""
+        isAdding = false
+    }
 
     SettingsSection(title = title, icon = Icons.Default.Key) {
         Box {
@@ -317,42 +344,44 @@ fun MediaGenProviderSection(viewModel: SettingsViewModel, capability: String, ti
             OutlinedTextField(
                 value = label, onValueChange = { label = it },
                 label = { Text("Name (e.g. \"My OpenAI Key\")") },
-                modifier = Modifier.fillMaxWidth(), singleLine = true
+                modifier = Modifier.fillMaxWidth(), singleLine = true,
+                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Next)
             )
             Spacer(modifier = Modifier.height(8.dp))
             OutlinedTextField(
                 value = providerType, onValueChange = { providerType = it },
                 label = { Text("Provider type (e.g. openai, stability, runway)") },
-                modifier = Modifier.fillMaxWidth(), singleLine = true
+                modifier = Modifier.fillMaxWidth(), singleLine = true,
+                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Next)
             )
             Spacer(modifier = Modifier.height(8.dp))
             OutlinedTextField(
                 value = apiKey, onValueChange = { apiKey = it },
                 label = { Text("API Key") },
                 visualTransformation = PasswordVisualTransformation(),
-                modifier = Modifier.fillMaxWidth(), singleLine = true
+                modifier = Modifier.fillMaxWidth(), singleLine = true,
+                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Next)
             )
             Spacer(modifier = Modifier.height(8.dp))
             OutlinedTextField(
                 value = baseUrl, onValueChange = { baseUrl = it },
                 label = { Text("Endpoint URL") },
-                modifier = Modifier.fillMaxWidth(), singleLine = true
+                modifier = Modifier.fillMaxWidth(), singleLine = true,
+                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Next)
             )
             Spacer(modifier = Modifier.height(8.dp))
             OutlinedTextField(
                 value = modelName, onValueChange = { modelName = it },
                 label = { Text("Model name (optional)") },
-                modifier = Modifier.fillMaxWidth(), singleLine = true
+                modifier = Modifier.fillMaxWidth(), singleLine = true,
+                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
+                keyboardActions = KeyboardActions(onDone = { if (canAddConfig) onAddConfig() })
             )
             Spacer(modifier = Modifier.height(8.dp))
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 Button(
-                    onClick = {
-                        viewModel.addMediaProviderConfig(capability, label, providerType, apiKey, baseUrl, modelName.ifBlank { null })
-                        label = ""; providerType = ""; apiKey = ""; baseUrl = ""; modelName = ""
-                        isAdding = false
-                    },
-                    enabled = !isSaving && label.isNotBlank() && providerType.isNotBlank() && apiKey.length >= 10 && baseUrl.isNotBlank(),
+                    onClick = onAddConfig,
+                    enabled = canAddConfig,
                     shape = RoundedCornerShape(8.dp)
                 ) {
                     if (isSaving) CircularProgressIndicator(modifier = Modifier.size(16.dp), color = Color.White)

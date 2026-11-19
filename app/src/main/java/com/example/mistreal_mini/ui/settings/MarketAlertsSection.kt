@@ -3,6 +3,8 @@ package com.example.mistreal_mini.ui.settings
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Delete
@@ -13,6 +15,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -40,6 +43,17 @@ fun MarketAlertsSection(viewModel: SettingsViewModel) {
     var targetPrice by remember { mutableStateOf("") }
     var assetClassMenuExpanded by remember { mutableStateOf(false) }
     var directionMenuExpanded by remember { mutableStateOf(false) }
+
+    val canSetAlert = !isSaving && symbol.isNotBlank() && targetPrice.toDoubleOrNull() != null
+    // Shared by the SET ALERT button and the price field's keyboard Done action.
+    val onSetAlert: () -> Unit = {
+        val price = targetPrice.toDoubleOrNull()
+        if (symbol.isNotBlank() && price != null) {
+            viewModel.addMarketAlert(symbol.trim(), assetClass, direction, price)
+            symbol = ""
+            targetPrice = ""
+        }
+    }
 
     LaunchedEffect(Unit) {
         viewModel.fetchMarketWatchlist()
@@ -106,7 +120,8 @@ fun MarketAlertsSection(viewModel: SettingsViewModel) {
             onValueChange = { symbol = it.uppercase() },
             label = { Text("Symbol (e.g. AAPL, BTC, XAU/USD)") },
             modifier = Modifier.fillMaxWidth(),
-            singleLine = true
+            singleLine = true,
+            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Next)
         )
 
         Spacer(modifier = Modifier.height(8.dp))
@@ -142,21 +157,15 @@ fun MarketAlertsSection(viewModel: SettingsViewModel) {
             label = { Text("Target price (USD)") },
             modifier = Modifier.fillMaxWidth(),
             singleLine = true,
-            keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(keyboardType = KeyboardType.Decimal)
+            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal, imeAction = ImeAction.Done),
+            keyboardActions = KeyboardActions(onDone = { if (canSetAlert) onSetAlert() })
         )
 
         Spacer(modifier = Modifier.height(8.dp))
 
         Button(
-            onClick = {
-                val price = targetPrice.toDoubleOrNull()
-                if (symbol.isNotBlank() && price != null) {
-                    viewModel.addMarketAlert(symbol.trim(), assetClass, direction, price)
-                    symbol = ""
-                    targetPrice = ""
-                }
-            },
-            enabled = !isSaving && symbol.isNotBlank() && targetPrice.toDoubleOrNull() != null,
+            onClick = onSetAlert,
+            enabled = canSetAlert,
             modifier = Modifier.fillMaxWidth(),
             shape = RoundedCornerShape(8.dp)
         ) {

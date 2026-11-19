@@ -4,6 +4,8 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.CheckCircle
@@ -17,6 +19,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
@@ -84,39 +87,47 @@ fun CloudStorageSettingsSection(viewModel: CloudStorageViewModel = hiltViewModel
                 }
             }
         } else {
+            val canAddCloudConfig = !isSaving && label.isNotBlank() && baseUrl.isNotBlank() && username.isNotBlank() && password.isNotBlank()
+            // Shared by the SAVE button and the password field's keyboard Done action.
+            val onAddCloudConfig: () -> Unit = {
+                viewModel.addConfig(label, baseUrl, username, password)
+                label = ""; baseUrl = ""; username = ""; password = ""
+                isAdding = false
+            }
             OutlinedTextField(
                 value = label, onValueChange = { label = it },
                 label = { Text("Name (e.g. \"My Nextcloud\")") },
-                modifier = Modifier.fillMaxWidth(), singleLine = true
+                modifier = Modifier.fillMaxWidth(), singleLine = true,
+                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Next)
             )
             Spacer(modifier = Modifier.height(8.dp))
             OutlinedTextField(
                 value = baseUrl, onValueChange = { baseUrl = it },
                 label = { Text("Server URL (e.g. https://cloud.example.com/remote.php/dav/files/me)") },
-                modifier = Modifier.fillMaxWidth(), singleLine = true
+                modifier = Modifier.fillMaxWidth(), singleLine = true,
+                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Next)
             )
             Spacer(modifier = Modifier.height(8.dp))
             OutlinedTextField(
                 value = username, onValueChange = { username = it },
                 label = { Text("Username") },
-                modifier = Modifier.fillMaxWidth(), singleLine = true
+                modifier = Modifier.fillMaxWidth(), singleLine = true,
+                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Next)
             )
             Spacer(modifier = Modifier.height(8.dp))
             OutlinedTextField(
                 value = password, onValueChange = { password = it },
                 label = { Text("Password / app token") },
                 visualTransformation = PasswordVisualTransformation(),
-                modifier = Modifier.fillMaxWidth(), singleLine = true
+                modifier = Modifier.fillMaxWidth(), singleLine = true,
+                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
+                keyboardActions = KeyboardActions(onDone = { if (canAddCloudConfig) onAddCloudConfig() })
             )
             Spacer(modifier = Modifier.height(8.dp))
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 Button(
-                    onClick = {
-                        viewModel.addConfig(label, baseUrl, username, password)
-                        label = ""; baseUrl = ""; username = ""; password = ""
-                        isAdding = false
-                    },
-                    enabled = !isSaving && label.isNotBlank() && baseUrl.isNotBlank() && username.isNotBlank() && password.isNotBlank(),
+                    onClick = onAddCloudConfig,
+                    enabled = canAddCloudConfig,
                     shape = RoundedCornerShape(8.dp)
                 ) {
                     if (isSaving) CircularProgressIndicator(modifier = Modifier.size(16.dp), color = Color.White)

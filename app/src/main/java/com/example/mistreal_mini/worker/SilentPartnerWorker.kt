@@ -43,7 +43,7 @@ class SilentPartnerWorker @AssistedInject constructor(
         NotificationChannels.ensure(applicationContext, channelId, "Shadow Check-in", NotificationManager.IMPORTANCE_DEFAULT)
 
         val notification = NotificationCompat.Builder(applicationContext, channelId)
-            .setSmallIcon(android.R.drawable.ic_dialog_info) // Placeholder
+            .setSmallIcon(com.example.mistreal_mini.R.mipmap.ic_launcher_round)
             .setContentTitle("Shadow Check-in")
             .setContentText("Operator, just checking in on the mission status. How are things on your end?")
             .setPriority(NotificationCompat.PRIORITY_DEFAULT)

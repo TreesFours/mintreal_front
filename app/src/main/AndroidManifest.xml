@@ -95,11 +95,6 @@
             android:exported="false" />
 
         <activity
-            android:name=".ui.startup.PhoenixBootActivity"
-            android:exported="false"
-            android:theme="@style/Theme.Mistreal_mini" />
-
-        <activity
             android:name=".MainActivity"
             android:exported="true"
             android:theme="@style/Theme.Mistreal_mini"
@@ -128,12 +123,6 @@
                 <data android:host="social-connected" />
             </intent-filter>
         </activity>
-
-        <activity
-            android:name=".ui.stealth.StealthActivity"
-            android:exported="false"
-            android:theme="@style/Theme.Mistreal_mini"
-            android:screenOrientation="portrait" />
 
         <provider
             android:name="androidx.core.content.FileProvider"

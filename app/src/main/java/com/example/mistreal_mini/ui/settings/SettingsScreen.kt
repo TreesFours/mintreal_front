@@ -55,6 +55,7 @@ fun SettingsScreen(
     onWatchViewerClick: () -> Unit = {},
     onMarketClick: () -> Unit = {},
     onGamesClick: () -> Unit = {},
+    onEmailClick: () -> Unit = {},
     onPendingReviewsClick: () -> Unit = {},
     onMyProfileClick: () -> Unit = {},
     onNeedsClick: () -> Unit = {},
@@ -328,11 +329,16 @@ fun SettingsScreen(
 
                             OutlinedTextField(
                                 value = tempGodTask,
-                                onValueChange = { tempGodTask = it },
+                                onValueChange = { if (it.length <= 300) tempGodTask = it },
                                 label = { Text("God Mode Research Task") },
                                 placeholder = { Text("e.g. Verify quantum computing benchmarks") },
                                 modifier = Modifier.fillMaxWidth(),
                                 singleLine = true,
+                                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
+                                keyboardActions = KeyboardActions(onDone = {
+                                    viewModel.setGodModeTask(tempGodTask)
+                                    focusManager.clearFocus()
+                                }),
                                 trailingIcon = {
                                     IconButton(onClick = { viewModel.setGodModeTask(tempGodTask) }) {
                                         Icon(Icons.Default.Check, "Set Task", tint = MaterialTheme.colorScheme.primary)
@@ -344,12 +350,17 @@ fun SettingsScreen(
 
                             OutlinedTextField(
                                 value = tempGodStyle,
-                                onValueChange = { tempGodStyle = it },
+                                onValueChange = { if (it.length <= 100) tempGodStyle = it },
                                 label = { Text("Explanation Mode (Mode_Human)") },
                                 placeholder = { Text("e.g. baby, expert, concise") },
                                 modifier = Modifier.fillMaxWidth(),
                                 singleLine = true,
                                 supportingText = { Text("e.g. 'baby' explains deep knowledge in simple terms like to a child.", fontSize = 10.sp, color = Color.Gray) },
+                                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
+                                keyboardActions = KeyboardActions(onDone = {
+                                    viewModel.setGodModeStyle(tempGodStyle)
+                                    focusManager.clearFocus()
+                                }),
                                 trailingIcon = {
                                     IconButton(onClick = { viewModel.setGodModeStyle(tempGodStyle) }) {
                                         Icon(Icons.Default.Check, "Set Style", tint = MaterialTheme.colorScheme.primary)
@@ -427,7 +438,17 @@ fun SettingsScreen(
                                 label = { Text("Custom Behavior Protocol") },
                                 modifier = Modifier.fillMaxWidth(),
                                 placeholder = { Text("e.g. Aggressive Researcher") },
-                                shape = RoundedCornerShape(12.dp)
+                                shape = RoundedCornerShape(12.dp),
+                                singleLine = true,
+                                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
+                                // Mirrors the ADD button next to this field.
+                                keyboardActions = KeyboardActions(onDone = {
+                                    if (customPersonaText.isNotBlank()) {
+                                        viewModel.addCustomPersona(customPersonaText)
+                                        selectedPersona = customPersonaText
+                                        customPersonaText = ""
+                                    }
+                                })
                             )
                             
                             Row(
@@ -521,7 +542,17 @@ fun SettingsScreen(
                                 label = { Text("Custom Audience Bias") },
                                 modifier = Modifier.fillMaxWidth(),
                                 placeholder = { Text("e.g. Deep Space Experts") },
-                                shape = RoundedCornerShape(12.dp)
+                                shape = RoundedCornerShape(12.dp),
+                                singleLine = true,
+                                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
+                                // Mirrors the ADD button next to this field.
+                                keyboardActions = KeyboardActions(onDone = {
+                                    if (customAudienceText.isNotBlank()) {
+                                        viewModel.addCustomAudience(customAudienceText)
+                                        selectedAudience = customAudienceText
+                                        customAudienceText = ""
+                                    }
+                                })
                             )
                             
                             Row(
@@ -650,6 +681,64 @@ fun SettingsScreen(
                             Icon(Icons.Default.Add, null, modifier = Modifier.size(16.dp))
                             Spacer(modifier = Modifier.width(8.dp))
                             Text("CONFIGURE EMERGENCY NODES")
+                        }
+                        
+                        // Disaster & AI Privacy Switches
+                        val isDisasterSharing by viewModel.isDisasterLocationSharingEnabled.collectAsStateWithLifecycle(initialValue = true)
+                        val checkInInterval by viewModel.disasterCheckInIntervalHours.collectAsStateWithLifecycle(initialValue = 2)
+                        val isAiLocationSharing by viewModel.isLocationSharingAiEnabled.collectAsStateWithLifecycle(initialValue = true)
+                        val isAiOrientationSharing by viewModel.isOrientationSharingAiEnabled.collectAsStateWithLifecycle(initialValue = true)
+                        
+                        ProtocolSwitch(
+                            title = "Disaster Live Location Sharing",
+                            desc = "Silently transmit GPS location to confirmed contacts during active disasters",
+                            checked = isDisasterSharing,
+                            onCheckedChange = { viewModel.setDisasterLocationSharingEnabled(it) }
+                        )
+
+                        ProtocolSwitch(
+                            title = "Share Location with AI",
+                            desc = "Include live GPS coordinates in AI prompts for place/weather queries",
+                            checked = isAiLocationSharing,
+                            onCheckedChange = { viewModel.setLocationSharingAiEnabled(it) }
+                        )
+
+                        val isByokCloudBackup by viewModel.isByokCloudBackupEnabled.collectAsStateWithLifecycle(initialValue = false)
+
+                        ProtocolSwitch(
+                            title = "Share Compass Heading with AI",
+                            desc = "Include compass orientation in AI prompts for directional guidance (e.g. Look behind you)",
+                            checked = isAiOrientationSharing,
+                            onCheckedChange = { viewModel.setOrientationSharingAiEnabled(it) }
+                        )
+
+                        ProtocolSwitch(
+                            title = "BYOK Personal Cloud & Email Backup",
+                            desc = "Store chat history & AI cache on your personal email/cloud server without populating backend DB",
+                            checked = isByokCloudBackup,
+                            onCheckedChange = { viewModel.setByokCloudBackupEnabled(it) }
+                        )
+                        
+                        Row(
+                            modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text("Disaster Check-In Interval", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold)
+                                Text("Frequency of safety check-in prompts during active hazards", style = MaterialTheme.typography.bodySmall, color = Color.Gray, fontSize = 10.sp)
+                            }
+                            Row {
+                                listOf(1, 2, 4, 6).forEach { hours ->
+                                    val sel = checkInInterval == hours
+                                    FilterChip(
+                                        selected = sel,
+                                        onClick = { viewModel.setDisasterCheckInIntervalHours(hours) },
+                                        label = { Text("${hours}h", fontSize = 10.sp, fontWeight = FontWeight.Bold) },
+                                        modifier = Modifier.padding(horizontal = 2.dp)
+                                    )
+                                }
+                            }
                         }
                         TextButton(onClick = onGuardianAlertsClick, modifier = Modifier.fillMaxWidth()) {
                             Icon(Icons.Default.History, null, modifier = Modifier.size(16.dp))
@@ -842,15 +931,80 @@ fun SettingsScreen(
                     }
 
                     // --- SECTION 4b-1c: GAMES ---
-                    SettingsSection(title = "GAMES", icon = Icons.Default.SportsEsports) {
+                    SettingsSection(title = "GAMES & ARCADE", icon = Icons.Default.SportsEsports) {
+                        Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                            // Featured Games Preview Row
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                Card(
+                                    modifier = Modifier.weight(1f).height(70.dp).clickable { onGamesClick() },
+                                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
+                                ) {
+                                    Column(
+                                        modifier = Modifier.fillMaxSize(),
+                                        horizontalAlignment = Alignment.CenterHorizontally,
+                                        verticalArrangement = Arrangement.Center
+                                    ) {
+                                        Text("👾", fontSize = 24.sp)
+                                        Text("Retro Arcade", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                    }
+                                }
+                                Card(
+                                    modifier = Modifier.weight(1f).height(70.dp).clickable { onGamesClick() },
+                                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
+                                ) {
+                                    Column(
+                                        modifier = Modifier.fillMaxSize(),
+                                        horizontalAlignment = Alignment.CenterHorizontally,
+                                        verticalArrangement = Arrangement.Center
+                                    ) {
+                                        Text("♟️", fontSize = 24.sp)
+                                        Text("Chess Master", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                    }
+                                }
+                                Card(
+                                    modifier = Modifier.weight(1f).height(70.dp).clickable { onGamesClick() },
+                                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
+                                ) {
+                                    Column(
+                                        modifier = Modifier.fillMaxSize(),
+                                        horizontalAlignment = Alignment.CenterHorizontally,
+                                        verticalArrangement = Arrangement.Center
+                                    ) {
+                                        Text("🐍", fontSize = 24.sp)
+                                        Text("Cyber Snake", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                    }
+                                }
+                            }
+
+                            Button(
+                                onClick = onGamesClick,
+                                modifier = Modifier.fillMaxWidth(),
+                                shape = RoundedCornerShape(8.dp)
+                            ) {
+                                Icon(Icons.Default.SportsEsports, null)
+                                Spacer(Modifier.width(8.dp))
+                                Text("LAUNCH GAME CENTER", fontWeight = FontWeight.Bold)
+                            }
+                        }
+                    }
+
+                    // --- SECTION 4b-1c-2: EMAIL ---
+                    // Connect your own account (app password, IMAP/SMTP) and
+                    // send/receive as yourself — distinct from the separate
+                    // compose-only Email feature elsewhere, which sends from
+                    // the app's own shared address with no inbox at all.
+                    SettingsSection(title = "EMAIL", icon = Icons.Default.Email) {
                         Button(
-                            onClick = onGamesClick,
+                            onClick = onEmailClick,
                             modifier = Modifier.fillMaxWidth(),
                             shape = RoundedCornerShape(8.dp)
                         ) {
-                            Icon(Icons.Default.SportsEsports, null)
+                            Icon(Icons.Default.Email, null)
                             Spacer(Modifier.width(8.dp))
-                            Text("BROWSE GAMES", fontWeight = FontWeight.Bold)
+                            Text("OPEN EMAIL", fontWeight = FontWeight.Bold)
                         }
                     }
 
@@ -1018,24 +1172,26 @@ fun SettingsScreen(
                                 if (showDelayPicker) {
                                     Spacer(modifier = Modifier.height(8.dp))
                                     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                        val onSetDelay: () -> Unit = {
+                                            val mins = customDelayInput.toIntOrNull() ?: 15
+                                            viewModel.saveSettings(userName, selectedPersona, selectedAudience, mins, aiCustomName = aiCustomName)
+                                            selectedDelay = "Custom"
+                                            customDelayValue = customDelayInput
+                                            showDelayPicker = false
+                                            focusManager.clearFocus()
+                                        }
                                         OutlinedTextField(
                                             value = customDelayInput,
                                             onValueChange = { if(it.all { char -> char.isDigit() }) customDelayInput = it },
                                             label = { Text("Minutes") },
                                             modifier = Modifier.weight(1f),
-                                            keyboardOptions = KeyboardOptions(keyboardType = androidx.compose.ui.text.input.KeyboardType.Number),
+                                            keyboardOptions = KeyboardOptions(keyboardType = androidx.compose.ui.text.input.KeyboardType.Number, imeAction = ImeAction.Done),
+                                            keyboardActions = KeyboardActions(onDone = { onSetDelay() }),
                                             singleLine = true,
                                             shape = RoundedCornerShape(8.dp)
                                         )
                                         Button(
-                                            onClick = {
-                                                val mins = customDelayInput.toIntOrNull() ?: 15
-                                                viewModel.saveSettings(userName, selectedPersona, selectedAudience, mins, aiCustomName = aiCustomName)
-                                                selectedDelay = "Custom"
-                                                customDelayValue = customDelayInput
-                                                showDelayPicker = false
-                                                focusManager.clearFocus()
-                                            },
+                                            onClick = onSetDelay,
                                             shape = RoundedCornerShape(8.dp)
                                         ) {
                                             Text("SET")
@@ -1241,8 +1397,14 @@ fun SettingsScreen(
                     SettingsSection(title = "COMMAND DECK", icon = Icons.Default.Language) {
                         Button(
                             onClick = { 
-                                val intent = android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse("https://mistreal-console.com"))
-                                context.startActivity(intent)
+                                val url = "https://mistreal-backend.onrender.com"
+                                try {
+                                    val customTabsIntent = androidx.browser.customtabs.CustomTabsIntent.Builder().build()
+                                    customTabsIntent.launchUrl(context, android.net.Uri.parse(url))
+                                } catch (e: Exception) {
+                                    val intent = android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse(url))
+                                    context.startActivity(intent)
+                                }
                             },
                             modifier = Modifier.fillMaxWidth().height(48.dp),
                             shape = RoundedCornerShape(8.dp),

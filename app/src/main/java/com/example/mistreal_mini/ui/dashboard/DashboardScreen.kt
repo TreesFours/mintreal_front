@@ -21,6 +21,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -49,6 +50,11 @@ fun DashboardScreen(
     onMyProfileClick: () -> Unit = {},
     onAuthorProfileClick: (String) -> Unit = {},
     onOpenAiRender: () -> Unit = {},
+    onAdvertiseClick: () -> Unit = {},
+    onOpenGames: () -> Unit = {},
+    onOpenMarket: () -> Unit = {},
+    onOpenWatchHub: () -> Unit = {},
+    onOpenChat: () -> Unit = {},
     viewModel: DashboardViewModel = hiltViewModel(),
     feedViewModel: FeedViewModel = hiltViewModel(),
     mapViewModel: TacticalMapViewModel = hiltViewModel(),
@@ -79,6 +85,7 @@ fun DashboardScreen(
     var selectedTab by remember { mutableIntStateOf(0) }
     var showMapPopup by remember { mutableStateOf(false) }
     var showFullSolarSystem by remember { mutableStateOf(false) }
+    var showEarthCamDialog by remember { mutableStateOf(false) }
 
     val weather by viewModel.weather
     val unreadCount by viewModel.unreadMessagesCount
@@ -109,6 +116,7 @@ fun DashboardScreen(
         viewModel.loadDashboardData(deviceId)
         feedViewModel.loadFeed(deviceId)
         celestialViewModel.fetchCelestialData()
+        chatViewModel.fetchAvailablePlatforms()
     }
 
     LaunchedEffect(Unit) {
@@ -126,6 +134,9 @@ fun DashboardScreen(
             TopAppBar(
                 title = { Text(if (isArchitectMode) "MISTREAL ARCHITECT" else "MISTREAL TACTICAL", fontWeight = FontWeight.Black) },
                 actions = {
+                    IconButton(onClick = { showEarthCamDialog = true }) {
+                        Icon(Icons.Default.Public, "World Cams", tint = MaterialTheme.colorScheme.primary)
+                    }
                     IconButton(onClick = onMyProfileClick) {
                         Icon(Icons.Default.Person, "My Profile")
                     }
@@ -137,6 +148,20 @@ fun DashboardScreen(
                         }) {
                             Icon(Icons.Default.Chat, "Direct Messages")
                         }
+                    }
+                }
+            )
+        },
+        bottomBar = {
+            com.example.mistreal_mini.ui.chat.components.InstagramStyleBottomBar(
+                selectedTab = if (selectedTab == 2) 2 else 4,
+                onTabSelected = { tab ->
+                    when (tab) {
+                        0 -> onOpenGames()
+                        1 -> onOpenMarket()
+                        2 -> selectedTab = 2
+                        3 -> onOpenWatchHub()
+                        4 -> onOpenChat()
                     }
                 }
             )
@@ -189,7 +214,7 @@ fun DashboardScreen(
                     selected = selectedTab == dispatchIndex,
                     onClick = { selectedTab = dispatchIndex },
                     icon = { Icon(Icons.Default.BroadcastOnPersonal, contentDescription = "Broadcast Deck", modifier = Modifier.size(18.dp)) },
-                    text = { Text("BROADCAST", fontSize = 11.sp, fontWeight = FontWeight.Bold) }
+                    text = { Text("COMMS", fontSize = 11.sp, fontWeight = FontWeight.Bold) }
                 )
             }
 
@@ -211,7 +236,7 @@ fun DashboardScreen(
                         chatViewModel = chatViewModel,
                         dashboardViewModel = viewModel,
                         snackbarHostState = snackbarHostState,
-                        onRefresh = { feedViewModel.loadFeed(deviceId) },
+                        onRefresh = { feedViewModel.loadFeed(deviceId, forceRefresh = true) },
                         onOrbitalClick = { showFullSolarSystem = true }
                     )
                     selectedTab == 1 -> InteractiveMapView(
@@ -231,32 +256,32 @@ fun DashboardScreen(
                             snackbarHostState = snackbarHostState
                         )
                     }
-                    (isArchitectMode && selectedTab == 3) || (!isArchitectMode && selectedTab == 2) -> com.example.mistreal_mini.ui.dashboard.components.ads.AdSplitScreenHost {
-                        SocialPagerView(
-                            posts = feedViewModel.socialPosts,
-                            onPostClick = {},
-                            onAiClick = { post, content ->
-                                insightContext = "SOCIAL_INTEL:\n$content\n\nAnalyze this post for potential leads or threats."
-                                insightSourcePost = post
-                                showInsightPopup = true
-                            },
-                            chatViewModel = chatViewModel,
-                            feedViewModel = feedViewModel,
-                            deviceId = deviceId,
-                            isLoading = feedViewModel.isLoading.value,
-                            onAuthorClick = onAuthorProfileClick,
-                            onVoiceAsk = { showQuickVoiceAsk = true }
-                        )
-                    }
+                    (isArchitectMode && selectedTab == 3) || (!isArchitectMode && selectedTab == 2) -> SocialPagerView(
+                        posts = feedViewModel.socialPosts,
+                        onPostClick = {},
+                        onAiClick = { post, content ->
+                            insightContext = "SOCIAL_INTEL:\n$content\n\nAnalyze this post for potential leads or threats."
+                            insightSourcePost = post
+                            showInsightPopup = true
+                        },
+                        chatViewModel = chatViewModel,
+                        feedViewModel = feedViewModel,
+                        deviceId = deviceId,
+                        isLoading = feedViewModel.isLoading.value,
+                        onAuthorClick = onAuthorProfileClick,
+                        onVoiceAsk = { showQuickVoiceAsk = true }
+                    )
                     (isArchitectMode && selectedTab == 4) || (!isArchitectMode && selectedTab == 3) -> DispatchCenterView(
                         deviceId = deviceId,
                         connectedSocials = chatViewModel.availablePlatforms.filter { it.isConnected }.map { it.id.lowercase() },
-                        onPostToSocial = { _, platform, type, content, mistrealOnly, mediaBase64, mediaMimeType ->
+                        onPostToSocial = { _, platform, type, content, mistrealOnly, mediaBase64, mediaMimeType, shareToCommunity ->
                             feedViewModel.postToSocial(
                                 deviceId, platform, type, content, mistrealOnly = mistrealOnly,
-                                mediaBase64 = mediaBase64, mediaMimeType = mediaMimeType
+                                mediaBase64 = mediaBase64, mediaMimeType = mediaMimeType,
+                                shareToCommunity = shareToCommunity
                             )
                         },
+                        onAdvertiseClick = onAdvertiseClick,
                         snackbarHostState = snackbarHostState
                     )
                 }
@@ -301,6 +326,37 @@ fun DashboardScreen(
                 )
             }
         }
+    }
+
+    if (viewModel.isCalibrationWizardVisible.value) {
+        val calibrationProgress = viewModel.calibrationProgress.value
+        AlertDialog(
+            onDismissRequest = { viewModel.toggleCalibrationWizard(false) },
+            title = { Text("Precision Calibration") },
+            text = {
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Text("Rotate device in figure-8 path", fontSize = 12.sp)
+                    Spacer(modifier = Modifier.height(20.dp))
+                    Box(contentAlignment = Alignment.Center) {
+                        CircularProgressIndicator(
+                            progress = { calibrationProgress },
+                            modifier = Modifier.size(100.dp),
+                            strokeWidth = 8.dp
+                        )
+                        Icon(Icons.Default.Sync, null, modifier = Modifier.size(40.dp).graphicsLayer { rotationZ = calibrationProgress * 360 * 5 })
+                    }
+                    Spacer(modifier = Modifier.height(16.dp))
+                    Text(if (calibrationProgress < 1f) "CONTINUE MOTION..." else "VERIFIED", fontWeight = FontWeight.Black, color = if (calibrationProgress < 1f) Color.Yellow else Color.Green)
+                }
+            },
+            confirmButton = { Button(onClick = { viewModel.toggleCalibrationWizard(false) }, enabled = calibrationProgress >= 1f) { Text("COMPLETE") } }
+        )
+    }
+
+    if (showEarthCamDialog) {
+        com.example.mistreal_mini.ui.dashboard.components.EarthCamOverlay(
+            onDismiss = { showEarthCamDialog = false }
+        )
     }
 
     if (selectedArticle != null) {

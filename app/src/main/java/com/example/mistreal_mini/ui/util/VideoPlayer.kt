@@ -21,7 +21,8 @@ import androidx.media3.ui.PlayerView
 @Composable
 fun VideoPlayer(
     videoUrl: String,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    subtitles: String? = null
 ) {
     val context = LocalContext.current
     val exoPlayer = remember {
@@ -39,15 +40,35 @@ fun VideoPlayer(
         }
     }
 
-    AndroidView(
-        factory = {
-            PlayerView(context).apply {
-                player = exoPlayer
-                useController = true
+    Box(modifier = modifier) {
+        AndroidView(
+            factory = {
+                PlayerView(context).apply {
+                    player = exoPlayer
+                    useController = true
+                }
+            },
+            modifier = Modifier.fillMaxSize()
+        )
+
+        if (!subtitles.isNullOrBlank()) {
+            androidx.compose.material3.Surface(
+                color = Color.Black.copy(alpha = 0.75f),
+                shape = androidx.compose.foundation.shape.RoundedCornerShape(8.dp),
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .padding(bottom = 48.dp, start = 16.dp, end = 16.dp)
+            ) {
+                androidx.compose.material3.Text(
+                    text = subtitles,
+                    color = Color.White,
+                    style = androidx.compose.material3.MaterialTheme.typography.bodyMedium,
+                    fontWeight = androidx.compose.ui.text.font.FontWeight.Bold,
+                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp)
+                )
             }
-        },
-        modifier = modifier
-    )
+        }
+    }
 }
 
 /**

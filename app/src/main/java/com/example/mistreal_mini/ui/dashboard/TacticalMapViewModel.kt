@@ -155,6 +155,19 @@ class TacticalMapViewModel @Inject constructor(
             val entry = IntelLogEntry(fullLabel, addr.latitude, addr.longitude, "SEARCH", System.currentTimeMillis())
             tacticalRepository.setSearchMarker(entry)
             addToIntelLog(entry)
+            
+            // Persist location history entry so the "YOU" tab displays past deployments
+            viewModelScope.launch {
+                locationHistoryDao.insertLocation(
+                    LocationHistoryEntity(
+                        userId = userId,
+                        cityName = fullLabel,
+                        latitude = addr.latitude,
+                        longitude = addr.longitude,
+                        timestamp = System.currentTimeMillis()
+                    )
+                )
+            }
             CitySearchResult.Success
         } else {
             Timber.w("🔍 No location found for query: $cityName")
@@ -451,6 +464,17 @@ class TacticalMapViewModel @Inject constructor(
         _ambiguousLocations.clear()
         _ghostMarkersRequest.value = null
         addToIntelLog(entry)
+        viewModelScope.launch {
+            locationHistoryDao.insertLocation(
+                LocationHistoryEntity(
+                    userId = userId,
+                    cityName = label.uppercase(),
+                    latitude = lat,
+                    longitude = lon,
+                    timestamp = System.currentTimeMillis()
+                )
+            )
+        }
     }
 
     fun clearTeleport() {

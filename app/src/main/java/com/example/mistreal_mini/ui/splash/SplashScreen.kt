@@ -125,25 +125,46 @@ fun SplashScreen(
 
             Spacer(modifier = Modifier.height(24.dp))
 
-            Text(
-                text = statusText,
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.primary,
-                textAlign = TextAlign.Center,
+            // Animated Status Pill Badge
+            Surface(
+                color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.5f),
+                shape = androidx.compose.foundation.shape.RoundedCornerShape(16.dp),
                 modifier = Modifier
                     .padding(horizontal = 16.dp)
                     .alpha(alphaAnim.value)
-            )
+            ) {
+                Row(
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(8.dp)
+                            .background(
+                                color = if (statusText.contains("Online") || statusText.contains("Ready")) Color(0xFF4CAF50) else Color(0xFFFF9800),
+                                shape = androidx.compose.foundation.shape.CircleShape
+                            )
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(
+                        text = statusText,
+                        style = MaterialTheme.typography.labelSmall,
+                        fontWeight = androidx.compose.ui.text.font.FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.onPrimaryContainer,
+                        textAlign = TextAlign.Center
+                    )
+                }
+            }
 
             if (!isReady) {
-                Spacer(modifier = Modifier.height(24.dp))
+                Spacer(modifier = Modifier.height(20.dp))
                 LinearProgressIndicator(
                     modifier = Modifier
-                        .width(200.dp)
-                        .height(2.dp)
+                        .width(220.dp)
+                        .height(3.dp)
                         .alpha(alphaAnim.value),
                     color = MaterialTheme.colorScheme.primary,
-                    trackColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.1f)
+                    trackColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.15f)
                 )
             }
         }

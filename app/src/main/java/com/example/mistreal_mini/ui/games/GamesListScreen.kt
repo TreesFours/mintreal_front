@@ -1,5 +1,6 @@
 package com.example.mistreal_mini.ui.games
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
@@ -17,7 +18,9 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import coil.compose.AsyncImage
 import com.example.mistreal_mini.data.Resource
@@ -98,19 +101,46 @@ private fun GameCard(
     onClick: () -> Unit,
     onTogglePin: () -> Unit
 ) {
+    val categoryEmoji = when ((game.category ?: "").lowercase()) {
+        "action" -> "🕹️"
+        "arcade" -> "👾"
+        "puzzle" -> "🧩"
+        "strategy" -> "♟️"
+        "card" -> "🃏"
+        else -> "🎮"
+    }
+
     Card(
         modifier = Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(12.dp),
         onClick = onClick
     ) {
         Column {
-            Box(modifier = Modifier.fillMaxWidth().height(100.dp)) {
-                AsyncImage(
-                    model = game.thumbnailUrl,
-                    contentDescription = game.title,
-                    modifier = Modifier.fillMaxSize().clip(RoundedCornerShape(topStart = 12.dp, topEnd = 12.dp)),
-                    contentScale = ContentScale.Crop
-                )
+            Box(modifier = Modifier.fillMaxWidth().height(110.dp)) {
+                if (!game.thumbnailUrl.isNullOrBlank()) {
+                    AsyncImage(
+                        model = game.thumbnailUrl,
+                        contentDescription = game.title,
+                        modifier = Modifier.fillMaxSize().clip(RoundedCornerShape(topStart = 12.dp, topEnd = 12.dp)),
+                        contentScale = ContentScale.Crop
+                    )
+                } else {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .background(
+                                androidx.compose.ui.graphics.Brush.verticalGradient(
+                                    colors = listOf(
+                                        MaterialTheme.colorScheme.primaryContainer,
+                                        MaterialTheme.colorScheme.surfaceVariant
+                                    )
+                                )
+                            ),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(categoryEmoji, fontSize = 36.sp)
+                    }
+                }
                 IconButton(onClick = onTogglePin, modifier = Modifier.align(Alignment.TopEnd)) {
                     Icon(
                         if (isPinned) Icons.Default.Favorite else Icons.Default.FavoriteBorder,
@@ -120,9 +150,9 @@ private fun GameCard(
                 }
             }
             Column(modifier = Modifier.padding(8.dp)) {
-                Text(game.title, style = MaterialTheme.typography.titleSmall, maxLines = 1)
+                Text(game.title, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold, maxLines = 1)
                 game.category?.let {
-                    Text(it, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text(it, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
                 }
             }
         }

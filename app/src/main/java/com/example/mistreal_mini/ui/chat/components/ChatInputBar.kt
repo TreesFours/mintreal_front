@@ -34,6 +34,12 @@ import androidx.compose.ui.window.DialogProperties
 import coil.compose.AsyncImage
 import com.example.mistreal_mini.ui.util.VideoPlayer
 
+enum class ChatInputStyle {
+    FLOATING_BAR,
+    GLASS_CARPET,
+    MINIMAL
+}
+
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun ChatInputBar(
@@ -78,7 +84,8 @@ fun ChatInputBar(
     // Only ever non-null in a real user-to-user (social) chat — see
     // ChatBubble's "Reply" menu item, which is what sets this.
     replyingTo: com.example.mistreal_mini.data.model.ChatMessage? = null,
-    onCancelReply: () -> Unit = {}
+    onCancelReply: () -> Unit = {},
+    inputStyle: ChatInputStyle = ChatInputStyle.FLOATING_BAR
 ) {
     val focusManager = LocalFocusManager.current
     val context = LocalContext.current
@@ -87,10 +94,10 @@ fun ChatInputBar(
     var showMediaTools by remember { mutableStateOf(false) }
     var showCaptureTools by remember { mutableStateOf(false) }
     var previewUri by remember { mutableStateOf<Uri?>(null) }
-    // Tap = quick look (just see what it is); hold = the full editor below,
-    // which already has crop/trim/Split-into-6/AI-edit — no need to rebuild
-    // any of that for the "I actually want to edit this" path.
     var quickPreviewUri by remember { mutableStateOf<Uri?>(null) }
+    var showSceneModeWarning by remember { mutableStateOf(false) }
+
+    val canSend = (text.isNotBlank() || pendingAttachments.isNotEmpty()) && !isLoading
 
     Surface(
         tonalElevation = 8.dp, 
@@ -180,29 +187,73 @@ fun ChatInputBar(
             }
 
             if (isSceneMode) {
-                if (pendingAttachments.isEmpty()) {
-                    Text(
-                        "⚠️ TACTICAL WARNING: No optic frames attached. Video fidelity may be low.",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.error,
-                        modifier = Modifier.padding(bottom = 8.dp)
-                    )
-                } else {
-                    Text(
-                        "💡 TIP: Attach Start/End frames, plus an optional 3rd Character reference image, for maximum video stability.",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.tertiary,
-                        modifier = Modifier.padding(bottom = 8.dp)
-                    )
-                }
-                
-                if (text.isBlank()) {
-                    Text(
-                        "⚠️ PROMPT REQUIRED: Video models need specific generation instructions.",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = Color.Yellow,
-                        modifier = Modifier.padding(bottom = 8.dp)
-                    )
+                Surface(
+                    color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.3f),
+                    shape = RoundedCornerShape(12.dp),
+                    modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp)
+                ) {
+                    Column(modifier = Modifier.padding(8.dp)) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Icon(Icons.Default.AutoAwesome, null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(16.dp))
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text(
+                                    "VISUAL AI KEYFRAME STUDIO",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    fontWeight = FontWeight.Black,
+                                    color = MaterialTheme.colorScheme.primary
+                                )
+                            }
+                            Text(
+                                if (pendingAttachments.size >= 2) "Keyframes Loaded (${pendingAttachments.size})" else "Attach Keyframes",
+                                style = MaterialTheme.typography.labelSmall,
+                                fontSize = 9.sp,
+                                color = Color.Gray
+                            )
+                        }
+
+                        Spacer(modifier = Modifier.height(6.dp))
+
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            OutlinedButton(
+                                onClick = onCameraClick,
+                                modifier = Modifier.height(32.dp),
+                                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp)
+                            ) {
+                                Icon(Icons.Default.PhotoCamera, null, modifier = Modifier.size(12.dp))
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text(
+                                    if (pendingAttachments.isEmpty()) "+ Start Scene" else if (pendingAttachments.size == 1) "+ End Scene" else "+ Extra Frame",
+                                    fontSize = 10.sp,
+                                    fontWeight = FontWeight.Bold
+                                )
+                            }
+
+                            OutlinedButton(
+                                onClick = onVideoClick,
+                                modifier = Modifier.height(32.dp),
+                                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp)
+                            ) {
+                                Icon(Icons.Default.Videocam, null, modifier = Modifier.size(12.dp))
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text("Gallery", fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                            }
+                        }
+
+                        if (pendingAttachments.isEmpty()) {
+                            Text(
+                                "💡 TIP: Attach Start/End scene frames plus an optional 3rd character photo for max video generation stability.",
+                                style = MaterialTheme.typography.labelSmall,
+                                fontSize = 9.sp,
+                                color = Color.Gray,
+                                modifier = Modifier.padding(top = 4.dp)
+                            )
+                        }
+                    }
                 }
             }
 
@@ -337,19 +388,33 @@ fun ChatInputBar(
                     textStyle = MaterialTheme.typography.bodyMedium,
                     keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send),
                     keyboardActions = KeyboardActions(onSend = {
-                        if (text.isNotBlank() && !isLoading) {
-                            sfx?.playTap()
-                            onSend()
-                            focusManager.clearFocus()
+                        if (canSend) {
+                            if (isSceneMode && pendingAttachments.size < 2) {
+                                showSceneModeWarning = true
+                            } else {
+                                sfx?.playTap()
+                                onSend()
+                                focusManager.clearFocus()
+                            }
                         }
                     })
                 )
                 Spacer(modifier = Modifier.width(12.dp))
                 FloatingActionButton(
-                    onClick = { if (text.isNotBlank() && !isLoading) { sfx?.playTap(); onSend() } },
+                    onClick = {
+                        if (canSend) {
+                            if (isSceneMode && pendingAttachments.size < 2) {
+                                showSceneModeWarning = true
+                            } else {
+                                sfx?.playTap()
+                                onSend()
+                                focusManager.clearFocus()
+                            }
+                        }
+                    },
                     modifier = Modifier.size(48.dp),
-                    containerColor = if (text.isNotBlank() && !isLoading) MaterialTheme.colorScheme.primary else Color.Gray.copy(alpha = 0.3f),
-                    contentColor = if (text.isNotBlank() && !isLoading) MaterialTheme.colorScheme.onPrimary else Color.Gray,
+                    containerColor = if (canSend) MaterialTheme.colorScheme.primary else Color.Gray.copy(alpha = 0.3f),
+                    contentColor = if (canSend) MaterialTheme.colorScheme.onPrimary else Color.Gray,
                     shape = CircleShape,
                     elevation = FloatingActionButtonDefaults.elevation(0.dp, 0.dp, 0.dp, 0.dp)
                 ) {
@@ -361,6 +426,34 @@ fun ChatInputBar(
                 }
             }
         }
+    }
+
+    if (showSceneModeWarning) {
+        AlertDialog(
+            onDismissRequest = { showSceneModeWarning = false },
+            title = { Text("Scene Keyframe Recommendation", fontWeight = FontWeight.Bold) },
+            text = {
+                Text(
+                    "Scene Mode video generation works best when providing at least 2 keyframes (START scene and END scene).\n\nYou currently have ${pendingAttachments.size} keyframe attached. Would you like to proceed anyway or attach another keyframe?",
+                    style = MaterialTheme.typography.bodyMedium
+                )
+            },
+            confirmButton = {
+                Button(onClick = {
+                    showSceneModeWarning = false
+                    sfx?.playTap()
+                    onSend()
+                    focusManager.clearFocus()
+                }) {
+                    Text("Transmit Anyway")
+                }
+            },
+            dismissButton = {
+                OutlinedButton(onClick = { showSceneModeWarning = false }) {
+                    Text("+ Add Keyframes")
+                }
+            }
+        )
     }
 
     if (previewUri != null) {

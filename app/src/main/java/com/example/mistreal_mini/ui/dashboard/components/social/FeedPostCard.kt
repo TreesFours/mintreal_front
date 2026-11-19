@@ -3,6 +3,7 @@ package com.example.mistreal_mini.ui.dashboard.components.social
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
@@ -17,6 +18,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -105,6 +107,13 @@ fun FeedPostCard(
     }
 }
 
+private fun extractYoutubeId(url: String?): String? {
+    if (url.isNullOrBlank()) return null
+    if (url.startsWith("youtube://")) return url.removePrefix("youtube://")
+    val regex = "(?:youtube(?:-nocookie)?\\.com/(?:[^/]+/.+/|(?:v|e(?:mbed)?)/|.*[?&]v=)|youtu\\.be/)([^\"&?/\\s]{11})".toRegex()
+    return regex.find(url)?.groupValues?.get(1) ?: if (url.length == 11) url else null
+}
+
 @Composable
 private fun BoxScope.MediaPostBody(
     post: SocialPost,
@@ -115,28 +124,25 @@ private fun BoxScope.MediaPostBody(
     onFollowClick: () -> Unit,
     onAuthorClick: () -> Unit = {}
 ) {
-    if (post.platform == "youtube") {
-        var showPlayer by remember(post.id) { mutableStateOf(false) }
-        val videoId = post.sourceUrl?.removePrefix("youtube://")
-        Box(modifier = Modifier.fillMaxSize()) {
+    val youtubeId = remember(post.sourceUrl, post.videoUrl) {
+        extractYoutubeId(post.sourceUrl) ?: extractYoutubeId(post.videoUrl)
+    }
+
+    if (post.platform.lowercase() == "youtube" || youtubeId != null) {
+        if (!youtubeId.isNullOrBlank()) {
+            com.example.mistreal_mini.ui.util.YoutubePlayerWebView(
+                videoId = youtubeId,
+                modifier = Modifier.fillMaxSize()
+            )
+        } else if (!post.imageUrl.isNullOrEmpty()) {
             AsyncImage(
                 model = post.imageUrl,
                 contentDescription = post.content,
-                modifier = Modifier.fillMaxSize().clickable { if (!videoId.isNullOrBlank()) showPlayer = true },
+                modifier = Modifier.fillMaxSize(),
                 contentScale = ContentScale.Crop
             )
-            Icon(
-                Icons.Default.PlayCircle, "Play",
-                tint = Color.White,
-                modifier = Modifier.align(Alignment.Center).size(64.dp)
-            )
-        }
-        if (showPlayer && !videoId.isNullOrBlank()) {
-            Dialog(onDismissRequest = { showPlayer = false }) {
-                Box(modifier = Modifier.fillMaxWidth().aspectRatio(16f / 9f)) {
-                    com.example.mistreal_mini.ui.util.YoutubePlayerWebView(videoId = videoId, modifier = Modifier.fillMaxSize())
-                }
-            }
+        } else {
+            Box(Modifier.fillMaxSize().background(Color.Black))
         }
     } else if (!post.videoUrl.isNullOrEmpty()) {
         FeedVideoPlayer(
@@ -335,12 +341,25 @@ private fun ActionRail(
         verticalArrangement = Arrangement.spacedBy(18.dp)
     ) {
         if (capabilities.supportsLike) {
-            RailButton(
-                icon = if (post.isLikedByUser) Icons.Default.Favorite else Icons.Default.FavoriteBorder,
-                tint = if (post.isLikedByUser) Color.Red else Color.White,
-                label = (post.likes ?: 0).toString(),
-                onClick = onLikeClick
-            )
+            var showReactionPicker by remember { mutableStateOf(false) }
+            Box {
+                RailButton(
+                    icon = if (post.isLikedByUser) Icons.Default.Favorite else Icons.Default.FavoriteBorder,
+                    tint = if (post.isLikedByUser) Color.Red else Color.White,
+                    label = (post.likes ?: 0).toString(),
+                    onClick = onLikeClick,
+                    onLongClick = { showReactionPicker = true }
+                )
+                if (showReactionPicker) {
+                    ReactionPickerPopup(
+                        onReactionSelected = { reaction ->
+                            showReactionPicker = false
+                            onLikeClick()
+                        },
+                        onDismiss = { showReactionPicker = false }
+                    )
+                }
+            }
         }
         if (capabilities.supportsComments) {
             RailButton(
@@ -380,13 +399,59 @@ private fun ActionRail(
 }
 
 @Composable
-private fun RailButton(icon: androidx.compose.ui.graphics.vector.ImageVector, tint: Color, label: String?, onClick: () -> Unit) {
+private fun RailButton(
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    tint: Color,
+    label: String?,
+    onClick: () -> Unit,
+    onLongClick: (() -> Unit)? = null
+) {
     Column(horizontalAlignment = Alignment.CenterHorizontally) {
-        IconButton(onClick = onClick) {
-            Icon(icon, null, tint = tint, modifier = Modifier.size(28.dp))
+        Box(
+            modifier = Modifier
+                .size(40.dp)
+                .clip(CircleShape)
+                .pointerInput(Unit) {
+                    detectTapGestures(
+                        onTap = { onClick() },
+                        onLongPress = { onLongClick?.invoke() }
+                    )
+                },
+            contentAlignment = Alignment.Center
+        ) {
+            Icon(icon, null, tint = tint, modifier = Modifier.size(26.dp))
         }
         if (label != null) {
             Text(label, color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+        }
+    }
+}
+
+@Composable
+fun ReactionPickerPopup(
+    onReactionSelected: (String) -> Unit,
+    onDismiss: () -> Unit
+) {
+    val reactions = listOf("❤️", "🔥", "😆", "😮", "😢", "😡", "🎯", "🛡️", "🧠")
+    Dialog(onDismissRequest = onDismiss) {
+        Surface(
+            shape = RoundedCornerShape(24.dp),
+            color = MaterialTheme.colorScheme.surfaceVariant,
+            tonalElevation = 8.dp
+        ) {
+            Row(
+                modifier = Modifier.padding(12.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                reactions.forEach { emoji ->
+                    Text(
+                        emoji,
+                        fontSize = 24.sp,
+                        modifier = Modifier.clickable { onReactionSelected(emoji) }
+                    )
+                }
+            }
         }
     }
 }

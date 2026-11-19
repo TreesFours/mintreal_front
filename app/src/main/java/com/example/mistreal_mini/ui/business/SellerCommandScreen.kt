@@ -15,6 +15,8 @@ import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
@@ -27,6 +29,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
@@ -65,6 +68,7 @@ fun SellerCommandScreen(
                     viewModel.registerBusiness(name, desc, cat, addr, lat, lon, platforms, ownerName)
                 },
                 onVerifyLocation = { viewModel.verifyCurrentLocation() },
+                onReverseGeocode = { lat, lon -> viewModel.reverseGeocode(lat, lon) },
                 modifier = Modifier.padding(padding)
             )
         } else {
@@ -85,6 +89,7 @@ fun BusinessRegistrationForm(
     isVerifying: Boolean,
     onRegister: (String, String, String, String, Double, Double, List<com.example.mistreal_mini.data.api.BusinessPlatformHandle>, String) -> Unit,
     onVerifyLocation: suspend () -> Location?,
+    onReverseGeocode: suspend (Double, Double) -> String?,
     modifier: Modifier = Modifier
 ) {
     var name by remember { mutableStateOf("") }
@@ -105,8 +110,14 @@ fun BusinessRegistrationForm(
     ) {
         Text("Deploy Your Business", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Black)
 
-        OutlinedTextField(value = name, onValueChange = { name = it }, label = { Text("Business Name") }, modifier = Modifier.fillMaxWidth())
-        OutlinedTextField(value = ownerName, onValueChange = { ownerName = it }, label = { Text("Your Name (shown as the owner)") }, modifier = Modifier.fillMaxWidth())
+        OutlinedTextField(
+            value = name, onValueChange = { name = it }, label = { Text("Business Name") }, modifier = Modifier.fillMaxWidth(),
+            singleLine = true, keyboardOptions = KeyboardOptions(imeAction = ImeAction.Next)
+        )
+        OutlinedTextField(
+            value = ownerName, onValueChange = { ownerName = it }, label = { Text("Your Name (shown as the owner)") }, modifier = Modifier.fillMaxWidth(),
+            singleLine = true, keyboardOptions = KeyboardOptions(imeAction = ImeAction.Next)
+        )
         OutlinedTextField(value = desc, onValueChange = { desc = it }, label = { Text("What do you offer?") }, modifier = Modifier.fillMaxWidth(), minLines = 3)
         
         // Category Dropdown Simplified
@@ -121,10 +132,30 @@ fun BusinessRegistrationForm(
             }
         }
 
-        OutlinedTextField(value = address, onValueChange = { address = it }, label = { Text("Physical Address") }, modifier = Modifier.fillMaxWidth())
-        
+        OutlinedTextField(
+            value = address, onValueChange = { address = it }, label = { Text("Physical Address") }, modifier = Modifier.fillMaxWidth(),
+            singleLine = true,
+            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
+            // Mirrors the SECURE REGISTRATION button's own enabled check below,
+            // so pressing Done only submits once the form is actually complete.
+            keyboardActions = KeyboardActions(onDone = {
+                if (name.isNotBlank() && address.isNotBlank() && verifiedLoc != null) {
+                    onRegister(name, desc, category, address, verifiedLoc?.latitude ?: 0.0, verifiedLoc?.longitude ?: 0.0, platforms, ownerName)
+                }
+            })
+        )
+
         Button(
-            onClick = { scope.launch { verifiedLoc = onVerifyLocation() } },
+            onClick = {
+                scope.launch {
+                    val loc = onVerifyLocation()
+                    verifiedLoc = loc
+                    // Auto-fill, don't clobber something the owner already typed.
+                    if (loc != null && address.isBlank()) {
+                        onReverseGeocode(loc.latitude, loc.longitude)?.let { address = it }
+                    }
+                }
+            },
             modifier = Modifier.fillMaxWidth(),
             colors = ButtonDefaults.buttonColors(containerColor = if(verifiedLoc != null) Color(0xFF4CAF50) else MaterialTheme.colorScheme.secondary)
         ) {
@@ -153,7 +184,7 @@ fun BusinessRegistrationForm(
         Button(
             onClick = { onRegister(name, desc, category, address, verifiedLoc?.latitude ?: 0.0, verifiedLoc?.longitude ?: 0.0, platforms, ownerName) },
             modifier = Modifier.fillMaxWidth().height(56.dp),
-            enabled = name.isNotBlank() && verifiedLoc != null,
+            enabled = name.isNotBlank() && address.isNotBlank() && verifiedLoc != null,
             shape = RoundedCornerShape(12.dp)
         ) {
             Text("SECURE REGISTRATION", fontWeight = FontWeight.Bold)
@@ -192,7 +223,11 @@ fun ConnectedPlatformsEditor(
                     },
                     modifier = Modifier.weight(1f),
                     placeholder = { Text("@handle") },
-                    singleLine = true
+                    singleLine = true,
+                    // Live two-way binding to the platforms list above — there's no
+                    // separate per-row "save" to wire Done into, so this just makes
+                    // Enter dismiss the keyboard instead of inserting a newline.
+                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done)
                 )
                 IconButton(onClick = { onChange(platforms.toMutableList().also { it.removeAt(index) }) }) {
                     Icon(Icons.Default.Close, null, tint = Color.Red.copy(alpha = 0.6f))
@@ -221,6 +256,8 @@ fun InventoryManager(
     var showCreateAd by remember { mutableStateOf(false) }
     var showEditPlatforms by remember { mutableStateOf(false) }
     var showEditOwnerPhoto by remember { mutableStateOf(false) }
+    var showEditBusinessLogo by remember { mutableStateOf(false) }
+    var showEditBusinessInfo by remember { mutableStateOf(false) }
     val isCreatingAd by viewModel.isCreatingAd.collectAsStateWithLifecycle()
     val snackbarHostState = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
@@ -243,9 +280,25 @@ fun InventoryManager(
     Box(modifier = modifier.fillMaxSize()) {
         Column(modifier = Modifier.fillMaxSize().padding(16.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
+                AsyncImage(
+                    model = business.logoUrl,
+                    contentDescription = "Business Logo",
+                    contentScale = ContentScale.Crop,
+                    modifier = Modifier
+                        .size(44.dp)
+                        .clip(CircleShape)
+                        .background(MaterialTheme.colorScheme.surfaceVariant)
+                        .clickable { showEditBusinessLogo = true }
+                )
+                Spacer(modifier = Modifier.width(8.dp))
                 Column(modifier = Modifier.weight(1f)) {
                     Text(business.name.uppercase(), style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Black)
                     Text("Verified: ${java.text.SimpleDateFormat("HH:mm").format(business.verifiedTimestamp)} Today", color = Color(0xFF4CAF50), fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                }
+            }
+            Row(modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState())) {
+                IconButton(onClick = { showEditBusinessInfo = true }) {
+                    Icon(Icons.Default.Edit, "Edit Business Info", tint = MaterialTheme.colorScheme.tertiary, modifier = Modifier.size(24.dp))
                 }
                 IconButton(onClick = { showEditOwnerPhoto = true }) {
                     Icon(Icons.Default.Face, "Edit Owner Photo", tint = MaterialTheme.colorScheme.tertiary, modifier = Modifier.size(24.dp))
@@ -322,6 +375,108 @@ fun InventoryManager(
                 }
             },
             confirmButton = { TextButton(onClick = { showEditOwnerPhoto = false }) { Text("Close") } }
+        )
+    }
+
+    if (showEditBusinessLogo) {
+        val context = LocalContext.current
+        val galleryLauncher = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri: Uri? ->
+            if (uri != null) {
+                viewModel.uploadBusinessLogo(business, uri, context)
+                showEditBusinessLogo = false
+            }
+        }
+        AlertDialog(
+            onDismissRequest = { showEditBusinessLogo = false },
+            title = { Text("Business Logo") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Text("Shown wherever customers see this business — search results, profile, ads.", style = MaterialTheme.typography.labelSmall, color = Color.Gray)
+                    Button(onClick = { galleryLauncher.launch("image/*") }, modifier = Modifier.fillMaxWidth()) {
+                        Text("Upload a Photo")
+                    }
+                }
+            },
+            confirmButton = { TextButton(onClick = { showEditBusinessLogo = false }) { Text("Close") } }
+        )
+    }
+
+    if (showEditBusinessInfo) {
+        var editName by remember { mutableStateOf(business.name) }
+        var editCategory by remember { mutableStateOf(business.category) }
+        var editAddress by remember { mutableStateOf(business.address) }
+        var editLat by remember { mutableStateOf(business.latitude) }
+        var editLon by remember { mutableStateOf(business.longitude) }
+        var isReverifying by remember { mutableStateOf(false) }
+
+        AlertDialog(
+            onDismissRequest = { showEditBusinessInfo = false },
+            title = { Text("Business Info") },
+            text = {
+                Column(
+                    modifier = Modifier.verticalScroll(rememberScrollState()),
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    OutlinedTextField(
+                        value = editName, onValueChange = { editName = it }, label = { Text("Business Name") }, modifier = Modifier.fillMaxWidth(),
+                        singleLine = true, keyboardOptions = KeyboardOptions(imeAction = ImeAction.Next)
+                    )
+                    Text("Tactical Sector (Category)", style = MaterialTheme.typography.labelMedium)
+                    Row(modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        BusinessCategories.forEach { cat ->
+                            FilterChip(
+                                selected = editCategory == cat,
+                                onClick = { editCategory = cat },
+                                label = { Text(cat, fontSize = 10.sp) }
+                            )
+                        }
+                    }
+                    OutlinedTextField(
+                        value = editAddress, onValueChange = { editAddress = it }, label = { Text("Physical Address") }, modifier = Modifier.fillMaxWidth(),
+                        singleLine = true,
+                        keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
+                        keyboardActions = KeyboardActions(onDone = {
+                            if (editName.isNotBlank() && editAddress.isNotBlank()) {
+                                viewModel.updateBusinessInfo(business, editName, editCategory, editAddress, editLat, editLon)
+                                showEditBusinessInfo = false
+                            }
+                        })
+                    )
+                    Button(
+                        onClick = {
+                            scope.launch {
+                                isReverifying = true
+                                val loc = viewModel.verifyCurrentLocation()
+                                if (loc != null) {
+                                    editLat = loc.latitude
+                                    editLon = loc.longitude
+                                    viewModel.reverseGeocode(loc.latitude, loc.longitude)?.let { editAddress = it }
+                                }
+                                isReverifying = false
+                            }
+                        },
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        if (isReverifying) CircularProgressIndicator(modifier = Modifier.size(20.dp), color = Color.White)
+                        else {
+                            Icon(Icons.Default.MyLocation, null)
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text("RE-VERIFY CURRENT LOCATION")
+                        }
+                    }
+                    Text("Coordinates: $editLat, $editLon", style = MaterialTheme.typography.labelSmall, color = Color.Gray)
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        viewModel.updateBusinessInfo(business, editName, editCategory, editAddress, editLat, editLon)
+                        showEditBusinessInfo = false
+                    },
+                    enabled = editName.isNotBlank() && editAddress.isNotBlank()
+                ) { Text("Save") }
+            },
+            dismissButton = { TextButton(onClick = { showEditBusinessInfo = false }) { Text("Cancel") } }
         )
     }
 
@@ -435,8 +590,18 @@ fun AddItemDialog(onDismiss: () -> Unit, onAdd: (String, String, Uri?) -> Unit) 
                         Icon(Icons.Default.AddAPhoto, null, tint = Color.Gray)
                     }
                 }
-                OutlinedTextField(value = name, onValueChange = { name = it }, label = { Text("Item Name") })
-                OutlinedTextField(value = price, onValueChange = { price = it }, label = { Text("Price/Estimate") })
+                OutlinedTextField(
+                    value = name, onValueChange = { name = it }, label = { Text("Item Name") },
+                    singleLine = true, keyboardOptions = KeyboardOptions(imeAction = ImeAction.Next)
+                )
+                OutlinedTextField(
+                    value = price, onValueChange = { price = it }, label = { Text("Price/Estimate") },
+                    singleLine = true,
+                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
+                    keyboardActions = KeyboardActions(onDone = {
+                        if (name.isNotBlank()) onAdd(name, price, imageUri)
+                    })
+                )
             }
         },
         confirmButton = {

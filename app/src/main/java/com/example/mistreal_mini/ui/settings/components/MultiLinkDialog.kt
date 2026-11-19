@@ -4,6 +4,8 @@ import androidx.compose.animation.*
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
@@ -13,6 +15,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 
@@ -101,19 +104,34 @@ fun AddBankFormDialog(onDismiss: () -> Unit, onSave: (String, String, String?) -
     var url by remember { mutableStateOf("") }
     var pkg by remember { mutableStateOf("") }
 
+    val canSaveBank = name.isNotBlank() && url.isNotBlank()
+    // Shared by the SECURE LINK button and the package-id field's keyboard Done action.
+    val onSaveBank: () -> Unit = { onSave(name, url, if (pkg.isBlank()) null else pkg) }
+
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text("Link Financial Portal") },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                OutlinedTextField(value = name, onValueChange = { name = it }, label = { Text("Bank Name") })
-                OutlinedTextField(value = url, onValueChange = { url = it }, label = { Text("Website URL") })
-                OutlinedTextField(value = pkg, onValueChange = { pkg = it }, label = { Text("App Package ID (Optional)") })
+                OutlinedTextField(
+                    value = name, onValueChange = { name = it }, label = { Text("Bank Name") },
+                    singleLine = true, keyboardOptions = KeyboardOptions(imeAction = ImeAction.Next)
+                )
+                OutlinedTextField(
+                    value = url, onValueChange = { url = it }, label = { Text("Website URL") },
+                    singleLine = true, keyboardOptions = KeyboardOptions(imeAction = ImeAction.Next)
+                )
+                OutlinedTextField(
+                    value = pkg, onValueChange = { pkg = it }, label = { Text("App Package ID (Optional)") },
+                    singleLine = true,
+                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
+                    keyboardActions = KeyboardActions(onDone = { if (canSaveBank) onSaveBank() })
+                )
                 Text("App will close immediately after opening bank link for security.", fontSize = 10.sp, color = Color.Gray)
             }
         },
         confirmButton = {
-            Button(onClick = { onSave(name, url, if(pkg.isBlank()) null else pkg) }, enabled = name.isNotBlank() && url.isNotBlank()) {
+            Button(onClick = onSaveBank, enabled = canSaveBank) {
                 Text("SECURE LINK")
             }
         }

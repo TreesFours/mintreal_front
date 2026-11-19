@@ -87,6 +87,31 @@ fun CelestialLedger(
     }
 }
 
+fun resolveCelestialIcon(id: String, name: String, category: String? = null): String {
+    val nameLower = name.lowercase()
+    val catLower = category?.lowercase() ?: ""
+
+    return when {
+        id == "10" || nameLower.contains("sun") -> "☀️"
+        id == "199" || nameLower.contains("mercury") -> "🟤"
+        id == "299" || nameLower.contains("venus") -> "🟡"
+        id == "399" || nameLower.contains("earth") -> "🌍"
+        id == "301" || nameLower == "moon" -> "🌙"
+        id == "499" || nameLower.contains("mars") -> "🔴"
+        id == "599" || nameLower.contains("jupiter") -> "🟠" // Orange sphere for Jupiter (NOT Saturn's ringed icon)
+        id == "699" || nameLower.contains("saturn") -> "🪐"
+        id == "799" || nameLower.contains("uranus") -> "🧊"
+        id == "899" || nameLower.contains("neptune") -> "🔵"
+        id == "999" || nameLower.contains("pluto") -> "❄️"
+        catLower.contains("moon") || catLower.contains("natural_satellite") ||
+            id in listOf("401", "402", "501", "502", "503", "504", "606", "801") -> "🌖"
+        catLower.contains("asteroid") || catLower.contains("comet") || catLower.contains("neo") ||
+            id in listOf("1", "4", "433", "99942") || id.startsWith("neo_") -> "☄️"
+        catLower.contains("spacecraft") || catLower.contains("probe") || catLower.contains("satellite") -> "🚀"
+        else -> "✨"
+    }
+}
+
 @Composable
 fun CelestialObjectCard(
     obj: CelestialObject,
@@ -103,16 +128,7 @@ fun CelestialObjectCard(
     ) {
         Column(modifier = Modifier.padding(16.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                val icon = when(obj.id) {
-                    "10" -> "☀️"
-                    "199" -> "🌑"
-                    "299" -> "🌕"
-                    "301" -> "🌙"
-                    "499" -> "🔴"
-                    "599" -> "🪐"
-                    "699" -> "🪐"
-                    else -> "✨"
-                }
+                val icon = resolveCelestialIcon(obj.id, obj.name, obj.type)
                 Text(icon, fontSize = 24.sp)
                 Spacer(modifier = Modifier.width(16.dp))
                 Column(modifier = Modifier.weight(1f)) {

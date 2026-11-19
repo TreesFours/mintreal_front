@@ -4,6 +4,7 @@ import android.net.Uri
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.AddPhotoAlternate
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material3.*
@@ -41,6 +42,12 @@ fun QuickVoiceAskDialog(
     var recordingDuration by remember { mutableIntStateOf(0) }
     var isPlayingBack by remember { mutableStateOf(false) }
 
+    val galleryLauncher = androidx.activity.compose.rememberLauncherForActivityResult(
+        androidx.activity.result.contract.ActivityResultContracts.GetMultipleContents()
+    ) { uris ->
+        uris.forEach { viewModel.addPendingAttachment(it) }
+    }
+
     LaunchedEffect(isRecording) {
         if (isRecording) {
             recordingDuration = 0
@@ -66,8 +73,11 @@ fun QuickVoiceAskDialog(
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Icon(Icons.Default.Mic, null, tint = MaterialTheme.colorScheme.primary)
                     Spacer(modifier = Modifier.width(8.dp))
-                    Text("Ask AI", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleMedium)
+                    Text("Ask AI (Voice & Attachments)", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleMedium)
                     Spacer(modifier = Modifier.weight(1f))
+                    IconButton(onClick = { galleryLauncher.launch("image/*") }) {
+                        Icon(Icons.Default.AddPhotoAlternate, "Attach photo", tint = MaterialTheme.colorScheme.primary)
+                    }
                     IconButton(onClick = onDismiss) { Icon(Icons.Default.Close, "Close") }
                 }
                 Spacer(modifier = Modifier.height(16.dp))

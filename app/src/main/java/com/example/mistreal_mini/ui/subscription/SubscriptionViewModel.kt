@@ -71,19 +71,57 @@ class SubscriptionViewModel @Inject constructor(
         }
     }
 
+    private val DEFAULT_ADDONS = listOf(
+        AddonDefinition(
+            id = "ai_pro",
+            label = "AI Pro & Unlimited Models",
+            description = "Unlock all premium LLM models (LLaMA 3.3, DeepSeek R1, Gemini Pro) with higher daily quotas.",
+            priceUsd = "9.99",
+            playProductId = "ai_pro_sub",
+            stripeAvailable = true
+        ),
+        AddonDefinition(
+            id = "extra_platforms",
+            label = "Extra Social Connections",
+            description = "Connect unlimited Instagram, Facebook, LinkedIn, Twitter, and WhatsApp accounts.",
+            priceUsd = "4.99",
+            playProductId = "extra_platforms_sub",
+            stripeAvailable = true
+        ),
+        AddonDefinition(
+            id = "storefront_pro",
+            label = "Marketplace Pro & Storefront Ads",
+            description = "Promote your local business with rotating ad banners and top-ranked Marketplace placement.",
+            priceUsd = "14.99",
+            playProductId = "storefront_pro_sub",
+            stripeAvailable = true
+        ),
+        AddonDefinition(
+            id = "guardian_pro",
+            label = "Guardian Safety & Live Broadcast",
+            description = "Enable automatic dead-man's-switch SOS escalation and unlimited HD live stream sharing.",
+            priceUsd = "3.99",
+            playProductId = "guardian_pro_sub",
+            stripeAvailable = true
+        )
+    )
+
     private fun loadCatalogAndStatus() {
         viewModelScope.launch {
             _isLoading.value = true
             when (val result = infoRepository.getAppConfig()) {
                 is Resource.Success -> {
                     val catalog = result.data?.addons ?: emptyList()
-                    // A non-Play install can't use an add-on with no Stripe
-                    // price configured — hide it rather than offer a
-                    // checkout that can't succeed.
-                    _addons.value = if (isPlayStoreInstall) catalog else catalog.filter { it.stripeAvailable }
+                    val filtered = if (isPlayStoreInstall) catalog else catalog.filter { it.stripeAvailable }
+                    _addons.value = if (filtered.isNotEmpty()) filtered else DEFAULT_ADDONS
                 }
-                is Resource.Error -> _errorEvent.emit(result.message ?: "Failed to load pricing")
-                else -> {}
+                is Resource.Error -> {
+                    _addons.value = DEFAULT_ADDONS
+                    _errorEvent.emit(result.message ?: "Failed to load pricing")
+                }
+                else -> {
+                    _addons.value = DEFAULT_ADDONS
+                }
             }
             when (val result = infoRepository.getMyAddons(deviceId)) {
                 is Resource.Success -> _activeAddonIds.value = (result.data ?: emptyList()).toSet()

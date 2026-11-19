@@ -27,7 +27,8 @@ interface InfoApiService {
         @Query("category") category: String?,
         @Query("location") location: String?,
         @Query("firebaseUid") firebaseUid: String? = null,
-        @Query("fastLoad") fastLoad: Boolean? = false
+        @Query("fastLoad") fastLoad: Boolean? = false,
+        @Query("refresh") refresh: Boolean? = false
     ): NewsResponse
 
     @PATCH("api/social/community-preferences")
@@ -160,6 +161,9 @@ interface InfoApiService {
 
     @POST("api/business/{businessId}/owner-photo")
     suspend fun uploadOwnerPhoto(@Path("businessId") businessId: String, @Body request: UploadOwnerPhotoRequest): UploadOwnerPhotoResponse
+
+    @POST("api/business/{businessId}/logo")
+    suspend fun uploadBusinessLogo(@Path("businessId") businessId: String, @Body request: UploadOwnerPhotoRequest): UploadBusinessLogoResponse
 
     @GET("api/business/{businessId}/can-share")
     suspend fun canShareBusiness(@Path("businessId") businessId: String, @Query("deviceId") deviceId: String): CanShareResponse
@@ -498,6 +502,7 @@ data class BusinessDetailResponse(
 
 data class UploadOwnerPhotoRequest(val deviceId: String, val photoBase64: String, val photoMimeType: String)
 data class UploadOwnerPhotoResponse(val success: Boolean, val ownerPhotoUrl: String? = null, val error: String? = null)
+data class UploadBusinessLogoResponse(val success: Boolean, val logoUrl: String? = null, val error: String? = null)
 data class CanShareResponse(val success: Boolean, val canShare: Boolean = false, val error: String? = null)
 
 data class ProposeMeetupRequest(
@@ -967,6 +972,11 @@ data class Article(
 // Zod schema (and the route handler) read those fields at the top level, so
 // every social action (like/follow/comment/DM/post) was failing validation
 // with a 400 before the handler ever ran.
+data class MediaItemPayload(
+    val mediaBase64: String,
+    val mediaMimeType: String? = "image/jpeg"
+)
+
 data class SocialActionRequest(
     val deviceId: String,
     val type: String,
@@ -975,6 +985,7 @@ data class SocialActionRequest(
     val targetId: String,
     val mediaBase64: String? = null,
     val mediaMimeType: String? = null,
+    val mediaItems: List<MediaItemPayload>? = null,
     val shareToCommunity: Boolean = false,
     val mistrealOnly: Boolean = false
 )

@@ -859,6 +859,32 @@ class SettingsViewModel @Inject constructor(
         }
     }
 
+    val isDisasterLocationSharingEnabled = preferenceManager.isDisasterLocationSharingEnabled
+    val disasterCheckInIntervalHours = preferenceManager.disasterCheckInIntervalHours
+    val isLocationSharingAiEnabled = preferenceManager.isLocationSharingAiEnabled
+    val isOrientationSharingAiEnabled = preferenceManager.isOrientationSharingAiEnabled
+    val isByokCloudBackupEnabled = preferenceManager.isByokCloudBackupEnabled
+
+    fun setDisasterLocationSharingEnabled(enabled: Boolean) {
+        viewModelScope.launch { preferenceManager.setDisasterLocationSharingEnabled(enabled) }
+    }
+
+    fun setDisasterCheckInIntervalHours(hours: Int) {
+        viewModelScope.launch { preferenceManager.setDisasterCheckInIntervalHours(hours) }
+    }
+
+    fun setLocationSharingAiEnabled(enabled: Boolean) {
+        viewModelScope.launch { preferenceManager.setLocationSharingAiEnabled(enabled) }
+    }
+
+    fun setOrientationSharingAiEnabled(enabled: Boolean) {
+        viewModelScope.launch { preferenceManager.setOrientationSharingAiEnabled(enabled) }
+    }
+
+    fun setByokCloudBackupEnabled(enabled: Boolean) {
+        viewModelScope.launch { preferenceManager.setByokCloudBackupEnabled(enabled) }
+    }
+
     suspend fun isCallRingtoneEnabled() = preferenceManager.isCallRingtoneEnabled.first()
 
     fun setCallRingtoneEnabled(enabled: Boolean) {

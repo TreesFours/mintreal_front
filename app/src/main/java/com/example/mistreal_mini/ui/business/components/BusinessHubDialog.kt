@@ -21,7 +21,8 @@ fun BusinessHubDialog(
     onDismiss: () -> Unit,
     onNavigateToDiscovery: () -> Unit,
     onNavigateToSellerCommand: () -> Unit,
-    onNavigateToMeetups: () -> Unit = {}
+    onNavigateToMeetups: () -> Unit = {},
+    onNavigateToAdvertise: () -> Unit = {}
 ) {
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -67,6 +68,21 @@ fun BusinessHubDialog(
                         Column {
                             Text("Tactical Shopfront", fontWeight = FontWeight.Bold)
                             Text("Register or manage your business intel.", fontSize = 10.sp, color = Color.Gray)
+                        }
+                    }
+                }
+
+                // ADVERTISE
+                Card(
+                    modifier = Modifier.fillMaxWidth().clickable { onNavigateToAdvertise() },
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.secondary.copy(alpha = 0.15f))
+                ) {
+                    Row(modifier = Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Icon(Icons.Default.Campaign, null, tint = MaterialTheme.colorScheme.secondary)
+                        Spacer(modifier = Modifier.width(16.dp))
+                        Column {
+                            Text("Advertise", fontWeight = FontWeight.Bold)
+                            Text("Launch or replace your business's ad.", fontSize = 10.sp, color = Color.Gray)
                         }
                     }
                 }

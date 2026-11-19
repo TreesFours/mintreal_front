@@ -69,6 +69,29 @@ class MainActivity : FragmentActivity() {
     @Inject lateinit var preferenceManager: PreferenceManager
     @Inject lateinit var deviceIdProvider: DeviceIdProvider
     @Inject lateinit var sfxHapticPlayer: SfxHapticPlayer
+    @Inject lateinit var handleDistressUseCase: com.example.mistreal_mini.domain.usecase.HandleDistressUseCase
+
+    private var volumePressCount = 0
+    private var lastVolumePressTime = 0L
+    private val _showHardwareSosDialog = mutableStateOf(false)
+
+    override fun onKeyDown(keyCode: Int, event: android.view.KeyEvent?): Boolean {
+        if (keyCode == android.view.KeyEvent.KEYCODE_VOLUME_DOWN || keyCode == android.view.KeyEvent.KEYCODE_VOLUME_UP) {
+            val now = System.currentTimeMillis()
+            if (now - lastVolumePressTime < 1000) {
+                volumePressCount++
+            } else {
+                volumePressCount = 1
+            }
+            lastVolumePressTime = now
+            if (volumePressCount >= 3) {
+                volumePressCount = 0
+                _showHardwareSosDialog.value = true
+                return true
+            }
+        }
+        return super.onKeyDown(keyCode, event)
+    }
 
     private val requestPermissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()
@@ -108,6 +131,48 @@ class MainActivity : FragmentActivity() {
                 val intentState by _intentState
                 val isOnboarded by preferenceManager.isOnboarded.collectAsStateWithLifecycle(initialValue = null)
                 val scope = rememberCoroutineScope()
+
+                val showSosDialog by _showHardwareSosDialog
+                if (showSosDialog) {
+                    var countdown by remember { mutableIntStateOf(3) }
+                    LaunchedEffect(showSosDialog) {
+                        while (countdown > 0) {
+                            kotlinx.coroutines.delay(1000)
+                            countdown--
+                        }
+                        val deviceId = deviceIdProvider.deviceId
+                        scope.launch {
+                            handleDistressUseCase(deviceId = deviceId, distressSignature = "Hardware Key Fast SOS Triggered", triggerType = "hardware_key")
+                        }
+                        _showHardwareSosDialog.value = false
+                    }
+
+                    AlertDialog(
+                        onDismissRequest = { _showHardwareSosDialog.value = false },
+                        icon = { Icon(Icons.Default.Warning, null, tint = androidx.compose.ui.graphics.Color.Red) },
+                        title = { Text("EMERGENCY SOS TRIGGERED", fontWeight = androidx.compose.ui.text.font.FontWeight.Bold) },
+                        text = { Text("Silent Emergency Alert dispatching to confirmed nodes in $countdown seconds...") },
+                        confirmButton = {
+                            Button(
+                                onClick = {
+                                    val deviceId = deviceIdProvider.deviceId
+                                    scope.launch {
+                                        handleDistressUseCase(deviceId = deviceId, distressSignature = "Hardware Key Fast SOS Triggered", triggerType = "hardware_key")
+                                    }
+                                    _showHardwareSosDialog.value = false
+                                },
+                                colors = androidx.compose.material3.ButtonDefaults.buttonColors(containerColor = androidx.compose.ui.graphics.Color.Red)
+                            ) {
+                                Text("SEND NOW")
+                            }
+                        },
+                        dismissButton = {
+                            androidx.compose.material3.TextButton(onClick = { _showHardwareSosDialog.value = false }) {
+                                Text("CANCEL")
+                            }
+                        }
+                    )
+                }
                 
                 // 🛡️ Security & Authentication State (Rotation Resilient)
                 var isAuthenticated by rememberSaveable { mutableStateOf(false) }
@@ -331,6 +396,7 @@ class MainActivity : FragmentActivity() {
                                 onAuthorProfileClick = { authorDeviceId ->
                                     navController.navigate(Routes.ownerProfile(authorDeviceId))
                                 },
+                                onAdvertiseClick = { navController.navigate(Routes.BUSINESS_ADVERTISE) },
                                 onOpenAiRender = {
                                     // Map already shares this exact chatViewModel instance with
                                     // the "chat" destination (both are given the same one
@@ -356,6 +422,7 @@ class MainActivity : FragmentActivity() {
                                 onWatchViewerClick = { navController.navigate(Routes.WATCH_VIEWER_BASE) },
                                 onMarketClick = { navController.navigate(Routes.MARKET) },
                                 onGamesClick = { navController.navigate(Routes.GAMES) },
+                                onEmailClick = { navController.navigate(Routes.EMAIL) },
                                 onPendingReviewsClick = { navController.navigate(Routes.PENDING_REVIEWS) },
                                 onMyProfileClick = {
                                     navController.navigate(Routes.ownerProfile(deviceIdProvider.deviceId))
@@ -464,6 +531,27 @@ class MainActivity : FragmentActivity() {
                                 onBack = { navController.popBackStack() }
                             )
                         }
+                        composable(Routes.EMAIL) {
+                            com.example.mistreal_mini.ui.email.EmailScreen(
+                                onBack = { navController.popBackStack() },
+                                onCompose = { navController.navigate(Routes.EMAIL_COMPOSE) },
+                                onOpenMessage = { uid -> navController.navigate(Routes.emailMessage(uid)) }
+                            )
+                        }
+                        composable(Routes.EMAIL_COMPOSE) {
+                            com.example.mistreal_mini.ui.email.EmailComposeScreen(
+                                onBack = { navController.popBackStack() }
+                            )
+                        }
+                        composable(
+                            Routes.EMAIL_MESSAGE_TEMPLATE,
+                            arguments = listOf(navArgument("uid") { type = NavType.IntType })
+                        ) { backStackEntry ->
+                            com.example.mistreal_mini.ui.email.EmailMessageScreen(
+                                uid = backStackEntry.arguments?.getInt("uid") ?: 0,
+                                onBack = { navController.popBackStack() }
+                            )
+                        }
                         composable(Routes.GUARDIAN_ALERTS) {
                             com.example.mistreal_mini.ui.guardian.AlertHistoryScreen(
                                 onBack = { navController.popBackStack() }
@@ -483,7 +571,21 @@ class MainActivity : FragmentActivity() {
                                 onNavigateToMeetups = {
                                     navController.popBackStack()
                                     navController.navigate(Routes.BUSINESS_MEETUPS)
+                                },
+                                onNavigateToAdvertise = {
+                                    navController.popBackStack()
+                                    navController.navigate(Routes.BUSINESS_ADVERTISE)
                                 }
+                            )
+                        }
+                        composable(Routes.BUSINESS_ADVERTISE) {
+                            com.example.mistreal_mini.ui.business.AdvertiseScreen(
+                                onBack = { navController.popBackStack() },
+                                onRegisterBusiness = {
+                                    navController.popBackStack()
+                                    navController.navigate(Routes.BUSINESS_SELLER)
+                                },
+                                onUpgradeClick = { navController.navigate(Routes.SUBSCRIPTION) }
                             )
                         }
                         composable(Routes.BUSINESS_MEETUPS) {

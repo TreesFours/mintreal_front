@@ -163,7 +163,11 @@ class WatchHostService : Service() {
         })
         capturer.initialize(sth, applicationContext, videoSource.capturerObserver)
         val metrics = resources.displayMetrics
-        capturer.startCapture(metrics.widthPixels, metrics.heightPixels, 30)
+        val maxDim = 1280
+        val aspect = if (metrics.heightPixels > 0) metrics.widthPixels.toFloat() / metrics.heightPixels.toFloat() else 0.5625f
+        val targetW = if (metrics.widthPixels > metrics.heightPixels) maxDim else (maxDim * aspect).toInt()
+        val targetH = if (metrics.widthPixels > metrics.heightPixels) (maxDim / aspect).toInt() else maxDim
+        capturer.startCapture(targetW.coerceIn(320, 1280), targetH.coerceIn(320, 1280), 30)
         videoCapturer = capturer
 
         val track = factory.createVideoTrack("screen_video_$deviceId", videoSource)

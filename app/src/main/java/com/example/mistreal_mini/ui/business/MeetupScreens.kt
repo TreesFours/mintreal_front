@@ -9,6 +9,8 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
@@ -18,6 +20,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.FileProvider
@@ -69,6 +72,21 @@ fun ProposeMeetupDialog(
         }
     }
 
+    val isComfortReady = meetupType != "comfort" || counterpartyDeviceId.isNotBlank()
+    val canPropose = !isSubmitting && coords != null && scheduledSet && isComfortReady
+    // Shared by the confirmButton below and the address field's keyboard
+    // "Done" action, so both trigger the exact same submission.
+    val onPropose: () -> Unit = {
+        coords?.let { (lat, lon) ->
+            val iso = java.time.Instant.ofEpochMilli(calendar.timeInMillis).toString()
+            viewModel.proposeMeetup(
+                businessId, counterpartyPlatform, counterpartyContactId, lat, lon, addressLabel.ifBlank { null }, iso,
+                counterpartyDeviceId = counterpartyDeviceId.ifBlank { null },
+                meetupType = meetupType
+            )
+        }
+    }
+
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text("Propose a Meetup") },
@@ -95,7 +113,9 @@ fun ProposeMeetupDialog(
                             value = counterpartyDeviceId,
                             onValueChange = { counterpartyDeviceId = it },
                             label = { Text("Their code") },
-                            modifier = Modifier.fillMaxWidth()
+                            modifier = Modifier.fillMaxWidth(),
+                            singleLine = true,
+                            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Next)
                         )
                     }
                 }
@@ -103,7 +123,12 @@ fun ProposeMeetupDialog(
                     value = addressLabel,
                     onValueChange = { addressLabel = it },
                     label = { Text("Meeting place (e.g. Cafe on 5th)") },
-                    modifier = Modifier.fillMaxWidth()
+                    modifier = Modifier.fillMaxWidth(),
+                    singleLine = true,
+                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
+                    // Same guard as the Propose button below — pressing Done only
+                    // submits once location + schedule are actually set.
+                    keyboardActions = KeyboardActions(onDone = { if (canPropose) onPropose() })
                 )
                 Button(
                     onClick = {
@@ -139,18 +164,9 @@ fun ProposeMeetupDialog(
             }
         },
         confirmButton = {
-            val isComfortReady = meetupType != "comfort" || counterpartyDeviceId.isNotBlank()
             Button(
-                onClick = {
-                    val (lat, lon) = coords ?: return@Button
-                    val iso = java.time.Instant.ofEpochMilli(calendar.timeInMillis).toString()
-                    viewModel.proposeMeetup(
-                        businessId, counterpartyPlatform, counterpartyContactId, lat, lon, addressLabel.ifBlank { null }, iso,
-                        counterpartyDeviceId = counterpartyDeviceId.ifBlank { null },
-                        meetupType = meetupType
-                    )
-                },
-                enabled = !isSubmitting && coords != null && scheduledSet && isComfortReady
+                onClick = onPropose,
+                enabled = canPropose
             ) {
                 if (isSubmitting) CircularProgressIndicator(modifier = Modifier.size(18.dp)) else Text("Propose")
             }
@@ -250,6 +266,23 @@ private fun ConfirmMeetupDialog(meetup: Meetup, onDismiss: () -> Unit, viewModel
         if (success) photoUri = pendingCameraUri
     }
 
+    val canSubmit = !isSubmitting && !isLocating
+    // Shared by the confirmButton below and the "What happened?" field's
+    // keyboard Done action, so both trigger the same submission.
+    val onSubmit: () -> Unit = {
+        scope.launch {
+            isLocating = true
+            val loc = viewModel.getCurrentLocation()
+            isLocating = false
+            if (loc != null) {
+                viewModel.confirmMeetup(
+                    meetup.id, loc.latitude, loc.longitude, outcome,
+                    reason.ifBlank { null }, review.ifBlank { null }, buyerVote, photoUri
+                ) { onDismiss() }
+            }
+        }
+    }
+
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text("Confirm Presence") },
@@ -264,7 +297,12 @@ private fun ConfirmMeetupDialog(meetup: Meetup, onDismiss: () -> Unit, viewModel
                     Text("It didn't happen")
                 }
                 if (outcome == "failed") {
-                    OutlinedTextField(value = reason, onValueChange = { reason = it }, label = { Text("What happened?") }, modifier = Modifier.fillMaxWidth())
+                    OutlinedTextField(
+                        value = reason, onValueChange = { reason = it }, label = { Text("What happened?") }, modifier = Modifier.fillMaxWidth(),
+                        singleLine = true,
+                        keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
+                        keyboardActions = KeyboardActions(onDone = { if (canSubmit) onSubmit() })
+                    )
                 } else {
                     OutlinedTextField(value = review, onValueChange = { review = it }, label = { Text("Leave a review (optional)") }, modifier = Modifier.fillMaxWidth())
                     // Only meaningful for a business transaction, and only
@@ -299,19 +337,8 @@ private fun ConfirmMeetupDialog(meetup: Meetup, onDismiss: () -> Unit, viewModel
         },
         confirmButton = {
             Button(
-                onClick = {
-                    scope.launch {
-                        isLocating = true
-                        val loc = viewModel.getCurrentLocation()
-                        isLocating = false
-                        if (loc == null) return@launch
-                        viewModel.confirmMeetup(
-                            meetup.id, loc.latitude, loc.longitude, outcome,
-                            reason.ifBlank { null }, review.ifBlank { null }, buyerVote, photoUri
-                        ) { onDismiss() }
-                    }
-                },
-                enabled = !isSubmitting && !isLocating
+                onClick = onSubmit,
+                enabled = canSubmit
             ) {
                 if (isSubmitting || isLocating) CircularProgressIndicator(modifier = Modifier.size(18.dp)) else Text("Submit")
             }

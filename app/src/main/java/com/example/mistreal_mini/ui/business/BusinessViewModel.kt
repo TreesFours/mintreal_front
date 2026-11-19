@@ -145,7 +145,7 @@ class BusinessViewModel @Inject constructor(
     private val _businessAd = MutableStateFlow<com.example.mistreal_mini.data.api.AdPayload?>(null)
     val businessAd = _businessAd.asStateFlow()
 
-    private fun fetchBusinessAd(businessId: String) {
+    fun fetchBusinessAd(businessId: String) {
         viewModelScope.launch {
             val result = repository.getAdForBusiness(businessId)
             _businessAd.value = (result as? Resource.Success)?.data?.ad
@@ -157,6 +157,14 @@ class BusinessViewModel @Inject constructor(
             repository.uploadOwnerPhoto(business, photoUri, context)
         }
     }
+
+    fun uploadBusinessLogo(business: BusinessEntity, photoUri: Uri, context: android.content.Context) {
+        viewModelScope.launch {
+            repository.uploadBusinessLogo(business, photoUri, context)
+        }
+    }
+
+    suspend fun reverseGeocode(lat: Double, lon: Double): String? = locationHelper.getFullAddress(lat, lon)
 
     fun registerBusiness(
         name: String,
@@ -192,6 +200,13 @@ class BusinessViewModel @Inject constructor(
     fun updateConnectedPlatforms(business: BusinessEntity, platforms: List<BusinessPlatformHandle>) {
         viewModelScope.launch {
             repository.saveBusiness(business.copy(connectedPlatforms = repository.serializeConnectedPlatforms(platforms)))
+        }
+    }
+
+    /** Lets an existing business owner correct name/category/address/location after initial registration — previously permanent once set. */
+    fun updateBusinessInfo(business: BusinessEntity, name: String, category: String, address: String, lat: Double, lon: Double) {
+        viewModelScope.launch {
+            repository.saveBusiness(business.copy(name = name, category = category, address = address, latitude = lat, longitude = lon))
         }
     }
 

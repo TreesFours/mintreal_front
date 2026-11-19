@@ -107,6 +107,20 @@ class BusinessRepository @Inject constructor(
             }
         }
 
+    /** Same one-time-upload shape as uploadOwnerPhoto, but for the business's own logo/cover photo. */
+    suspend fun uploadBusinessLogo(business: BusinessEntity, photoUri: Uri, context: Context): Resource<String> =
+        safeApiCall("Failed to upload business logo") {
+            val base64 = FileUtil.uriToBase64(context, photoUri) ?: return@safeApiCall Resource.Error("Couldn't read the selected photo.")
+            val mimeType = FileUtil.getMimeType(context, photoUri) ?: "image/jpeg"
+            val response = api.uploadBusinessLogo(business.businessId, UploadOwnerPhotoRequest(deviceId, base64, mimeType))
+            if (response.success && response.logoUrl != null) {
+                businessDao.upsertBusiness(business.copy(logoUrl = response.logoUrl))
+                Resource.Success(response.logoUrl)
+            } else {
+                Resource.Error(response.error ?: "Failed to upload business logo")
+            }
+        }
+
     suspend fun canShareBusiness(businessId: String): Resource<Boolean> = safeApiCall("Failed to check share eligibility") {
         val response = api.canShareBusiness(businessId, deviceId)
         if (response.success) Resource.Success(response.canShare) else Resource.Error(response.error ?: "Failed to check share eligibility")

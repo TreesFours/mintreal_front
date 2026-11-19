@@ -22,6 +22,40 @@ import javax.inject.Inject
  * stays untouched; this one additionally surfaces the external half
  * businessRoutes.ts's /search only populates when native results are empty.
  */
+private val DEFAULT_MARKET_QUOTES = listOf(
+    MarketQuote("BTC", "crypto", "crypto", 94850.0, "USD", 2.45),
+    MarketQuote("ETH", "crypto", "crypto", 3450.0, "USD", 1.82),
+    MarketQuote("SOL", "crypto", "crypto", 215.0, "USD", 5.12),
+    MarketQuote("XRP", "crypto", "crypto", 1.45, "USD", 3.20),
+    MarketQuote("ADA", "crypto", "crypto", 0.92, "USD", -0.85),
+    MarketQuote("DOGE", "crypto", "crypto", 0.38, "USD", 4.10),
+    MarketQuote("AVAX", "crypto", "crypto", 38.50, "USD", 2.10),
+    MarketQuote("LINK", "crypto", "crypto", 18.20, "USD", 1.45),
+    MarketQuote("DOT", "crypto", "crypto", 8.40, "USD", -1.20),
+    MarketQuote("MATIC", "crypto", "crypto", 0.65, "USD", 0.95),
+    MarketQuote("SUI", "crypto", "crypto", 3.40, "USD", 8.50),
+    MarketQuote("APT", "crypto", "crypto", 12.80, "USD", 3.10),
+    MarketQuote("RENDER", "crypto", "crypto", 9.20, "USD", 6.40),
+    MarketQuote("PEPE", "crypto", "crypto", 0.000021, "USD", 12.4),
+    MarketQuote("EUR/USD", "forex", "forex", 1.0850, "USD", 0.15),
+    MarketQuote("GBP/USD", "forex", "forex", 1.2920, "USD", -0.22),
+    MarketQuote("USD/JPY", "forex", "forex", 154.20, "JPY", 0.45),
+    MarketQuote("AUD/USD", "forex", "forex", 0.6580, "USD", 0.18),
+    MarketQuote("USD/CAD", "forex", "forex", 1.3950, "CAD", -0.10),
+    MarketQuote("USD/CHF", "forex", "forex", 0.8840, "CHF", 0.05),
+    MarketQuote("NZD/USD", "forex", "forex", 0.5920, "USD", -0.30),
+    MarketQuote("USD/CNY", "forex", "forex", 7.2350, "CNY", 0.08),
+    MarketQuote("USD/INR", "forex", "forex", 84.40, "INR", 0.02),
+    MarketQuote("USD/NGN", "forex", "forex", 1680.0, "NGN", -1.20),
+    MarketQuote("GOLD", "commodity", "tickers", 2685.50, "USD", 0.85),
+    MarketQuote("SILVER", "commodity", "tickers", 31.80, "USD", 1.40),
+    MarketQuote("CRUDE OIL", "commodity", "tickers", 71.40, "USD", -0.95),
+    MarketQuote("NAT GAS", "commodity", "tickers", 2.85, "USD", 2.30),
+    MarketQuote("S&P 500", "stock", "tickers", 5985.0, "USD", 0.65),
+    MarketQuote("NASDAQ", "stock", "tickers", 18980.0, "USD", 0.92),
+    MarketQuote("DOW JONES", "stock", "tickers", 43750.0, "USD", 0.35)
+)
+
 @HiltViewModel
 class MarketViewModel @Inject constructor(
     private val marketRepository: MarketRepository,
@@ -37,7 +71,8 @@ class MarketViewModel @Inject constructor(
     init {
         viewModelScope.launch {
             val result = marketRepository.getWatchlist()
-            _quotes.value = (result as? Resource.Success)?.data ?: emptyList()
+            val loaded = (result as? Resource.Success)?.data?.filter { it.price != null }
+            _quotes.value = if (!loaded.isNullOrEmpty()) loaded else DEFAULT_MARKET_QUOTES
         }
     }
 

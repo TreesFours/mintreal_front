@@ -9,6 +9,8 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
@@ -19,6 +21,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
@@ -159,12 +162,16 @@ fun CreateAdDialog(
                     Spacer(Modifier.height(16.dp))
                     OutlinedTextField(
                         value = caption, onValueChange = { caption = it },
-                        label = { Text("Caption") }, modifier = Modifier.fillMaxWidth(), singleLine = true
+                        label = { Text("Caption") }, modifier = Modifier.fillMaxWidth(), singleLine = true,
+                        keyboardOptions = KeyboardOptions(imeAction = ImeAction.Next)
                     )
                     Spacer(Modifier.height(10.dp))
                     OutlinedTextField(
                         value = targetUrl, onValueChange = { targetUrl = it },
-                        label = { Text("Link (optional)") }, modifier = Modifier.fillMaxWidth(), singleLine = true
+                        label = { Text("Link (optional)") }, modifier = Modifier.fillMaxWidth(), singleLine = true,
+                        keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
+                        // Mirrors the LAUNCH AD button's own enabled check below.
+                        keyboardActions = KeyboardActions(onDone = { if (canSubmit) onSubmit(mediaType, duration, caption, targetUrl, videoUri, imageUris) })
                     )
 
                     Spacer(Modifier.height(20.dp))

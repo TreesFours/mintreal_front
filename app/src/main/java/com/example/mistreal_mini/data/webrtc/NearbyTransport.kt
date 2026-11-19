@@ -113,15 +113,39 @@ class NearbyTransport @Inject constructor(
 
     private val endpointDiscoveryCallback = object : EndpointDiscoveryCallback() {
         override fun onEndpointFound(endpointId: String, info: DiscoveredEndpointInfo) {
-            // No "browse nearby hosts" UI in this phase — a viewer only
-            // ever looks for the one host it already has a share code for,
-            // which the host advertises as its endpoint name.
+            // Direct-code join only looks for the one host it already has
+            // a share code for — browsing (below) is the path that
+            // surfaces every nearby broadcast instead of just this one.
             if (info.endpointName == shareCode) {
                 connectionsClient.requestConnection(localDeviceId, endpointId, connectionLifecycleCallback)
             }
         }
 
         override fun onEndpointLost(endpointId: String) {}
+    }
+
+    // endpointId -> share code (the endpoint's advertised name) — populated
+    // by browseDiscoveryCallback below, read by connectToBroadcast() once
+    // the user taps one.
+    private val discoveredBroadcasts = mutableMapOf<String, String>()
+    val nearbyBroadcastFound = MutableSharedFlow<Pair<String, String>>() // endpointId, code
+    val nearbyBroadcastLost = MutableSharedFlow<String>() // endpointId
+
+    /**
+     * Unlike endpointDiscoveryCallback above (which only matches one known
+     * share code), this surfaces every nearby broadcast so a viewer without
+     * a code can see and pick one — the "browse nearby" path.
+     */
+    private val browseDiscoveryCallback = object : EndpointDiscoveryCallback() {
+        override fun onEndpointFound(endpointId: String, info: DiscoveredEndpointInfo) {
+            discoveredBroadcasts[endpointId] = info.endpointName
+            scope.launch { nearbyBroadcastFound.emit(endpointId to info.endpointName) }
+        }
+
+        override fun onEndpointLost(endpointId: String) {
+            discoveredBroadcasts.remove(endpointId)
+            scope.launch { nearbyBroadcastLost.emit(endpointId) }
+        }
     }
 
     // Nearby's own calls throw SecurityException immediately if the
@@ -156,6 +180,35 @@ class NearbyTransport @Inject constructor(
         }
     }
 
+    /** Browse mode: scans for every nearby broadcast instead of one known share code — see browseDiscoveryCallback. */
+    fun startBrowsing(deviceId: String) {
+        localDeviceId = deviceId
+        isHost = false
+        discoveredBroadcasts.clear()
+        try {
+            val options = DiscoveryOptions.Builder().setStrategy(Strategy.P2P_CLUSTER).build()
+            connectionsClient.startDiscovery(SERVICE_ID, browseDiscoveryCallback, options)
+                .addOnFailureListener { Timber.e(it, "NearbyTransport: browse discovery failed") }
+        } catch (e: SecurityException) {
+            Timber.e(e, "NearbyTransport: missing permission for browse discovery")
+        }
+    }
+
+    fun stopBrowsing() {
+        try {
+            connectionsClient.stopDiscovery()
+        } catch (e: Exception) {
+            Timber.e(e, "NearbyTransport: stopBrowsing failed")
+        }
+    }
+
+    /** Connects to one of the broadcasts surfaced by startBrowsing(). */
+    fun connectToBroadcast(endpointId: String) {
+        val code = discoveredBroadcasts[endpointId] ?: return
+        shareCode = code
+        connectionsClient.requestConnection(localDeviceId, endpointId, connectionLifecycleCallback)
+    }
+
     fun stop() {
         try {
             connectionsClient.stopAdvertising()
@@ -165,6 +218,7 @@ class NearbyTransport @Inject constructor(
             Timber.e(e, "NearbyTransport: stop failed")
         }
         connectedEndpointIds.clear()
+        discoveredBroadcasts.clear()
     }
 
     private fun handleIncoming(fromEndpointId: String, json: JSONObject) {

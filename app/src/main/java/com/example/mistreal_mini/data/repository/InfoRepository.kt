@@ -2,6 +2,7 @@ package com.example.mistreal_mini.data.repository
 
 import android.content.Context
 import android.net.Uri
+import timber.log.Timber
 import com.example.mistreal_mini.data.Resource
 import com.example.mistreal_mini.data.safeApiCall
 import com.example.mistreal_mini.data.api.AiProviderApiService
@@ -39,9 +40,9 @@ class InfoRepository @Inject constructor(
         Resource.Success(api.getWeather(lat, lon, deviceId, firebaseUid))
     }
 
-    suspend fun getNews(category: String?, location: String?, fastLoad: Boolean = false): Resource<NewsResponse> = safeApiCall("News error") {
+    suspend fun getNews(category: String?, location: String?, fastLoad: Boolean = false, refresh: Boolean = false): Resource<NewsResponse> = safeApiCall("News error") {
         val firebaseUid = authRepository.currentUser?.uid
-        Resource.Success(api.getNews(category, location, firebaseUid, fastLoad))
+        Resource.Success(api.getNews(category, location, firebaseUid, fastLoad, refresh))
     }
 
     // Mapped into the existing flat SocialPost shape at this boundary so
@@ -73,6 +74,7 @@ class InfoRepository @Inject constructor(
                 )
             }
         } catch (e: Exception) {
+            Timber.w(e, "InfoRepository: getYoutubeVideos failed")
             emptyList()
         }
     }
@@ -297,6 +299,7 @@ class InfoRepository @Inject constructor(
         targetId: String,
         mediaBase64: String? = null,
         mediaMimeType: String? = null,
+        mediaItems: List<com.example.mistreal_mini.data.api.MediaItemPayload>? = null,
         shareToCommunity: Boolean = false,
         mistrealOnly: Boolean = false
     ): Resource<Boolean> = safeApiCall("Action error") {
@@ -309,6 +312,7 @@ class InfoRepository @Inject constructor(
                 targetId = targetId,
                 mediaBase64 = mediaBase64,
                 mediaMimeType = mediaMimeType,
+                mediaItems = mediaItems,
                 shareToCommunity = shareToCommunity,
                 mistrealOnly = mistrealOnly
             )

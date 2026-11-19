@@ -27,9 +27,11 @@ import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -39,6 +41,7 @@ import androidx.compose.ui.platform.LocalFocusManager
 import androidx.core.content.FileProvider
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import coil.compose.AsyncImage
 import com.example.mistreal_mini.data.model.ChatMessage
 import com.example.mistreal_mini.data.model.PlatformIcons
 import com.example.mistreal_mini.ui.chat.components.*
@@ -170,23 +173,42 @@ fun ChatScreen(
             TopAppBar(
                 title = { 
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        // Platform/AI Logo
+                        val isSocial = viewModel.isSocialChat.value
+                        val activeContact = viewModel.activeSocialContact.value
                         val platform = viewModel.currentChatPartnerPlatform.value
-                        val logoIcon = PlatformIcons.forPlatform(platform) ?: Icons.Default.Link
                         
                         Box(
                             modifier = Modifier
-                                .size(32.dp)
-                                .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.1f), CircleShape),
+                                .size(36.dp)
+                                .clip(CircleShape)
+                                .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.15f)),
                             contentAlignment = Alignment.Center
                         ) {
-                            Icon(logoIcon, null, modifier = Modifier.size(18.dp), tint = MaterialTheme.colorScheme.primary)
+                            if (isSocial && !activeContact?.avatar.isNullOrBlank()) {
+                                AsyncImage(
+                                    model = activeContact!!.avatar,
+                                    contentDescription = activeContact.name,
+                                    modifier = Modifier.fillMaxSize().clip(CircleShape),
+                                    contentScale = ContentScale.Crop
+                                )
+                            } else {
+                                val logoIcon = PlatformIcons.forPlatform(platform) ?: Icons.Default.Psychology
+                                Icon(logoIcon, null, modifier = Modifier.size(20.dp), tint = MaterialTheme.colorScheme.primary)
+                            }
                         }
                         
                         Spacer(modifier = Modifier.width(12.dp))
                         
                         Column {
-                            val partnerText = viewModel.currentTrendTitle.value ?: if (platform == "ai") viewModel.aiCustomName.value else currentChatPartner
+                            val customName = viewModel.aiCustomName.value
+                            val activeModel = viewModel.selectedProvider.value
+                            val partnerText = when {
+                                isSocial -> activeContact?.name ?: currentChatPartner
+                                viewModel.currentTrendTitle.value != null -> viewModel.currentTrendTitle.value!!
+                                !customName.isNullOrBlank() && customName != "Mistreal" -> customName
+                                !activeModel.isNullOrBlank() -> activeModel
+                                else -> "Mistreal AI"
+                            }
                             Text(
                                 text = partnerText.uppercase(), 
                                 style = MaterialTheme.typography.labelLarge, 
@@ -363,9 +385,11 @@ fun ChatScreen(
             )
         },
         bottomBar = {
-            if (isRecording || recordedFile != null) {
-                VoiceRecordingBar(
-                    isRecording = isRecording,
+            Column {
+                if (!showInsightPopup) {
+                    if (isRecording || recordedFile != null) {
+                        VoiceRecordingBar(
+                            isRecording = isRecording,
                     duration = recordingDuration,
                     recordedFile = recordedFile,
                     isPlayingBack = isPlayingBack,
@@ -450,6 +474,8 @@ fun ChatScreen(
                     onCancelReply = { viewModel.setReplyingTo(null) }
                 )
             }
+        }
+    }
         }
     ) { padding ->
         Box(modifier = Modifier
@@ -560,13 +586,19 @@ fun ChatScreen(
                 item { Spacer(modifier = Modifier.height(16.dp)) }
             }
 
-            // Quick Scroll FAB
+            // Quick Scroll FAB — only shows when user has scrolled away from current bottom
             val showScrollToBottom by remember {
                 derivedStateOf {
-                    listState.firstVisibleItemIndex < messages.size - 10
+                    val isSocial = viewModel.isSocialChat.value
+                    if (isSocial) {
+                        messages.size > 5 && listState.firstVisibleItemIndex < messages.size - 4
+                    } else {
+                        val count = pagedMessages.itemCount
+                        count > 5 && listState.firstVisibleItemIndex > 3
+                    }
                 }
             }
-            
+
             AnimatedVisibility(
                 visible = showScrollToBottom,
                 enter = fadeIn() + scaleIn(),
@@ -576,12 +608,15 @@ fun ChatScreen(
                 FloatingActionButton(
                     onClick = {
                         coroutineScope.launch {
-                            if (messages.isNotEmpty()) {
-                                listState.animateScrollToItem(messages.size - 1)
+                            val isSocial = viewModel.isSocialChat.value
+                            if (isSocial) {
+                                if (messages.isNotEmpty()) listState.animateScrollToItem(messages.size - 1)
+                            } else {
+                                if (pagedMessages.itemCount > 0) listState.animateScrollToItem(0)
                             }
                         }
                     },
-                    containerColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.7f),
+                    containerColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.85f),
                     contentColor = Color.White,
                     modifier = Modifier.size(40.dp),
                     shape = CircleShape
@@ -658,6 +693,33 @@ fun ChatScreen(
                     onAiEditVideo = { u, faceRef, faceTarget, instruction, cb -> viewModel.editVideoWithAi(u, faceRef, faceTarget, instruction, cb) },
                     isAiEditingImage = viewModel.isEditingImage.value,
                     onAiEditImage = { u, extraImages, isFaceSwap, instruction, cb -> viewModel.editImageWithAi(u, extraImages, isFaceSwap, instruction, cb) }
+                )
+            }
+
+            viewModel.pendingDeleteMessage.value?.let { msg ->
+                AlertDialog(
+                    onDismissRequest = { viewModel.dismissDeleteConfirmation() },
+                    title = { Text("Delete Message", fontWeight = FontWeight.Bold) },
+                    text = { Text("Do you want to delete this message locally only, or delete it for both parties on the social network?", style = MaterialTheme.typography.bodyMedium) },
+                    confirmButton = {
+                        Button(
+                            onClick = { viewModel.confirmDeleteMessage(deleteRemote = true) },
+                            colors = ButtonDefaults.buttonColors(containerColor = Color.Red)
+                        ) {
+                            Text("Delete for Everyone")
+                        }
+                    },
+                    dismissButton = {
+                        Row {
+                            OutlinedButton(onClick = { viewModel.confirmDeleteMessage(deleteRemote = false) }) {
+                                Text("Delete for Me")
+                            }
+                            Spacer(modifier = Modifier.width(8.dp))
+                            TextButton(onClick = { viewModel.dismissDeleteConfirmation() }) {
+                                Text("Cancel")
+                            }
+                        }
+                    }
                 )
             }
 
