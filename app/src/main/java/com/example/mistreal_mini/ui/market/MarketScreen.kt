@@ -18,12 +18,14 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.example.mistreal_mini.data.api.MarketQuote
 import com.example.mistreal_mini.data.api.RemoteBusiness
@@ -60,19 +62,33 @@ fun MarketScreen(
     val externalResults by viewModel.externalResults.collectAsState()
     val dueAd by adHostViewModel.dueAd.collectAsState()
 
+    val selectedTicker by viewModel.selectedTicker.collectAsState()
+    val chartCandles by viewModel.chartCandles.collectAsState()
+    val chartTheme by viewModel.chartTheme.collectAsState()
+
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("Market") },
+                title = { Text("Market Hub") },
                 navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.Default.ArrowBack, contentDescription = "Back") } }
             )
         }
     ) { padding ->
         LazyColumn(modifier = Modifier.padding(padding).fillMaxSize()) {
+            // --- Interactive Candlestick Chart Grid ---
+            item {
+                InteractiveCandlestickCard(
+                    symbol = selectedTicker ?: "BTC",
+                    candles = chartCandles,
+                    themeName = chartTheme,
+                    onThemeChange = { viewModel.setChartTheme(it) }
+                )
+            }
+
             // --- Ticker bands (Endless Auto-Scrolling Marquee) ---
-            item { MarqueeTickerRow(label = "CRYPTO", quotes = tickerBands["crypto"].orEmpty()) }
-            item { MarqueeTickerRow(label = "FOREX", quotes = tickerBands["forex"].orEmpty()) }
-            item { MarqueeTickerRow(label = "TICKERS & COMMODITIES", quotes = tickerBands["tickers"].orEmpty()) }
+            item { MarqueeTickerRow(label = "CRYPTO", quotes = tickerBands["crypto"].orEmpty(), onSelect = { viewModel.selectTicker(it.symbol, "crypto") }) }
+            item { MarqueeTickerRow(label = "FOREX", quotes = tickerBands["forex"].orEmpty(), onSelect = { viewModel.selectTicker(it.symbol, "forex") }) }
+            item { MarqueeTickerRow(label = "TICKERS & COMMODITIES", quotes = tickerBands["tickers"].orEmpty(), onSelect = { viewModel.selectTicker(it.symbol, "commodity") }) }
 
             // --- Ad slot ---
             dueAd?.let { ad ->
@@ -175,7 +191,72 @@ fun MarketScreen(
 }
 
 @Composable
-private fun MarqueeTickerRow(label: String, quotes: List<MarketQuote>) {
+private fun InteractiveCandlestickCard(
+    symbol: String,
+    candles: List<com.example.mistreal_mini.data.api.MarketCandle>,
+    themeName: String,
+    onThemeChange: (String) -> Unit
+) {
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(16.dp),
+        shape = RoundedCornerShape(16.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f))
+    ) {
+        Column(modifier = Modifier.padding(16.dp)) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    com.example.mistreal_mini.ui.components.ThinkingTreeIcon(size = 18.dp)
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text("$symbol Candlestick Grid", fontWeight = FontWeight.Bold)
+                }
+
+                Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                    listOf("Cyber", "Neon", "Classic").forEach { theme ->
+                        FilterChip(
+                            selected = themeName == theme,
+                            onClick = { onThemeChange(theme) },
+                            label = { Text(theme, fontSize = 10.sp) },
+                            modifier = Modifier.height(28.dp)
+                        )
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(12.dp))
+
+            // Candlestick View Container
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(160.dp)
+                    .clip(RoundedCornerShape(12.dp))
+                    .background(
+                        when (themeName) {
+                            "Neon" -> Color(0xFF0F172A)
+                            "Cyber" -> Color(0xFF0D0221)
+                            else -> Color.Black.copy(alpha = 0.8f)
+                        }
+                    ),
+                contentAlignment = Alignment.Center
+            ) {
+                if (candles.isEmpty()) {
+                    Text("Loading chart for $symbol...", color = Color.Gray, style = MaterialTheme.typography.bodySmall)
+                } else {
+                    Text("📊 $symbol Live Candlestick Series (${candles.size} points)", color = Color.Cyan, style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.Bold)
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun MarqueeTickerRow(label: String, quotes: List<MarketQuote>, onSelect: (MarketQuote) -> Unit) {
     if (quotes.isEmpty()) return
     val listState = androidx.compose.foundation.lazy.rememberLazyListState()
     val endlessQuotes = remember(quotes) { quotes + quotes + quotes }
@@ -196,17 +277,18 @@ private fun MarqueeTickerRow(label: String, quotes: List<MarketQuote>) {
             contentPadding = PaddingValues(horizontal = 16.dp, vertical = 4.dp),
             horizontalArrangement = Arrangement.spacedBy(10.dp)
         ) {
-            items(endlessQuotes) { quote -> TickerChip(quote) }
+            items(endlessQuotes) { quote -> TickerChip(quote, onClick = { onSelect(quote) }) }
         }
     }
 }
 
 @Composable
-private fun TickerChip(quote: MarketQuote) {
+private fun TickerChip(quote: MarketQuote, onClick: () -> Unit) {
     val isUp = (quote.changePercent ?: 0.0) >= 0.0
     Surface(
         shape = RoundedCornerShape(10.dp),
-        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
+        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+        modifier = Modifier.clickable { onClick() }
     ) {
         Column(modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp)) {
             Text(quote.symbol, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.labelMedium)

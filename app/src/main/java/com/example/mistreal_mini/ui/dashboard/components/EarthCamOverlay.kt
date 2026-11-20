@@ -37,10 +37,11 @@ data class CameraFeed(
 )
 
 private val DEFAULT_CAMERAS = listOf(
-    CameraFeed("iss_live", "ISS Earth View", "Low Earth Orbit", "https://www.youtube.com/embed/P9C25Un7x3E?autoplay=1&mute=1"),
-    CameraFeed("times_square", "Times Square Live", "New York, USA", "https://www.youtube.com/embed/1-iS7LArMPA?autoplay=1&mute=1"),
-    CameraFeed("tokyo_cam", "Shibuya Crossing Live", "Tokyo, Japan", "https://www.youtube.com/embed/3m4aWvSmf_Y?autoplay=1&mute=1"),
-    CameraFeed("venice_cam", "Grand Canal Live", "Venice, Italy", "https://www.youtube.com/embed/v9qY2pB8k_c?autoplay=1&mute=1")
+    CameraFeed("iss_live", "ISS Earth View", "Low Earth Orbit (NASA)", "https://ntv1.akamaized.net/hls/live/2014075/NASA-NTV1-HLS/master.m3u8", "earthcam"),
+    CameraFeed("shibuya_cam", "Shibuya Crossing Stream", "Tokyo, Japan", "https://stream.openwebcam.org/hls/shibuya/live.m3u8", "webcam"),
+    CameraFeed("times_square", "Times Square Central", "New York, USA", "https://stream.openwebcam.org/hls/timessquare/live.m3u8", "webcam"),
+    CameraFeed("venice_canal", "Grand Canal Stream", "Venice, Italy", "https://stream.openwebcam.org/hls/venice/live.m3u8", "webcam"),
+    CameraFeed("drone_rtsp", "Local Drone Stream", "Local Network", "rtsp://192.168.1.1:8554/live", "drone")
 )
 
 @Composable

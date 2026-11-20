@@ -44,6 +44,18 @@ class AiProviderSelector(
     private val _customProviderSummary = mutableStateOf<List<String>>(emptyList())
     val customProviderSummary: State<List<String>> = _customProviderSummary
 
+    // 5-item lazy pagination for model dropdown drawer
+    private val _visibleModelCount = mutableStateOf(5)
+    val visibleModelCount: State<Int> = _visibleModelCount
+
+    fun loadMoreModels() {
+        _visibleModelCount.value += 5
+    }
+
+    fun resetModelPagination() {
+        _visibleModelCount.value = 5
+    }
+
     fun fetchAvailableModels() {
         scope.launch { fetchAvailableModelsAwait() }
     }

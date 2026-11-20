@@ -445,7 +445,7 @@ fun InteractiveMapView(
                                 }
                             }, "AndroidMap")
 
-                            loadDataWithBaseURL(null, getMapHtml(), "text/html", "UTF-8", null)
+                            loadDataWithBaseURL("https://openstreetmap.org", getMapHtml(), "text/html", "UTF-8", null)
                         }
                     },
                     update = { webView ->
@@ -953,8 +953,8 @@ private fun getMapHtml(): String = """
         <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
         <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
         <style>
-            #map { height: 100vh; width: 100vw; background: #000; }
-            .leaflet-container { background: #000 !important; }
+            #map { height: 100vh; width: 100vw; background: #0F172A; }
+            .leaflet-container { background: #0F172A !important; }
             .mask-overlay {
                 position: absolute; top: 0; left: 0; width: 100%; height: 100%;
                 background: rgba(0, 0, 0, 0.6); pointer-events: none; z-index: 1000;

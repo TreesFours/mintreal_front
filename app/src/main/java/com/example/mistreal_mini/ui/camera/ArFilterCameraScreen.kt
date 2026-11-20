@@ -38,7 +38,10 @@ private val DEFAULT_FILTERS = listOf(
     ArFilter("clown", "Clown Selfie", "🤡", "clown"),
     ArFilter("neon", "Neon Glow", "🌈", "gradient"),
     ArFilter("cyber", "Cyber Mask", "🤖", "mask"),
-    ArFilter("retro", "Retro Grain", "🎞️", "vintage")
+    ArFilter("retro", "Retro Grain", "🎞️", "vintage"),
+    ArFilter("cat_ears", "Cat Ears", "🐱", "cat"),
+    ArFilter("sparkles", "Sparkles", "✨", "sparkle"),
+    ArFilter("dog_nose", "Puppy Filter", "🐶", "puppy")
 )
 
 /**

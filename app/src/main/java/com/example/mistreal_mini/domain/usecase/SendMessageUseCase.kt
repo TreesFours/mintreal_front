@@ -180,6 +180,11 @@ class SendMessageUseCase @Inject constructor(
             [MOOD: one_word] where one_word is exactly one of: happy, excited, neutral, curious, confused, frustrated, sad, angry.
             This is always required, even for purely factual replies (use "neutral" by default). It will be shown as a small
             indicator, not as visible text, so it must not change your reply's wording or tone.
+
+            PROTOCOL 'INLINE_VISUAL_EXPLANATION':
+            When explaining a complex topic, telling an intense story, or debating a visual concept, you may suggest an inline illustration by appending a tag in this exact format:
+            [INLINE_MEDIA: style=cartoon|artistic|realistic, prompt=short description of the image to generate]
+            This tag will automatically be processed to generate and display an illustrative image alongside your text.
         """.trimIndent()
 
         if (isSocialAutosendContext) {

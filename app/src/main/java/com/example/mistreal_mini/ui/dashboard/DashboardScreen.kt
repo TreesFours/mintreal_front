@@ -132,7 +132,13 @@ fun DashboardScreen(
         snackbarHost = { SnackbarHost(snackbarHostState) },
         topBar = {
             TopAppBar(
-                title = { Text(if (isArchitectMode) "MISTREAL ARCHITECT" else "MISTREAL TACTICAL", fontWeight = FontWeight.Black) },
+                title = {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        com.example.mistreal_mini.ui.components.ThinkingTreeIcon(size = 22.dp)
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(if (isArchitectMode) "ARCHITECT HUB" else "COMMAND CENTER", fontWeight = FontWeight.Black)
+                    }
+                },
                 actions = {
                     IconButton(onClick = { showEarthCamDialog = true }) {
                         Icon(Icons.Default.Public, "World Cams", tint = MaterialTheme.colorScheme.primary)

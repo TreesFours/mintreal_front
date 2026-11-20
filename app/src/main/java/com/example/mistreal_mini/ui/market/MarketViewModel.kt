@@ -76,6 +76,33 @@ class MarketViewModel @Inject constructor(
         }
     }
 
+    private val _selectedTicker = MutableStateFlow<String?>("BTC")
+    val selectedTicker = _selectedTicker.asStateFlow()
+
+    private val _selectedAssetClass = MutableStateFlow("crypto")
+    val selectedAssetClass = _selectedAssetClass.asStateFlow()
+
+    private val _chartTheme = MutableStateFlow("Cyber") // "Green/Red", "Cyber", "Neon"
+    val chartTheme = _chartTheme.asStateFlow()
+
+    private val _chartCandles = MutableStateFlow<List<com.example.mistreal_mini.data.api.MarketCandle>>(emptyList())
+    val chartCandles = _chartCandles.asStateFlow()
+
+    fun selectTicker(symbol: String, assetClass: String = "crypto") {
+        _selectedTicker.value = symbol
+        _selectedAssetClass.value = assetClass
+        viewModelScope.launch {
+            val result = marketRepository.getCandles(symbol, assetClass)
+            if (result is Resource.Success) {
+                _chartCandles.value = result.data.orEmpty()
+            }
+        }
+    }
+
+    fun setChartTheme(theme: String) {
+        _chartTheme.value = theme
+    }
+
     private val _searchQuery = MutableStateFlow("")
     val searchQuery = _searchQuery.asStateFlow()
 
