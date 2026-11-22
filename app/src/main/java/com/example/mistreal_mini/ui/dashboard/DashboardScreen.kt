@@ -160,7 +160,13 @@ fun DashboardScreen(
         },
         bottomBar = {
             com.example.mistreal_mini.ui.chat.components.InstagramStyleBottomBar(
-                selectedTab = if (selectedTab == 2) 2 else 4,
+                // Was: `else 4`, which always lit up "Chats" while viewing any
+                // other internal Dashboard tab (Intel/Map/etc.) even though the
+                // user never navigated to Chats at all — only tab 2 (Reels) has
+                // a real correspondence to a bottom-bar item here; -1 matches
+                // none of the bar's own `selectedTab == N` checks, so nothing
+                // gets falsely highlighted otherwise.
+                selectedTab = if (selectedTab == 2) 2 else -1,
                 onTabSelected = { tab ->
                     when (tab) {
                         0 -> onOpenGames()
@@ -287,6 +293,15 @@ fun DashboardScreen(
                                 shareToCommunity = shareToCommunity
                             )
                         },
+                        onPostMultiPlatform = { _, content, platforms, mediaBase64, mediaMimeType ->
+                            feedViewModel.postMultiPlatform(deviceId, content, platforms, mediaBase64, mediaMimeType)
+                        },
+                        ownPosts = feedViewModel.ownPosts,
+                        onLoadOwnPosts = { feedViewModel.loadOwnPosts(deviceId) },
+                        aggregatedComments = feedViewModel.aggregatedComments,
+                        isLoadingComments = feedViewModel.isLoadingComments.value,
+                        onLoadComments = { postId -> feedViewModel.loadAggregatedComments(postId, deviceId) },
+                        onAddComment = { postId, text -> feedViewModel.addPostComment(postId, deviceId, text) },
                         onAdvertiseClick = onAdvertiseClick,
                         snackbarHostState = snackbarHostState
                     )

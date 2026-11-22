@@ -166,6 +166,18 @@ fun ChatScreen(
         }
     }
 
+    var showArCamera by remember { mutableStateOf(false) }
+    if (showArCamera) {
+        com.example.mistreal_mini.ui.camera.ArFilterCameraScreen(
+            onBack = { showArCamera = false },
+            onMediaCaptured = { uri, _ ->
+                viewModel.addPendingAttachment(uri)
+                showArCamera = false
+            }
+        )
+        return
+    }
+
     Scaffold(
         modifier = Modifier.imePadding(),
         snackbarHost = { SnackbarHost(snackbarHostState) },
@@ -261,7 +273,7 @@ fun ChatScreen(
                         )
                         
                         IconButton(
-                            onClick = { sfx?.playTap(); showContactList = true },
+                            onClick = { sfx?.playTap(); showContactList = !showContactList },
                             modifier = Modifier.graphicsLayer(scaleX = scale, scaleY = scale)
                         ) {
                             Box(contentAlignment = Alignment.Center) {
@@ -397,7 +409,9 @@ fun ChatScreen(
                     onDelete = { viewModel.deleteRecording() },
                     onPlay = { viewModel.playRecording() },
                     onSend = { viewModel.sendRecordedVoiceNote() },
-                    onTrim = { startMs, endMs -> viewModel.trimRecording(startMs, endMs) }
+                    onTrim = { startMs, endMs -> viewModel.trimRecording(startMs, endMs) },
+                    selectedVoicePreset = viewModel.selectedVoicePreset.collectAsStateWithLifecycle().value,
+                    onVoicePresetSelected = { viewModel.selectVoicePreset(it) }
                 )
             } else {
                 ChatInputBar(
@@ -424,6 +438,7 @@ fun ChatScreen(
                     },
                     onCameraClick = { captureImage() },
                     onVideoClick = { captureVideo() },
+                    onArCameraClick = { showArCamera = true },
                     onFileClick = { filePickerLauncher.launch("*/*") },
                     onVoiceClick = { viewModel.startRecording() },
                     onScribeClick = {
@@ -457,6 +472,8 @@ fun ChatScreen(
                     onAiEditVideo = { uri, faceRef, faceTarget, instruction, cb -> viewModel.editVideoWithAi(uri, faceRef, faceTarget, instruction, cb) },
                     isAiEditingImage = viewModel.isEditingImage.value,
                     onAiEditImage = { uri, extraImages, isFaceSwap, instruction, cb -> viewModel.editImageWithAi(uri, extraImages, isFaceSwap, instruction, cb) },
+                    isQuickSwapping = viewModel.isQuickSwapping.value,
+                    onQuickFaceSwap = { sourceUri, refUri, cb -> viewModel.quickFaceSwap(sourceUri, refUri, cb) },
                     isSynthesizingVoiceOver = viewModel.isSynthesizingVoiceOver.value,
                     onAddVoiceOver = { uri, narration, cb -> viewModel.addVoiceOverToVideo(uri, narration, cb) },
                     isSceneMode = viewModel.isSceneMode.value,
@@ -691,6 +708,8 @@ fun ChatScreen(
                     onAddVoiceOver = { u, narration, cb -> viewModel.addVoiceOverToVideo(u, narration, cb) },
                     isAiEditingVideo = viewModel.isEditingVideo.value,
                     onAiEditVideo = { u, faceRef, faceTarget, instruction, cb -> viewModel.editVideoWithAi(u, faceRef, faceTarget, instruction, cb) },
+                    isQuickSwapping = viewModel.isQuickSwapping.value,
+                    onQuickFaceSwap = { sourceUri, refUri, cb -> viewModel.quickFaceSwap(sourceUri, refUri, cb) },
                     isAiEditingImage = viewModel.isEditingImage.value,
                     onAiEditImage = { u, extraImages, isFaceSwap, instruction, cb -> viewModel.editImageWithAi(u, extraImages, isFaceSwap, instruction, cb) }
                 )
@@ -793,11 +812,33 @@ fun ChatScreen(
             }
             
 
-            if (showContactList) {
-                ContactListDrawer(
-                    viewModel = viewModel,
-                    onClose = { showContactList = false }
-                )
+            // Was an abrupt if()-mounted ModalDrawerSheet with no scrim and no
+            // tap-outside-to-dismiss — just a drawer-styled Box, not an actual
+            // dismissible drawer. Now slides in/out and dismisses on scrim tap,
+            // on top of the toggle fix above (same button now closes it too).
+            AnimatedVisibility(
+                visible = showContactList,
+                enter = fadeIn(tween(200)),
+                exit = fadeOut(tween(200))
+            ) {
+                Box(modifier = Modifier.fillMaxSize()) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .background(Color.Black.copy(alpha = 0.4f))
+                            .clickable { showContactList = false }
+                    )
+                    AnimatedVisibility(
+                        visible = showContactList,
+                        enter = slideInHorizontally(animationSpec = tween(220)) { -it },
+                        exit = slideOutHorizontally(animationSpec = tween(220)) { -it }
+                    ) {
+                        ContactListDrawer(
+                            viewModel = viewModel,
+                            onClose = { showContactList = false }
+                        )
+                    }
+                }
             }
 
             if (viewModel.isScreenRecording.value) {

@@ -74,6 +74,8 @@ class ChatViewModel @Inject constructor(
     private val verifiedFaceRepository: com.example.mistreal_mini.data.repository.VerifiedFaceRepository,
     private val faceGuard: com.example.mistreal_mini.util.FaceGuard,
     private val faceVideoEditor: com.example.mistreal_mini.util.FaceVideoEditor,
+    private val voiceFxRenderer: com.example.mistreal_mini.util.VoiceFxRenderer,
+    private val faceTracker: com.example.mistreal_mini.util.ar.FaceTracker,
     private val savedStateHandle: SavedStateHandle,
     @ApplicationContext private val context: Context,
     private val deviceIdProvider: com.example.mistreal_mini.util.DeviceIdProvider
@@ -532,6 +534,48 @@ class ChatViewModel @Inject constructor(
     // the result to the human contact or to the AI.
     private var recordingTargetIsAi = false
 
+    // Persisted (PreferenceManager), not just session state — stays whatever
+    // was last picked until the user changes it, in Settings or from the
+    // recording bar, and that same value is what the AI's own spoken-reply
+    // voice notes use too (see performChatRequest's TTS branch).
+    private val _selectedVoicePreset = MutableStateFlow(com.example.mistreal_mini.util.VoicePreset.NONE)
+    val selectedVoicePreset: StateFlow<com.example.mistreal_mini.util.VoicePreset> = _selectedVoicePreset
+
+    private val _customVoicePitch = MutableStateFlow(1.0f)
+    val customVoicePitch: StateFlow<Float> = _customVoicePitch
+
+    // Whether a real cloned voice (ElevenLabs BYOK) is configured — when
+    // true, the TTS branch below uses it instead of Android's built-in TTS
+    // engine, and skips the pitch-shift presets entirely (a real cloned
+    // voice is already a specific voice, not something to layer a preset
+    // on top of). Fetched once here rather than reading SettingsViewModel's
+    // state directly — these two ViewModels don't share scope.
+    private val _hasVoiceClone = MutableStateFlow(false)
+
+    init {
+        viewModelScope.launch {
+            val savedName = preferenceManager.voiceFxPreset.first()
+            _selectedVoicePreset.value = try {
+                com.example.mistreal_mini.util.VoicePreset.valueOf(savedName)
+            } catch (e: IllegalArgumentException) {
+                com.example.mistreal_mini.util.VoicePreset.NONE
+            }
+            _customVoicePitch.value = preferenceManager.voiceFxCustomPitch.first()
+            val voiceStatus = infoRepository.getByokVoiceStatus()
+            _hasVoiceClone.value = (voiceStatus as? Resource.Success)?.data?.hasVoiceClone == true
+        }
+    }
+
+    fun selectVoicePreset(preset: com.example.mistreal_mini.util.VoicePreset) {
+        _selectedVoicePreset.value = preset
+        viewModelScope.launch { preferenceManager.setVoiceFxPreset(preset.name) }
+    }
+
+    fun setCustomVoicePitch(pitch: Float) {
+        _customVoicePitch.value = pitch
+        viewModelScope.launch { preferenceManager.setVoiceFxCustomPitch(pitch) }
+    }
+
     fun startRecording() {
         recordingTargetIsAi = false
         startRecordingInternal()
@@ -592,9 +636,28 @@ class ChatViewModel @Inject constructor(
         }
     }
 
-    /** Dispatches a finished recording to whichever destination started it — see startAiVoiceNoteRecording(). */
+    /**
+     * Dispatches a finished recording to whichever destination started it —
+     * see startAiVoiceNoteRecording(). If a non-[com.example.mistreal_mini.util.VoicePreset.NONE]
+     * voice effect is selected, runs the recording through [voiceFxRenderer]
+     * first (a real decode/process/re-encode pass, so this has to leave the
+     * main thread) and swaps [_recordedFile] to the processed clip before
+     * either send path picks it up.
+     */
     fun sendRecordedVoiceNote() {
-        if (recordingTargetIsAi) sendVoiceNoteToAi() else sendVoiceMessage()
+        val preset = _selectedVoicePreset.value
+        val original = _recordedFile.value
+        if (preset == com.example.mistreal_mini.util.VoicePreset.NONE || original == null) {
+            if (recordingTargetIsAi) sendVoiceNoteToAi() else sendVoiceMessage()
+            return
+        }
+        viewModelScope.launch {
+            val processedUri = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                voiceFxRenderer.applyPreset(Uri.fromFile(original), preset)
+            }
+            _recordedFile.value = processedUri?.path?.let { File(it) } ?: original
+            if (recordingTargetIsAi) sendVoiceNoteToAi() else sendVoiceMessage()
+        }
     }
 
     fun sendVoiceMessage() {
@@ -1628,10 +1691,44 @@ class ChatViewModel @Inject constructor(
                         if (_isTtsEnabled.value && (_isHandsFreeActive.value || isVoiceRequest)) {
                             val speechContent = TextSanitizer.sanitizeForTts(cleanContent)
                             val outputFile = java.io.File(context.cacheDir, "ai_voice_note_${System.currentTimeMillis()}.wav")
-                            val synthesized = voiceManager.synthesizeToFile(speechContent, outputFile)
+
+                            // A real cloned voice (ElevenLabs BYOK) replaces Android's
+                            // built-in TTS engine entirely for this reply — tried first,
+                            // falls through to the normal engine below if no clone is
+                            // configured or the synthesis call itself fails.
+                            val clonedAudioFile: java.io.File? = if (_hasVoiceClone.value) {
+                                val cloneResult = infoRepository.synthesizeClonedVoice(speechContent)
+                                val audioBase64 = (cloneResult as? Resource.Success)?.data?.audioBase64
+                                if (audioBase64 != null) {
+                                    try {
+                                        val bytes = android.util.Base64.decode(audioBase64, android.util.Base64.DEFAULT)
+                                        java.io.File(context.cacheDir, "ai_voice_note_cloned_${System.currentTimeMillis()}.mp3").apply { writeBytes(bytes) }
+                                    } catch (e: Exception) {
+                                        Timber.w(e, "Failed to decode cloned-voice audio, falling back to built-in TTS")
+                                        null
+                                    }
+                                } else null
+                            } else null
+
+                            val synthesized = clonedAudioFile != null || voiceManager.synthesizeToFile(speechContent, outputFile)
+                            val baseFile = clonedAudioFile ?: outputFile
                             if (synthesized) {
+                                // Same voice preset the human picked for their own voice
+                                // notes also applies to the AI's spoken replies — one
+                                // shared setting, not a separate "AI voice" toggle. Skipped
+                                // entirely for a cloned voice — it's already a specific
+                                // real voice, not something to pitch-shift on top of.
+                                val preset = _selectedVoicePreset.value
+                                val finalFile = if (clonedAudioFile != null || preset == com.example.mistreal_mini.util.VoicePreset.NONE) {
+                                    baseFile
+                                } else {
+                                    val processedUri = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                                        voiceFxRenderer.applyPreset(Uri.fromFile(baseFile), preset, _customVoicePitch.value)
+                                    }
+                                    processedUri?.path?.let { java.io.File(it) } ?: baseFile
+                                }
                                 val uri = androidx.core.content.FileProvider.getUriForFile(
-                                    context, "${context.packageName}.fileprovider", outputFile
+                                    context, "${context.packageName}.fileprovider", finalFile
                                 ).toString()
                                 if (_voiceNoteAutoplay.value) {
                                     _pendingVoiceNoteAutoplayUri.value = uri
@@ -1772,6 +1869,49 @@ class ChatViewModel @Inject constructor(
     // frame-grab + ML Kit logic this used to inline directly).
     suspend fun detectFacesInVideo(videoUri: Uri) = faceVideoEditor.detectFacesInVideo(videoUri)
     suspend fun markFaceTarget(frame: android.graphics.Bitmap, box: android.graphics.RectF) = faceVideoEditor.markFaceTarget(frame, box)
+
+    private val _isQuickSwapping = mutableStateOf(false)
+    val isQuickSwapping: State<Boolean> = _isQuickSwapping
+
+    /**
+     * Instant local face swap for the chat attachment editor — same
+     * triangulated-warp mechanism the AR camera already does live (see
+     * [com.example.mistreal_mini.util.ar.FaceSwapImageUtil]), reached from a
+     * second place now instead of this editor's only face-swap option being
+     * a Gemini AI-edit round trip. Mirrors editImageWithAi's shape exactly
+     * (always saves a new assistant message rather than trying to replace
+     * anything in place) — that function never replaces a pending
+     * attachment or the original sent message either, in both of its own
+     * call sites, so there's no separate "already sent vs. pending" branch
+     * to handle here.
+     */
+    fun quickFaceSwap(imageUri: Uri, referenceFaceUri: Uri, onResult: (Boolean) -> Unit) {
+        _isQuickSwapping.value = true
+        viewModelScope.launch {
+            val swappedUri = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                com.example.mistreal_mini.util.ar.FaceSwapImageUtil.swapFaceInImage(context, imageUri, referenceFaceUri, faceTracker)
+            }
+            _isQuickSwapping.value = false
+            if (swappedUri != null) {
+                repository.saveMessage(
+                    ChatMessage(
+                        role = "assistant",
+                        content = "",
+                        type = "image",
+                        attachmentPaths = listOf(swappedUri.toString()),
+                        provider = "local:face-swap",
+                        isTrend = _currentTrendTitle.value != null,
+                        trendTitle = _currentTrendTitle.value
+                    )
+                )
+                _activeWorkItem.value = swappedUri.toString() to false
+                onResult(true)
+            } else {
+                _errorEvents.emit("Couldn't detect a clear face in one of those images.")
+                onResult(false)
+            }
+        }
+    }
 
     /** TTS-synthesizes [narration] and muxes it onto [videoUri] as its new audio track. */
     fun addVoiceOverToVideo(videoUri: Uri, narration: String, onResult: (Uri?) -> Unit) {

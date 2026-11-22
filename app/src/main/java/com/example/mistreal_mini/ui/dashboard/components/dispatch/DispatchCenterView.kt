@@ -7,6 +7,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -42,6 +43,25 @@ fun DispatchCenterView(
     deviceId: String,
     connectedSocials: List<String>,
     onPostToSocial: suspend (String, String, String, String, Boolean, String?, String?, Boolean) -> Boolean,
+    // One Zernio call, one Mistreal post record spanning every selected
+    // platform — replaces the old per-platform forEach loop below, which
+    // created N disconnected posts with no shared comment thread. Returns
+    // (success, unlinkedPlatforms) — the latter lists any selected platform
+    // Zernio reports as not actually connected, so the broadcast result can
+    // say so instead of silently posting to fewer than requested.
+    onPostMultiPlatform: suspend (String, String, List<String>, String?, String?) -> Pair<Boolean, List<String>>,
+    // "Your Broadcasts" below the composer, and its comment thread — see
+    // FeedViewModel.ownPosts/aggregatedComments. A separate surface from the
+    // Zernio-synced feed (that still shows a multi-platform post exploded
+    // into one item per platform on the read side — a separate, bigger fix),
+    // but it's the one place a user can see their own broadcast as the
+    // single post it actually is, with its real merged comments.
+    ownPosts: List<com.example.mistreal_mini.data.api.PostDto> = emptyList(),
+    onLoadOwnPosts: () -> Unit = {},
+    aggregatedComments: List<com.example.mistreal_mini.data.api.AggregatedCommentDto> = emptyList(),
+    isLoadingComments: Boolean = false,
+    onLoadComments: (String) -> Unit = {},
+    onAddComment: suspend (String, String) -> Boolean = { _, _ -> false },
     onAdvertiseClick: () -> Unit = {},
     snackbarHostState: SnackbarHostState
 ) {
@@ -75,6 +95,10 @@ fun DispatchCenterView(
     val isTwitterSelected = selectedPlatforms.contains("twitter") || selectedPlatforms.contains("x")
     val charLimit = if (isTwitterSelected) 280 else 2000
     val isCharLimitExceeded = content.length > charLimit
+
+    var commentsSheetPostId by remember { mutableStateOf<String?>(null) }
+
+    LaunchedEffect(Unit) { onLoadOwnPosts() }
 
     Column(
         modifier = Modifier
@@ -285,7 +309,71 @@ fun DispatchCenterView(
             }
         }
 
-        Spacer(modifier = Modifier.weight(1f))
+        Spacer(modifier = Modifier.height(10.dp))
+
+        Text(
+            text = "YOUR BROADCASTS",
+            style = MaterialTheme.typography.labelSmall,
+            fontWeight = FontWeight.Black,
+            color = Color.Gray,
+            fontSize = 10.sp
+        )
+        Spacer(modifier = Modifier.height(4.dp))
+
+        androidx.compose.foundation.lazy.LazyColumn(
+            modifier = Modifier.weight(1f).fillMaxWidth(),
+            verticalArrangement = Arrangement.spacedBy(6.dp)
+        ) {
+            if (ownPosts.isEmpty()) {
+                item {
+                    Text(
+                        "Nothing sent yet — your broadcasts will show up here as one post each, even when they go to multiple platforms.",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = Color.Gray,
+                        fontSize = 10.sp,
+                        modifier = Modifier.padding(vertical = 8.dp)
+                    )
+                }
+            } else {
+                items(ownPosts) { post ->
+                    val isFailed = post.status == "failed"
+                    Card(
+                        modifier = Modifier.fillMaxWidth().clickable(enabled = !isFailed) {
+                            commentsSheetPostId = post.id
+                            onLoadComments(post.id)
+                        },
+                        shape = RoundedCornerShape(10.dp),
+                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f))
+                    ) {
+                        Column(modifier = Modifier.padding(10.dp)) {
+                            Text(
+                                post.content ?: "",
+                                style = MaterialTheme.typography.bodySmall,
+                                maxLines = 2
+                            )
+                            Spacer(modifier = Modifier.height(6.dp))
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                post.platforms.forEach { platform ->
+                                    Icon(
+                                        imageVector = PlatformIcons.forPlatform(platform) ?: Icons.Default.Link,
+                                        contentDescription = platform,
+                                        modifier = Modifier.size(14.dp).padding(end = 4.dp)
+                                    )
+                                }
+                                Spacer(modifier = Modifier.weight(1f))
+                                if (isFailed) {
+                                    Text("FAILED", color = MaterialTheme.colorScheme.error, fontSize = 9.sp, fontWeight = FontWeight.Bold)
+                                } else {
+                                    Icon(Icons.AutoMirrored.Filled.Article, "View comments", modifier = Modifier.size(14.dp), tint = Color.Gray)
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        Spacer(modifier = Modifier.height(10.dp))
 
         // Transmit Action Button
         Button(
@@ -305,14 +393,16 @@ fun DispatchCenterView(
                     scope.launch {
                         isPosting = true
                         val mediaBase64 = attachedUri?.let { FileUtil.uriToBase64(context, it) }
-                        var successCount = 0
-                        selectedPlatforms.forEach { platform ->
-                            val result = onPostToSocial(deviceId, platform, postType, content, false, mediaBase64, attachedMimeType, true)
-                            if (result) successCount++
-                        }
+                        val (success, unlinked) = onPostMultiPlatform(deviceId, content, selectedPlatforms.toList(), mediaBase64, attachedMimeType)
                         isPosting = false
-                        snackbarHostState.showSnackbar("Broadcast transmitted to $successCount channels!")
-                        if (successCount == selectedPlatforms.size) { content = ""; attachedUri = null; attachedMimeType = null }
+                        val reached = selectedPlatforms.size - unlinked.size
+                        val message = when {
+                            success && unlinked.isEmpty() -> "Broadcast transmitted to $reached channels!"
+                            success -> "Broadcast transmitted to $reached channels — ${unlinked.joinToString()} isn't actually connected."
+                            else -> "Broadcast failed to transmit."
+                        }
+                        snackbarHostState.showSnackbar(message)
+                        if (success) { content = ""; attachedUri = null; attachedMimeType = null; onLoadOwnPosts() }
                     }
                 }
             },
@@ -328,6 +418,109 @@ fun DispatchCenterView(
                 Icon(Icons.Default.Send, null, modifier = Modifier.size(16.dp))
                 Spacer(modifier = Modifier.width(8.dp))
                 Text("TRANSMIT BROADCAST", fontWeight = FontWeight.Black, fontSize = 12.sp)
+            }
+        }
+    }
+
+    val openPostId = commentsSheetPostId
+    if (openPostId != null) {
+        AggregatedCommentsSheet(
+            comments = aggregatedComments,
+            isLoading = isLoadingComments,
+            onDismiss = { commentsSheetPostId = null },
+            onSend = { text -> onAddComment(openPostId, text) }
+        )
+    }
+}
+
+/**
+ * Merged-across-platforms comment thread for one broadcast — a new, small
+ * composable rather than reusing CommentsSidePanel, since that one's typed
+ * against SocialComment (author/text fields, single-platform) while this
+ * reads AggregatedCommentDto (senderName/content, tagged per-platform) —
+ * different enough to keep separate rather than force a shared shape.
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun AggregatedCommentsSheet(
+    comments: List<com.example.mistreal_mini.data.api.AggregatedCommentDto>,
+    isLoading: Boolean,
+    onDismiss: () -> Unit,
+    onSend: suspend (String) -> Boolean
+) {
+    var replyText by remember { mutableStateOf("") }
+    var isSending by remember { mutableStateOf(false) }
+    var sendError by remember { mutableStateOf(false) }
+    val scope = rememberCoroutineScope()
+
+    ModalBottomSheet(onDismissRequest = onDismiss) {
+        Column(modifier = Modifier.fillMaxWidth().padding(16.dp).heightIn(max = 480.dp)) {
+            Text("Comments (all platforms)", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleSmall)
+            Spacer(modifier = Modifier.height(8.dp))
+
+            if (isLoading) {
+                Box(modifier = Modifier.fillMaxWidth().padding(24.dp), contentAlignment = Alignment.Center) {
+                    CircularProgressIndicator(modifier = Modifier.size(24.dp))
+                }
+            } else if (comments.isEmpty()) {
+                Text("No comments yet on any connected platform.", color = Color.Gray, fontSize = 12.sp)
+            } else {
+                androidx.compose.foundation.lazy.LazyColumn(modifier = Modifier.weight(1f, fill = false)) {
+                    items(comments) { comment ->
+                        Column(modifier = Modifier.fillMaxWidth().padding(vertical = 6.dp)) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Icon(
+                                    imageVector = PlatformIcons.forPlatform(comment.platform) ?: Icons.Default.Link,
+                                    contentDescription = comment.platform,
+                                    modifier = Modifier.size(12.dp)
+                                )
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text(comment.senderName ?: "Someone", fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text("· ${comment.platform}", color = Color.Gray, fontSize = 10.sp)
+                            }
+                            Text(comment.content ?: "", fontSize = 13.sp, modifier = Modifier.padding(start = 18.dp))
+                        }
+                    }
+                }
+            }
+
+            if (sendError) {
+                Text(
+                    "Couldn't send that reply — try again.",
+                    color = MaterialTheme.colorScheme.error,
+                    fontSize = 10.sp,
+                    modifier = Modifier.padding(bottom = 4.dp)
+                )
+            }
+            Spacer(modifier = Modifier.height(8.dp))
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                OutlinedTextField(
+                    value = replyText,
+                    onValueChange = { replyText = it; sendError = false },
+                    modifier = Modifier.weight(1f),
+                    placeholder = { Text("Reply — sends to the connected platform(s) too", fontSize = 11.sp) },
+                    singleLine = true,
+                    enabled = !isSending
+                )
+                Spacer(modifier = Modifier.width(8.dp))
+                IconButton(
+                    onClick = {
+                        val text = replyText
+                        if (text.isNotBlank()) {
+                            scope.launch {
+                                isSending = true
+                                sendError = false
+                                if (onSend(text)) replyText = "" else sendError = true
+                                isSending = false
+                            }
+                        }
+                    },
+                    enabled = !isSending && replyText.isNotBlank()
+                ) {
+                    if (isSending) CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
+                    else Icon(Icons.Default.Send, "Send")
+                }
             }
         }
     }

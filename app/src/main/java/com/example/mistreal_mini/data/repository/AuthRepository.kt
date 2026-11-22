@@ -38,6 +38,11 @@ class AuthRepository @Inject constructor(
         result.user?.let { Resource.Success(it) } ?: Resource.Error("Sign up failed")
     }
 
+    suspend fun sendPasswordResetEmail(email: String): Resource<Unit> = safeApiCall("Couldn't send reset email") {
+        firebaseAuth.sendPasswordResetEmail(email).await()
+        Resource.Success(Unit)
+    }
+
     fun signOut() {
         firebaseAuth.signOut()
         cachedToken = null

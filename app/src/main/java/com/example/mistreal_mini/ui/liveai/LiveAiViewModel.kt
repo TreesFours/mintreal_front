@@ -9,14 +9,18 @@ import android.media.AudioTrack
 import android.media.MediaRecorder
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.example.mistreal_mini.data.local.PreferenceManager
 import com.example.mistreal_mini.data.repository.LiveAiRepository
 import com.example.mistreal_mini.util.DeviceIdProvider
+import com.example.mistreal_mini.util.VoiceFxProcessor
+import com.example.mistreal_mini.util.VoicePreset
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import timber.log.Timber
 import java.io.ByteArrayOutputStream
@@ -34,7 +38,8 @@ import javax.inject.Inject
 @HiltViewModel
 class LiveAiViewModel @Inject constructor(
     private val repository: LiveAiRepository,
-    private val deviceIdProvider: DeviceIdProvider
+    private val deviceIdProvider: DeviceIdProvider,
+    private val preferenceManager: PreferenceManager
 ) : ViewModel() {
 
     // idle | connecting | active | ended | error
@@ -48,6 +53,13 @@ class LiveAiViewModel @Inject constructor(
     private var audioTrack: AudioTrack? = null
     private var micJob: Job? = null
     private var collectorsStarted = false
+
+    // Loaded once per connect() from the same persisted preset ChatViewModel's
+    // voice notes use (PreferenceManager.voiceFxPreset) — one shared setting,
+    // not a separate live-chat toggle. Only changes what you HEAR here; the
+    // mic audio sent upstream to Gemini is untouched.
+    private var voicePreset = VoicePreset.NONE
+    private var voiceCustomPitch = 1.0f
 
     companion object {
         // Confirmed against Google's own Live API WebSocket reference —
@@ -63,6 +75,12 @@ class LiveAiViewModel @Inject constructor(
         ensureCollectors()
         repository.connect()
         viewModelScope.launch {
+            voicePreset = try {
+                VoicePreset.valueOf(preferenceManager.voiceFxPreset.first())
+            } catch (e: IllegalArgumentException) {
+                VoicePreset.NONE
+            }
+            voiceCustomPitch = preferenceManager.voiceFxCustomPitch.first()
             repository.startSession(deviceIdProvider.deviceId)
                 .onSuccess {
                     _sessionState.value = "active"
@@ -83,7 +101,24 @@ class LiveAiViewModel @Inject constructor(
             repository.audioChunkReceived.collect { chunk ->
                 try {
                     val bytes = Base64.getDecoder().decode(chunk.data)
-                    audioTrack?.write(bytes, 0, bytes.size)
+                    val outBytes = if (voicePreset == VoicePreset.NONE) {
+                        bytes
+                    } else {
+                        val samples = ShortArray(bytes.size / 2)
+                        for (i in samples.indices) {
+                            samples[i] = ((bytes[i * 2].toInt() and 0xFF) or (bytes[i * 2 + 1].toInt() shl 8)).toShort()
+                        }
+                        val processed = VoiceFxProcessor.processPcmBuffer(
+                            samples, samples.size, voicePreset, OUTPUT_SAMPLE_RATE, voiceCustomPitch
+                        )
+                        val out = ByteArray(processed.size * 2)
+                        for (i in processed.indices) {
+                            out[i * 2] = (processed[i].toInt() and 0xFF).toByte()
+                            out[i * 2 + 1] = ((processed[i].toInt() shr 8) and 0xFF).toByte()
+                        }
+                        out
+                    }
+                    audioTrack?.write(outBytes, 0, outBytes.size)
                 } catch (e: Exception) {
                     Timber.w(e, "LiveAi: failed to play audio chunk")
                 }

@@ -52,6 +52,8 @@ class PreferenceManager @Inject constructor(
     private val CALL_RINGTONE_ENABLED_KEY = booleanPreferencesKey("call_ringtone_enabled")
     private val STT_ENABLED_KEY = booleanPreferencesKey("stt_enabled")
     private val TTS_VOICE_NAME_KEY = androidx.datastore.preferences.core.stringPreferencesKey("tts_voice_name")
+    private val VOICE_FX_PRESET_KEY = androidx.datastore.preferences.core.stringPreferencesKey("voice_fx_preset")
+    private val VOICE_FX_CUSTOM_PITCH_KEY = androidx.datastore.preferences.core.floatPreferencesKey("voice_fx_custom_pitch")
     private val CUSTOM_PERSONAS_KEY = androidx.datastore.preferences.core.stringPreferencesKey("custom_personas")
     private val CUSTOM_AUDIENCES_KEY = androidx.datastore.preferences.core.stringPreferencesKey("custom_audiences")
     private val SUPPORTIVE_TRUTH_TELLER_KEY = booleanPreferencesKey("supportive_truth_teller_enabled")
@@ -204,6 +206,24 @@ class PreferenceManager @Inject constructor(
     val ttsVoiceName: Flow<String?> = context.dataStore.data
         .map { preferences ->
             preferences[TTS_VOICE_NAME_KEY]
+        }
+
+    /**
+     * Persists across app restarts and chat sessions — stays whatever the
+     * user last picked until they explicitly change it, applied both to
+     * the human's own outgoing voice notes and (see ChatViewModel) the
+     * AI's spoken-reply voice notes. Stores [com.example.mistreal_mini.util.VoicePreset]'s
+     * enum name; default "NONE" if never set.
+     */
+    val voiceFxPreset: Flow<String> = context.dataStore.data
+        .map { preferences ->
+            preferences[VOICE_FX_PRESET_KEY] ?: "NONE"
+        }
+
+    /** Pitch multiplier for [com.example.mistreal_mini.util.VoicePreset.CUSTOM], user-adjustable in Settings. 1.0 = unchanged. */
+    val voiceFxCustomPitch: Flow<Float> = context.dataStore.data
+        .map { preferences ->
+            preferences[VOICE_FX_CUSTOM_PITCH_KEY] ?: 1.0f
         }
 
     val customPersonas: Flow<String> = context.dataStore.data
@@ -434,6 +454,18 @@ class PreferenceManager @Inject constructor(
     suspend fun setCallRingtoneEnabled(enabled: Boolean) {
         context.dataStore.edit { preferences ->
             preferences[CALL_RINGTONE_ENABLED_KEY] = enabled
+        }
+    }
+
+    suspend fun setVoiceFxPreset(presetName: String) {
+        context.dataStore.edit { preferences ->
+            preferences[VOICE_FX_PRESET_KEY] = presetName
+        }
+    }
+
+    suspend fun setVoiceFxCustomPitch(pitch: Float) {
+        context.dataStore.edit { preferences ->
+            preferences[VOICE_FX_CUSTOM_PITCH_KEY] = pitch
         }
     }
 

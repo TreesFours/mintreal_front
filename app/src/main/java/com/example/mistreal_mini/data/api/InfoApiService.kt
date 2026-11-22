@@ -65,6 +65,22 @@ interface InfoApiService {
     @POST("api/social/action")
     suspend fun performSocialAction(@Body request: SocialActionRequest): SocialActionResponse
 
+    // One post, multiple platforms at once, one Mistreal-side record — replaces
+    // looping performSocialAction once per platform (DispatchCenterView's old
+    // behavior), which created N disconnected posts with no shared comment
+    // thread. See MultiPlatformPostRequest's doc.
+    @POST("api/social/posts/multi")
+    suspend fun createMultiPlatformPost(@Body request: MultiPlatformPostRequest): MultiPlatformPostResponse
+
+    @GET("api/social/posts")
+    suspend fun getOwnPosts(@Query("deviceId") deviceId: String): OwnPostsResponse
+
+    @GET("api/social/posts/{postId}/comments")
+    suspend fun getAggregatedComments(@Path("postId") postId: String, @Query("deviceId") deviceId: String): AggregatedCommentsResponse
+
+    @POST("api/social/posts/{postId}/comments")
+    suspend fun addPostComment(@Path("postId") postId: String, @Body request: AddPostCommentRequest): SocialActionResponse
+
     @POST("api/social/init-connection")
     suspend fun initiateConnection(@Body request: Map<String, String>): Map<String, Any>
 
@@ -1013,6 +1029,67 @@ data class SocialPlatformResponse(
     // code (same reasoning as SocialPost.comments below) — callers must use
     // `capabilities ?: PlatformCapabilities()`.
     val capabilities: com.example.mistreal_mini.data.model.PlatformCapabilities? = null
+)
+
+// One post, multiple platforms at once — Zernio's own /posts endpoint already
+// accepts multiple {platform, accountId} entries in a single call and
+// returns ONE unified post id usable for comments/fetching regardless of
+// platform count, confirmed against zernio.com's real OpenAPI spec. This is
+// what lets DispatchCenterView stop looping performSocialAction once per
+// platform (N disconnected posts, no shared comment thread) and instead keep
+// one Mistreal-side Post row spanning all of them.
+data class MultiPlatformPostRequest(
+    val deviceId: String,
+    val content: String,
+    val platforms: List<String>,
+    val mediaBase64: String? = null,
+    val mediaMimeType: String? = null
+)
+
+data class PostDto(
+    val id: String,
+    val content: String? = null,
+    val mediaUrl: String? = null,
+    val platforms: List<String> = emptyList(),
+    val zernioPostId: String? = null,
+    val status: String = "success",
+    val error: String? = null
+)
+
+data class MultiPlatformPostResponse(
+    val success: Boolean,
+    val post: PostDto? = null,
+    val unlinkedPlatforms: List<String>? = null,
+    val error: String? = null
+)
+
+data class OwnPostsResponse(
+    val success: Boolean,
+    val posts: List<PostDto> = emptyList(),
+    val error: String? = null
+)
+
+// Field names deliberately mirror the backend's SocialEvent shape
+// (senderName/content), not SocialComment's (author/text) — the two
+// comment UIs aren't the same feature yet (SocialComment is single-platform,
+// this is the merged-across-platforms one), so no silent field-name clash.
+data class AggregatedCommentDto(
+    val id: Int,
+    val platform: String,
+    val senderName: String? = null,
+    val content: String? = null,
+    val timestamp: String? = null
+)
+
+data class AggregatedCommentsResponse(
+    val success: Boolean,
+    val comments: List<AggregatedCommentDto> = emptyList(),
+    val error: String? = null
+)
+
+data class AddPostCommentRequest(
+    val deviceId: String,
+    val content: String
 )
 
 data class SocialHistoryResponse(

@@ -9,6 +9,8 @@ import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Key
+import androidx.compose.material.icons.filled.Mic
+import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -272,6 +274,184 @@ fun ByokVideoSettingsSection(viewModel: SettingsViewModel) {
         ) {
             if (isSaving) CircularProgressIndicator(modifier = Modifier.size(18.dp), color = Color.White)
             else Text("SAVE VIDEO PROVIDER")
+        }
+    }
+}
+
+private val VOICE_PROVIDER_OPTIONS = listOf(
+    "elevenlabs" to "ElevenLabs",
+    "custom" to "Custom (your own endpoint)"
+)
+
+/**
+ * Separate BYOK slot for voice CLONING — once a provider key is saved,
+ * record one sample and the AI's spoken replies/voice notes can use that
+ * cloned voice instead of the built-in TTS voice or a pitch-shift preset
+ * (see ChatViewModel's TTS branch). ElevenLabs' endpoint shapes here are
+ * from general knowledge of their stable public API, not verified against
+ * their live docs this session the way Zernio's were — worth a real test
+ * call once a real key is available.
+ */
+@Composable
+fun ByokVoiceSettingsSection(viewModel: SettingsViewModel) {
+    val status by viewModel.byokVoiceStatus.collectAsState()
+    val isSaving by viewModel.isSavingByokVoice.collectAsState()
+    val isRecording by viewModel.isRecordingVoiceSample.collectAsState()
+    val hasRecordedSample by viewModel.hasRecordedVoiceSample.collectAsState()
+    val isCreatingClone by viewModel.isCreatingVoiceClone.collectAsState()
+
+    var providerType by remember { mutableStateOf(VOICE_PROVIDER_OPTIONS[0].first) }
+    var apiKey by remember { mutableStateOf("") }
+    var baseUrl by remember { mutableStateOf("") }
+    var modelName by remember { mutableStateOf("") }
+    var providerMenuExpanded by remember { mutableStateOf(false) }
+    var cloneName by remember { mutableStateOf("My Voice") }
+
+    // Base URL only matters for "custom" — ElevenLabs' own endpoint is a
+    // sensible server-side default, unlike the video slot which has no
+    // single standard provider to default to.
+    val canSaveKey = !isSaving && apiKey.length >= 10 && (providerType != "custom" || baseUrl.isNotBlank())
+    val onSaveKey: () -> Unit = {
+        viewModel.saveByokVoiceKey(providerType, apiKey, baseUrl.ifBlank { null }, modelName.ifBlank { null })
+        apiKey = ""
+    }
+
+    SettingsSection(title = "VOICE CLONING (BRING YOUR OWN KEY)", icon = Icons.Default.Key) {
+        Text(
+            "Record a sample once a key is saved, and AI replies/voice notes can speak in that cloned voice instead of the built-in voice presets.",
+            style = MaterialTheme.typography.labelSmall,
+            color = Color.Gray
+        )
+        Spacer(modifier = Modifier.height(8.dp))
+
+        if (status?.configured == true) {
+            Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                Icon(Icons.Default.CheckCircle, null, tint = Color.Green, modifier = Modifier.size(18.dp))
+                Spacer(modifier = Modifier.width(8.dp))
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        "Configured: ${VOICE_PROVIDER_OPTIONS.find { it.first == status?.providerType }?.second ?: status?.providerType}",
+                        fontWeight = FontWeight.SemiBold
+                    )
+                    Text(
+                        if (status?.hasVoiceClone == true) "Voice clone ready." else "No voice clone yet — record a sample below.",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = if (status?.hasVoiceClone == true) Color.Green else Color.Gray
+                    )
+                }
+                TextButton(onClick = { viewModel.clearByokVoiceKey() }, enabled = !isSaving) {
+                    Text("REMOVE", color = Color.Red)
+                }
+            }
+
+            Spacer(modifier = Modifier.height(12.dp))
+
+            // Recording flow only makes sense once a key is actually saved —
+            // there's nowhere to upload the sample to otherwise.
+            if (!hasRecordedSample) {
+                Button(
+                    onClick = { if (isRecording) viewModel.stopVoiceSampleRecording() else viewModel.startVoiceSampleRecording() },
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = ButtonDefaults.buttonColors(containerColor = if (isRecording) Color.Red else MaterialTheme.colorScheme.primary)
+                ) {
+                    Icon(if (isRecording) Icons.Default.Stop else Icons.Default.Mic, null, modifier = Modifier.size(16.dp))
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(if (isRecording) "Stop Recording" else "Record a Sample (30s+ recommended)")
+                }
+            } else {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(Icons.Default.CheckCircle, null, tint = Color.Green, modifier = Modifier.size(16.dp))
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text("Sample recorded", style = MaterialTheme.typography.labelSmall)
+                    Spacer(modifier = Modifier.weight(1f))
+                    TextButton(onClick = { viewModel.discardVoiceSample() }, enabled = !isCreatingClone) { Text("Discard") }
+                }
+                Spacer(modifier = Modifier.height(8.dp))
+                OutlinedTextField(
+                    value = cloneName,
+                    onValueChange = { cloneName = it },
+                    label = { Text("Voice name") },
+                    modifier = Modifier.fillMaxWidth(),
+                    singleLine = true,
+                    enabled = !isCreatingClone
+                )
+                Spacer(modifier = Modifier.height(8.dp))
+                Button(
+                    onClick = { viewModel.createVoiceClone(cloneName.ifBlank { "My Voice" }) },
+                    modifier = Modifier.fillMaxWidth(),
+                    enabled = !isCreatingClone,
+                    shape = RoundedCornerShape(8.dp)
+                ) {
+                    if (isCreatingClone) CircularProgressIndicator(modifier = Modifier.size(18.dp), color = Color.White)
+                    else Text(if (status?.hasVoiceClone == true) "REPLACE VOICE CLONE" else "CREATE VOICE CLONE")
+                }
+            }
+        } else {
+            Text("Not configured — save a provider key below first.", style = MaterialTheme.typography.labelSmall, color = Color.Gray)
+
+            Spacer(modifier = Modifier.height(12.dp))
+
+            Box {
+                OutlinedButton(onClick = { providerMenuExpanded = true }, modifier = Modifier.fillMaxWidth()) {
+                    Text(VOICE_PROVIDER_OPTIONS.find { it.first == providerType }?.second ?: providerType)
+                }
+                DropdownMenu(expanded = providerMenuExpanded, onDismissRequest = { providerMenuExpanded = false }) {
+                    VOICE_PROVIDER_OPTIONS.forEach { (id, label) ->
+                        DropdownMenuItem(text = { Text(label) }, onClick = {
+                            providerType = id
+                            providerMenuExpanded = false
+                        })
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(8.dp))
+
+            OutlinedTextField(
+                value = apiKey,
+                onValueChange = { apiKey = it },
+                label = { Text("API Key") },
+                visualTransformation = PasswordVisualTransformation(),
+                modifier = Modifier.fillMaxWidth(),
+                singleLine = true,
+                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Next)
+            )
+
+            Spacer(modifier = Modifier.height(8.dp))
+
+            if (providerType == "custom") {
+                OutlinedTextField(
+                    value = baseUrl,
+                    onValueChange = { baseUrl = it },
+                    label = { Text("Endpoint URL") },
+                    modifier = Modifier.fillMaxWidth(),
+                    singleLine = true,
+                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Next)
+                )
+                Spacer(modifier = Modifier.height(8.dp))
+            }
+
+            OutlinedTextField(
+                value = modelName,
+                onValueChange = { modelName = it },
+                label = { Text("Model name (optional)") },
+                modifier = Modifier.fillMaxWidth(),
+                singleLine = true,
+                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
+                keyboardActions = KeyboardActions(onDone = { if (canSaveKey) onSaveKey() })
+            )
+
+            Spacer(modifier = Modifier.height(12.dp))
+
+            Button(
+                onClick = onSaveKey,
+                enabled = canSaveKey,
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(8.dp)
+            ) {
+                if (isSaving) CircularProgressIndicator(modifier = Modifier.size(18.dp), color = Color.White)
+                else Text("SAVE VOICE PROVIDER")
+            }
         }
     }
 }

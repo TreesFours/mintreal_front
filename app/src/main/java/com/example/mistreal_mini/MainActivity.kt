@@ -408,7 +408,16 @@ class MainActivity : FragmentActivity() {
                                     // that reason.
                                     chatViewModel.setProvider(com.example.mistreal_mini.ui.chat.ChatViewModel.ARCH_IMAGE_PROVIDER_ID)
                                     navController.navigate(Routes.chat())
-                                }
+                                },
+                                // These 4 of the bottom bar's 5 buttons were previously left at
+                                // their no-op defaults — tapping Games/Market/Watch Hub/Chats did
+                                // nothing at all, which is what read as the bar "not working
+                                // right." Only the 5th (Reels) worked, since that one's handled
+                                // as an internal Dashboard tab switch rather than real navigation.
+                                onOpenGames = { navController.navigate(Routes.GAMES) },
+                                onOpenMarket = { navController.navigate(Routes.MARKET) },
+                                onOpenWatchHub = { navController.navigate(Routes.watchHost()) },
+                                onOpenChat = { navController.navigate(Routes.chat()) }
                             )
                         }
                         composable(Routes.SETTINGS) {

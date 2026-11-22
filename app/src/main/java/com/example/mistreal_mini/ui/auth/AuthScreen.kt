@@ -47,7 +47,9 @@ fun AuthScreen(
     var email by rememberSaveable { mutableStateOf("") }
     var password by rememberSaveable { mutableStateOf("") }
     var passwordVisible by rememberSaveable { mutableStateOf(false) }
-    
+    var showForgotPasswordDialog by rememberSaveable { mutableStateOf(false) }
+    var resetEmail by rememberSaveable { mutableStateOf("") }
+
     val isLoading by viewModel.isLoading
     val snackbarHostState = remember { SnackbarHostState() }
     val focusManager = LocalFocusManager.current
@@ -144,7 +146,20 @@ fun AuthScreen(
                     singleLine = true
                 )
 
-                Spacer(modifier = Modifier.height(32.dp))
+                if (isLogin) {
+                    Spacer(modifier = Modifier.height(8.dp))
+                    TextButton(
+                        onClick = {
+                            resetEmail = email
+                            showForgotPasswordDialog = true
+                        },
+                        modifier = Modifier.align(Alignment.End)
+                    ) {
+                        Text("Forgot password?")
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(24.dp))
 
                 Button(
                     onClick = {
@@ -170,6 +185,48 @@ fun AuthScreen(
                 }
             }
         }
+    }
+
+    if (showForgotPasswordDialog) {
+        AlertDialog(
+            onDismissRequest = { showForgotPasswordDialog = false },
+            title = { Text("Reset Password") },
+            text = {
+                Column {
+                    Text(
+                        "Enter your email and we'll send you a link to reset your password.",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.outline
+                    )
+                    Spacer(modifier = Modifier.height(16.dp))
+                    OutlinedTextField(
+                        value = resetEmail,
+                        onValueChange = { resetEmail = it },
+                        label = { Text("Email Address") },
+                        leadingIcon = { Icon(Icons.Default.Email, null) },
+                        modifier = Modifier.fillMaxWidth(),
+                        keyboardOptions = KeyboardOptions(
+                            keyboardType = KeyboardType.Email,
+                            imeAction = ImeAction.Done
+                        ),
+                        singleLine = true
+                    )
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    viewModel.resetPassword(resetEmail)
+                    showForgotPasswordDialog = false
+                }) {
+                    Text("Send")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showForgotPasswordDialog = false }) {
+                    Text("Cancel")
+                }
+            }
+        )
     }
 }
 

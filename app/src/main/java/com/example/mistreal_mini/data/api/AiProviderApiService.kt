@@ -1,9 +1,13 @@
 package com.example.mistreal_mini.data.api
 
+import okhttp3.MultipartBody
+import okhttp3.RequestBody
 import retrofit2.http.Body
 import retrofit2.http.DELETE
 import retrofit2.http.GET
+import retrofit2.http.Multipart
 import retrofit2.http.POST
+import retrofit2.http.Part
 import retrofit2.http.Path
 import retrofit2.http.Query
 
@@ -26,6 +30,27 @@ interface AiProviderApiService {
 
     @GET("api/ai-provider/video-status")
     suspend fun getByokVideoStatus(@Query("deviceId") deviceId: String): ByokStatusResponse
+
+    // Separate BYOK slot for voice cloning — see userModel.ts byokVoice* fields.
+    @POST("api/ai-provider/voice-key")
+    suspend fun saveByokVoiceKey(@Body request: SaveByokKeyRequest): ByokStatusResponse
+
+    @POST("api/ai-provider/voice-clear")
+    suspend fun clearByokVoiceKey(@Body request: ClearByokKeyRequest): ByokStatusResponse
+
+    @GET("api/ai-provider/voice-status")
+    suspend fun getByokVoiceStatus(@Query("deviceId") deviceId: String): ByokStatusResponse
+
+    @Multipart
+    @POST("api/ai-provider/voice-clone")
+    suspend fun createVoiceClone(
+        @Part audio: MultipartBody.Part,
+        @Part("deviceId") deviceId: RequestBody,
+        @Part("name") name: RequestBody
+    ): VoiceCloneResponse
+
+    @POST("api/ai-provider/voice-clone/synthesize")
+    suspend fun synthesizeClonedVoice(@Body request: VoiceSynthesizeRequest): VoiceSynthesizeResponse
 
     // Saved image/video GENERATION provider configs — a user can add several
     // and switch which is active, unlike the single-slot BYOK calls above.
@@ -112,5 +137,28 @@ data class ByokStatusResponse(
     val providerType: String? = null,
     val modelName: String? = null,
     val baseUrl: String? = null,
+    // Only ever populated for the voice slot — absent/false for text/video,
+    // same "Gson leaves missing fields at their default" reasoning as
+    // SocialPlatformResponse.capabilities elsewhere in this file.
+    val hasVoiceClone: Boolean = false,
+    val error: String? = null
+)
+
+data class VoiceCloneResponse(
+    val success: Boolean,
+    val voiceId: String? = null,
+    val error: String? = null
+)
+
+data class VoiceSynthesizeRequest(
+    val deviceId: String,
+    val firebaseUid: String? = null,
+    val text: String
+)
+
+data class VoiceSynthesizeResponse(
+    val success: Boolean,
+    val audioBase64: String? = null,
+    val mimeType: String? = null,
     val error: String? = null
 )

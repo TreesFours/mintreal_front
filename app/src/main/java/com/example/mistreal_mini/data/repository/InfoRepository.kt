@@ -9,6 +9,7 @@ import com.example.mistreal_mini.data.api.AiProviderApiService
 import com.example.mistreal_mini.data.api.ByokStatusResponse
 import com.example.mistreal_mini.data.api.ClearByokKeyRequest
 import com.example.mistreal_mini.data.api.SaveByokKeyRequest
+import com.example.mistreal_mini.data.api.VoiceSynthesizeRequest
 import com.example.mistreal_mini.data.api.InfoApiService
 import com.example.mistreal_mini.data.api.WeatherResponse
 import com.example.mistreal_mini.data.api.NewsResponse
@@ -256,6 +257,49 @@ class InfoRepository @Inject constructor(
         else Resource.Error(response.error ?: "Failed to fetch video status")
     }
 
+    // Separate BYOK slot for voice cloning (ElevenLabs) — same reasoning as
+    // the video slot above, different backend fields (byokVoice*).
+
+    suspend fun saveByokVoiceKey(providerType: String, apiKey: String, baseUrl: String?, modelName: String?): Resource<ByokStatusResponse> =
+        safeApiCall("Save voice key error") {
+            val response = aiProviderApi.saveByokVoiceKey(
+                SaveByokKeyRequest(deviceId, authRepository.currentUser?.uid, providerType, apiKey, baseUrl, modelName)
+            )
+            if (response.success) Resource.Success(response)
+            else Resource.Error(response.error ?: "Failed to save voice key")
+        }
+
+    suspend fun clearByokVoiceKey(): Resource<Boolean> = safeApiCall("Clear voice key error") {
+        val response = aiProviderApi.clearByokVoiceKey(ClearByokKeyRequest(deviceId, authRepository.currentUser?.uid))
+        if (response.success) Resource.Success(true)
+        else Resource.Error(response.error ?: "Failed to clear voice key")
+    }
+
+    suspend fun getByokVoiceStatus(): Resource<ByokStatusResponse> = safeApiCall("Fetch voice status error") {
+        val response = aiProviderApi.getByokVoiceStatus(deviceId)
+        if (response.success) Resource.Success(response)
+        else Resource.Error(response.error ?: "Failed to fetch voice status")
+    }
+
+    /** [sampleUri] is a recorded sample (≥30s recommended for a good clone, not enforced here) — needs a voice key already saved via [saveByokVoiceKey]. */
+    suspend fun createVoiceClone(sampleUri: Uri, name: String): Resource<String> = safeApiCall("Voice clone creation error") {
+        val audioPart = FileUtil.uriToMultipart(context, sampleUri, "audio")
+            ?: return@safeApiCall Resource.Error("Couldn't read the recorded sample.")
+        val response = aiProviderApi.createVoiceClone(audioPart, deviceId.toTextBody(), name.toTextBody())
+        if (response.success && response.voiceId != null) Resource.Success(response.voiceId)
+        else Resource.Error(response.error ?: "Voice clone creation failed")
+    }
+
+    /** Returns a playable audio file in the cloned voice, or an error if no clone is configured yet. */
+    suspend fun synthesizeClonedVoice(text: String): Resource<com.example.mistreal_mini.data.api.VoiceSynthesizeResponse> =
+        safeApiCall("Voice synthesis error") {
+            val response = aiProviderApi.synthesizeClonedVoice(
+                VoiceSynthesizeRequest(deviceId, authRepository.currentUser?.uid, text)
+            )
+            if (response.success && response.audioBase64 != null) Resource.Success(response)
+            else Resource.Error(response.error ?: "Voice synthesis failed")
+        }
+
     // --- Saved image/video GENERATION provider configs (multi, switchable) ---
 
     suspend fun addMediaProviderConfig(
@@ -319,6 +363,48 @@ class InfoRepository @Inject constructor(
         )
         if (response.success) Resource.Success(true)
         else Resource.Error(response.error ?: "Action failed")
+    }
+
+    suspend fun createMultiPlatformPost(
+        deviceId: String,
+        content: String,
+        platforms: List<String>,
+        mediaBase64: String? = null,
+        mediaMimeType: String? = null
+    ): Resource<com.example.mistreal_mini.data.api.MultiPlatformPostResponse> = safeApiCall("Multi-platform post error") {
+        val response = api.createMultiPlatformPost(
+            com.example.mistreal_mini.data.api.MultiPlatformPostRequest(
+                deviceId = deviceId,
+                content = content,
+                platforms = platforms,
+                mediaBase64 = mediaBase64,
+                mediaMimeType = mediaMimeType
+            )
+        )
+        if (response.success) Resource.Success(response)
+        else Resource.Error(response.error ?: "Post failed")
+    }
+
+    suspend fun getOwnPosts(deviceId: String): Resource<List<com.example.mistreal_mini.data.api.PostDto>> = safeApiCall("Fetch posts error") {
+        val response = api.getOwnPosts(deviceId)
+        if (response.success) Resource.Success(response.posts)
+        else Resource.Error(response.error ?: "Failed to load posts")
+    }
+
+    suspend fun getAggregatedComments(postId: String, deviceId: String): Resource<List<com.example.mistreal_mini.data.api.AggregatedCommentDto>> =
+        safeApiCall("Fetch comments error") {
+            val response = api.getAggregatedComments(postId, deviceId)
+            if (response.success) Resource.Success(response.comments)
+            else Resource.Error(response.error ?: "Failed to load comments")
+        }
+
+    suspend fun addPostComment(postId: String, deviceId: String, content: String): Resource<Boolean> = safeApiCall("Add comment error") {
+        val response = api.addPostComment(
+            postId,
+            com.example.mistreal_mini.data.api.AddPostCommentRequest(deviceId = deviceId, content = content)
+        )
+        if (response.success) Resource.Success(true)
+        else Resource.Error(response.error ?: "Comment failed")
     }
 
     private fun String.toTextBody() = this.toRequestBody("text/plain".toMediaTypeOrNull())

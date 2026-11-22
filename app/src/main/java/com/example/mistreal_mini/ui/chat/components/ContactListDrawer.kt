@@ -18,6 +18,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
@@ -33,6 +34,7 @@ fun ContactListDrawerContent(
     onClose: () -> Unit
 ) {
     val focusManager = LocalFocusManager.current
+    val context = LocalContext.current
     var selectedCategory by remember { mutableStateOf("ai") }
     var modelTab by remember { mutableStateOf(0) } // 0 = Free, 1 = Premium
     var expandedModelCategory by remember { mutableStateOf("COMMAND CENTER") }
@@ -118,12 +120,21 @@ fun ContactListDrawerContent(
                     }
 
                     Column(modifier = Modifier.fillMaxSize().padding(16.dp)) {
-                        Text(
-                            text = selectedCategory.uppercase(),
-                            style = MaterialTheme.typography.titleMedium,
-                            fontWeight = FontWeight.Bold,
-                            color = MaterialTheme.colorScheme.primary
-                        )
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = selectedCategory.uppercase(),
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.primary
+                            )
+                            IconButton(onClick = onClose) {
+                                Icon(Icons.Default.Close, "Close", tint = Color.Gray)
+                            }
+                        }
                         
                         if (selectedCategory != "ai" && selectedCategory != "unread" && selectedCategory != "emergency" && selectedCategory != "email") {
                             OutlinedTextField(
@@ -283,6 +294,47 @@ fun ContactListDrawerContent(
                                                 style = MaterialTheme.typography.bodySmall,
                                                 color = Color.Gray.copy(alpha = 0.8f)
                                             )
+
+                                            // No Zernio conversation to send through yet for someone
+                                            // never messaged before (and no open username search
+                                            // either) — hand off to the platform's own app instead of
+                                            // failing silently against an API that can't do this.
+                                            if (searchPlatformQuery.isNotBlank()) {
+                                                val deepLink = remember(selectedCategory, searchPlatformQuery) {
+                                                    com.example.mistreal_mini.util.SocialDeepLinks.buildDeepLink(selectedCategory, searchPlatformQuery)
+                                                }
+                                                if (deepLink != null) {
+                                                    Spacer(modifier = Modifier.height(12.dp))
+                                                    Button(
+                                                        onClick = {
+                                                            try {
+                                                                context.startActivity(
+                                                                    android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse(deepLink.url))
+                                                                )
+                                                            } catch (e: Exception) {
+                                                                timber.log.Timber.w(e, "Couldn't open deep link for %s", selectedCategory)
+                                                            }
+                                                        },
+                                                        modifier = Modifier.fillMaxWidth()
+                                                    ) {
+                                                        Icon(Icons.Default.OpenInNew, null, modifier = Modifier.size(16.dp))
+                                                        Spacer(modifier = Modifier.width(8.dp))
+                                                        Text(
+                                                            if (deepLink.opensChatDirectly) "Message \"$searchPlatformQuery\" on ${selectedCategory.replaceFirstChar { it.uppercase() }}"
+                                                            else "Open \"$searchPlatformQuery\"'s profile on ${selectedCategory.replaceFirstChar { it.uppercase() }}",
+                                                            fontSize = 12.sp
+                                                        )
+                                                    }
+                                                    if (!deepLink.opensChatDirectly) {
+                                                        Spacer(modifier = Modifier.height(4.dp))
+                                                        Text(
+                                                            "Opens their profile — tap Message once you're there.",
+                                                            style = MaterialTheme.typography.labelSmall,
+                                                            color = Color.Gray.copy(alpha = 0.7f)
+                                                        )
+                                                    }
+                                                }
+                                            }
                                         }
                                     }
                                 } else {

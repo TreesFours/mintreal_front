@@ -28,8 +28,30 @@ suspend fun <T> safeApiCall(
 ): Resource<T> {
     return try {
         block()
+    } catch (e: retrofit2.HttpException) {
+        // Was: e.message, which for HttpException is just the generic HTTP
+        // status line ("HTTP 500 Internal Server Error") — every backend
+        // route in this app actually returns a real {"error": "..."} JSON
+        // body on failure (socialRoutes.ts etc.), but that body lives on
+        // the exception's errorBody(), not .message, so it was getting
+        // silently discarded in favor of a useless status line at every one
+        // of this function's ~110 call sites.
+        val backendMessage = extractBackendErrorMessage(e)
+        timber.log.Timber.e(e, logTag ?: fallbackMessage)
+        Resource.Error(backendMessage ?: e.message() ?: fallbackMessage)
     } catch (e: Exception) {
         timber.log.Timber.e(e, logTag ?: fallbackMessage)
         Resource.Error(e.message ?: fallbackMessage)
+    }
+}
+
+private fun extractBackendErrorMessage(e: retrofit2.HttpException): String? {
+    return try {
+        val body = e.response()?.errorBody()?.string() ?: return null
+        val json = org.json.JSONObject(body)
+        json.optString("error").takeIf { it.isNotBlank() }
+            ?: json.optString("message").takeIf { it.isNotBlank() }
+    } catch (parseError: Exception) {
+        null
     }
 }

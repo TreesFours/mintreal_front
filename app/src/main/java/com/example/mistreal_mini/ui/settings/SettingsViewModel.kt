@@ -34,7 +34,8 @@ class SettingsViewModel @Inject constructor(
     private val updateUserSettingsUseCase: UpdateUserSettingsUseCase,
     private val locationHelper: com.example.mistreal_mini.util.LocationHelper,
     @dagger.hilt.android.qualifiers.ApplicationContext private val context: android.content.Context,
-    private val deviceIdProvider: com.example.mistreal_mini.util.DeviceIdProvider
+    private val deviceIdProvider: com.example.mistreal_mini.util.DeviceIdProvider,
+    private val voiceRecorder: com.example.mistreal_mini.util.VoiceRecorder
 ) : ViewModel() {
 
     /**
@@ -169,6 +170,15 @@ class SettingsViewModel @Inject constructor(
     private val _selectedVoiceName = MutableStateFlow<String?>(null)
     val selectedVoiceName = _selectedVoiceName.asStateFlow()
 
+    // Voice changer — same persisted setting ChatViewModel reads for both the
+    // human's own voice notes and the AI's spoken-reply voice notes (see
+    // PreferenceManager.voiceFxPreset doc).
+    private val _voiceFxPreset = MutableStateFlow(com.example.mistreal_mini.util.VoicePreset.NONE)
+    val voiceFxPreset = _voiceFxPreset.asStateFlow()
+
+    private val _voiceFxCustomPitch = MutableStateFlow(1.0f)
+    val voiceFxCustomPitch = _voiceFxCustomPitch.asStateFlow()
+
     private val _customPersonas = MutableStateFlow<List<String>>(emptyList())
     val customPersonas = _customPersonas.asStateFlow()
 
@@ -209,6 +219,18 @@ class SettingsViewModel @Inject constructor(
         fetchAddonStatus()
         viewModelScope.launch {
             preferenceManager.guardianEnabled.collect { _guardianEnabled.value = it }
+        }
+        viewModelScope.launch {
+            preferenceManager.voiceFxPreset.collect { name ->
+                _voiceFxPreset.value = try {
+                    com.example.mistreal_mini.util.VoicePreset.valueOf(name)
+                } catch (e: IllegalArgumentException) {
+                    com.example.mistreal_mini.util.VoicePreset.NONE
+                }
+            }
+        }
+        viewModelScope.launch {
+            preferenceManager.voiceFxCustomPitch.collect { _voiceFxCustomPitch.value = it }
         }
         viewModelScope.launch {
             preferenceManager.aiAutoSendEnabled.collect { _aiAutoSendEnabled.value = it }
@@ -283,6 +305,7 @@ class SettingsViewModel @Inject constructor(
             kotlinx.coroutines.coroutineScope {
                 launch { fetchByokStatusAwait() }
                 launch { fetchByokVideoStatusAwait() }
+                launch { fetchByokVoiceStatusAwait() }
                 launch { fetchMediaProviderConfigsAwait("image_gen") }
                 launch { fetchMediaProviderConfigsAwait("video_gen") }
                 launch { fetchAppConfigAwait() }
@@ -417,6 +440,102 @@ class SettingsViewModel @Inject constructor(
                 else -> {}
             }
             _isSavingByokVideo.value = false
+        }
+    }
+
+    // --- Separate BYOK slot for voice cloning (ElevenLabs) ---
+
+    private val _byokVoiceStatus = MutableStateFlow<com.example.mistreal_mini.data.api.ByokStatusResponse?>(null)
+    val byokVoiceStatus = _byokVoiceStatus.asStateFlow()
+
+    private val _isSavingByokVoice = MutableStateFlow(false)
+    val isSavingByokVoice = _isSavingByokVoice.asStateFlow()
+
+    private val _isRecordingVoiceSample = MutableStateFlow(false)
+    val isRecordingVoiceSample = _isRecordingVoiceSample.asStateFlow()
+
+    private var recordedVoiceSampleFile: java.io.File? = null
+    private val _hasRecordedVoiceSample = MutableStateFlow(false)
+    val hasRecordedVoiceSample = _hasRecordedVoiceSample.asStateFlow()
+
+    private val _isCreatingVoiceClone = MutableStateFlow(false)
+    val isCreatingVoiceClone = _isCreatingVoiceClone.asStateFlow()
+
+    fun fetchByokVoiceStatus() {
+        viewModelScope.launch { fetchByokVoiceStatusAwait() }
+    }
+
+    private suspend fun fetchByokVoiceStatusAwait() {
+        when (val result = infoRepository.getByokVoiceStatus()) {
+            is Resource.Success -> _byokVoiceStatus.value = result.data
+            else -> {}
+        }
+    }
+
+    fun saveByokVoiceKey(providerType: String, apiKey: String, baseUrl: String?, modelName: String?) {
+        viewModelScope.launch {
+            _isSavingByokVoice.value = true
+            when (val result = infoRepository.saveByokVoiceKey(providerType, apiKey, baseUrl, modelName)) {
+                is Resource.Success -> {
+                    _byokVoiceStatus.value = result.data
+                    _saveSuccess.emit(Unit)
+                }
+                is Resource.Error -> _errorEvent.emit(result.message ?: "Failed to save voice provider key")
+                else -> {}
+            }
+            _isSavingByokVoice.value = false
+        }
+    }
+
+    fun clearByokVoiceKey() {
+        viewModelScope.launch {
+            _isSavingByokVoice.value = true
+            when (val result = infoRepository.clearByokVoiceKey()) {
+                is Resource.Success -> {
+                    _byokVoiceStatus.value = com.example.mistreal_mini.data.api.ByokStatusResponse(success = true, configured = false)
+                    _saveSuccess.emit(Unit)
+                }
+                is Resource.Error -> _errorEvent.emit(result.message ?: "Failed to remove voice provider key")
+                else -> {}
+            }
+            _isSavingByokVoice.value = false
+        }
+    }
+
+    /** Records a sample to clone from — reuses the same [VoiceRecorder] chat voice notes use, just for a different destination. A longer, clean sample (30s+) makes a noticeably better clone; not enforced here. */
+    fun startVoiceSampleRecording() {
+        recordedVoiceSampleFile = voiceRecorder.startRecording()
+        _isRecordingVoiceSample.value = recordedVoiceSampleFile != null
+    }
+
+    fun stopVoiceSampleRecording() {
+        voiceRecorder.stopRecording()
+        _isRecordingVoiceSample.value = false
+        _hasRecordedVoiceSample.value = recordedVoiceSampleFile != null
+    }
+
+    fun discardVoiceSample() {
+        recordedVoiceSampleFile?.let { voiceRecorder.deleteRecording(it) }
+        recordedVoiceSampleFile = null
+        _hasRecordedVoiceSample.value = false
+    }
+
+    /** Uploads the recorded sample and creates the clone — requires a voice provider key already saved. */
+    fun createVoiceClone(name: String) {
+        val file = recordedVoiceSampleFile ?: return
+        viewModelScope.launch {
+            _isCreatingVoiceClone.value = true
+            when (val result = infoRepository.createVoiceClone(android.net.Uri.fromFile(file), name)) {
+                is Resource.Success -> {
+                    fetchByokVoiceStatus()
+                    _hasRecordedVoiceSample.value = false
+                    recordedVoiceSampleFile = null
+                    _saveSuccess.emit(Unit)
+                }
+                is Resource.Error -> _errorEvent.emit(result.message ?: "Failed to create voice clone")
+                else -> {}
+            }
+            _isCreatingVoiceClone.value = false
         }
     }
 
@@ -764,6 +883,16 @@ class SettingsViewModel @Inject constructor(
         viewModelScope.launch {
             preferenceManager.setDefaultTranslationLang(lang)
         }
+    }
+
+    fun setVoiceFxPreset(preset: com.example.mistreal_mini.util.VoicePreset) {
+        _voiceFxPreset.value = preset
+        viewModelScope.launch { preferenceManager.setVoiceFxPreset(preset.name) }
+    }
+
+    fun setVoiceFxCustomPitch(pitch: Float) {
+        _voiceFxCustomPitch.value = pitch
+        viewModelScope.launch { preferenceManager.setVoiceFxCustomPitch(pitch) }
     }
 
     fun loadVoices(tts: TextToSpeech?) {

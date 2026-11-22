@@ -46,7 +46,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
-private enum class EditorMode { VIEW, CROP, TRIM, SEGMENT }
+private enum class EditorMode { VIEW, CROP, TRIM, SEGMENT, STICKERS }
 
 private const val SEGMENT_COUNT = 6
 
@@ -99,7 +99,14 @@ fun AttachmentEditorDialog(
     // Multi-face video targeting: detect faces on a representative frame, let
     // the user tap which one to swap instead of a single generic "main person."
     onDetectFacesInVideo: suspend (Uri) -> Pair<Bitmap, List<RectF>>? = { null },
-    onMarkFaceTarget: suspend (Bitmap, RectF) -> Uri? = { _, _ -> null }
+    onMarkFaceTarget: suspend (Bitmap, RectF) -> Uri? = { _, _ -> null },
+    // Instant local triangulated-warp swap (images only) — see
+    // FaceSwapImageUtil's doc. Separate from onAiEditImage's Gemini path,
+    // which stays available for when the user wants other changes too.
+    // Same (Boolean) -> Unit result shape as onAiEditImage, since both
+    // always save a new assistant message rather than replacing anything.
+    isQuickSwapping: Boolean = false,
+    onQuickFaceSwap: (Uri, Uri, (Boolean) -> Unit) -> Unit = { _, _, cb -> cb(false) }
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -164,6 +171,32 @@ fun AttachmentEditorDialog(
                                 }
                             }
                         )
+                        mode == EditorMode.STICKERS -> StickerPlacementEditor(
+                            uri = uri,
+                            isVideo = isVideo,
+                            isBusy = isBusy,
+                            onCancel = { mode = EditorMode.VIEW },
+                            onConfirm = { stickers ->
+                                isBusy = true
+                                scope.launch {
+                                    // Video reuses VideoFilterBaker's Media3 OverlayEffect
+                                    // approach (bake onto every frame) — simpler here since
+                                    // these don't track a moving face, so one static overlay
+                                    // bitmap covers the whole clip instead of being rebuilt
+                                    // per frame.
+                                    val newUri = if (isVideo) {
+                                        com.example.mistreal_mini.util.MediaEditorUtil.applyStickersToVideo(context, uri, stickers)
+                                    } else {
+                                        com.example.mistreal_mini.util.MediaEditorUtil.applyStickers(context, uri, stickers)
+                                    }
+                                    isBusy = false
+                                    if (newUri != null) {
+                                        onReplaceAttachment(newUri)
+                                        mode = EditorMode.VIEW
+                                    }
+                                }
+                            }
+                        )
                         mode == EditorMode.SEGMENT -> SegmentEditor(
                             uri = uri,
                             isVideo = isVideo,
@@ -205,6 +238,7 @@ fun AttachmentEditorDialog(
                             EditorToolButton(Icons.Default.ContentCut, "Trim") { mode = EditorMode.TRIM }
                         }
                         EditorToolButton(Icons.Default.ViewColumn, "Split into 6") { mode = EditorMode.SEGMENT }
+                        EditorToolButton(Icons.Default.EmojiEmotions, "Stickers") { mode = EditorMode.STICKERS }
                         if (isVideo) {
                             EditorToolButton(Icons.Default.Mic, "Voice-Over") { showVoiceOverPrompt = true }
                         }
@@ -325,6 +359,36 @@ fun AttachmentEditorDialog(
                         }
                         if (pickedFace != null) {
                             TextButton(onClick = { pickedFace = null }) { Text("Clear") }
+                        }
+
+                        if (!isVideo && pickedFace != null) {
+                            Spacer(modifier = Modifier.height(8.dp))
+                            Button(
+                                onClick = {
+                                    onQuickFaceSwap(uri, pickedFace!!.second) { success ->
+                                        if (success) {
+                                            showAiEditPrompt = false
+                                            onDismiss()
+                                        }
+                                    }
+                                },
+                                modifier = Modifier.fillMaxWidth(),
+                                enabled = !isBusyEditing && !isQuickSwapping,
+                                colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.secondary)
+                            ) {
+                                if (isQuickSwapping) {
+                                    CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp, color = Color.White)
+                                } else {
+                                    Icon(Icons.Default.Bolt, null, modifier = Modifier.size(16.dp))
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Text("Quick Swap (instant, free, local)")
+                                }
+                            }
+                            Text(
+                                "Pure face swap, no AI call. Use \"AI Edit\" below instead if you also want other changes.",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = Color.Gray
+                            )
                         }
 
                         if (isVideo && pickedFace != null) {
@@ -517,6 +581,154 @@ private fun EditorToolButton(icon: androidx.compose.ui.graphics.vector.ImageVect
 // ---------------------------------------------------------------------------
 // Crop
 // ---------------------------------------------------------------------------
+
+/**
+ * Drag-to-place decorative stickers onto a static image — [STICKER_EMOJI_CHOICES]'s
+ * flat emoji list, not [com.example.mistreal_mini.ui.camera.ar.AR_STICKER_CATALOG]
+ * (that one's anchored to a live tracked face; this is a plain image, nothing
+ * to track). Tap a sticker in the row to drop it center-frame, drag to move,
+ * long-press to remove. Baked onto a copy of the source image on confirm via
+ * [com.example.mistreal_mini.util.MediaEditorUtil.applyStickers].
+ */
+@Composable
+private fun StickerPlacementEditor(
+    uri: Uri,
+    isVideo: Boolean,
+    isBusy: Boolean,
+    onCancel: () -> Unit,
+    onConfirm: (List<com.example.mistreal_mini.util.PlacedSticker>) -> Unit
+) {
+    var placed by remember { mutableStateOf(listOf<com.example.mistreal_mini.util.PlacedSticker>()) }
+    var boxSize by remember { mutableStateOf(IntSize.Zero) }
+    val context = LocalContext.current
+
+    // Video has no still image Coil can decode directly — grab one
+    // representative frame purely to place stickers against. The real
+    // bake (MediaEditorUtil.applyStickersToVideo) applies these same
+    // fractional positions to every actual frame of the clip.
+    var videoPreviewFrame by remember(uri) { mutableStateOf<Bitmap?>(null) }
+    LaunchedEffect(uri, isVideo) {
+        if (isVideo) {
+            videoPreviewFrame = withContext(Dispatchers.IO) {
+                try {
+                    val retriever = android.media.MediaMetadataRetriever()
+                    retriever.setDataSource(context, uri)
+                    val frame = retriever.getFrameAtTime(0, android.media.MediaMetadataRetriever.OPTION_CLOSEST)
+                    retriever.release()
+                    frame
+                } catch (e: Exception) {
+                    null
+                }
+            }
+        }
+    }
+
+    Column(modifier = Modifier.fillMaxSize()) {
+        Box(
+            modifier = Modifier
+                .weight(1f)
+                .fillMaxWidth()
+                .onSizeChanged { boxSize = it }
+        ) {
+            if (isVideo) {
+                val frame = videoPreviewFrame
+                if (frame != null) {
+                    Image(
+                        bitmap = frame.asImageBitmap(),
+                        contentDescription = "Sticker target",
+                        modifier = Modifier.fillMaxSize(),
+                        contentScale = ContentScale.Fit
+                    )
+                } else {
+                    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                        CircularProgressIndicator(color = Color.White)
+                    }
+                }
+            } else {
+                AsyncImage(
+                    model = uri,
+                    contentDescription = "Sticker target",
+                    modifier = Modifier.fillMaxSize(),
+                    contentScale = ContentScale.Fit
+                )
+            }
+
+            placed.forEachIndexed { index, sticker ->
+                Text(
+                    sticker.emoji,
+                    fontSize = (36 * sticker.scale).sp,
+                    modifier = Modifier
+                        .offset {
+                            androidx.compose.ui.unit.IntOffset(
+                                (sticker.fx * boxSize.width).toInt() - 18.dp.roundToPx(),
+                                (sticker.fy * boxSize.height).toInt() - 18.dp.roundToPx()
+                            )
+                        }
+                        .pointerInput(index) {
+                            detectDragGestures { change, dragAmount ->
+                                change.consume()
+                                if (boxSize.width <= 0 || boxSize.height <= 0) return@detectDragGestures
+                                placed = placed.toMutableList().also { list ->
+                                    if (index >= list.size) return@also
+                                    val current = list[index]
+                                    list[index] = current.copy(
+                                        fx = (current.fx + dragAmount.x / boxSize.width).coerceIn(0f, 1f),
+                                        fy = (current.fy + dragAmount.y / boxSize.height).coerceIn(0f, 1f)
+                                    )
+                                }
+                            }
+                        }
+                        .pointerInput(index) {
+                            detectTapGestures(onLongPress = {
+                                placed = placed.toMutableList().also { if (index < it.size) it.removeAt(index) }
+                            })
+                        }
+                )
+            }
+
+            if (isBusy) {
+                Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.5f)), contentAlignment = Alignment.Center) {
+                    CircularProgressIndicator(color = Color.White)
+                }
+            }
+        }
+
+        Text(
+            "Tap a sticker to drop it, drag to move, long-press to remove",
+            color = Color.Gray,
+            fontSize = 11.sp,
+            modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp)
+        )
+
+        LazyRow(
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
+            contentPadding = PaddingValues(horizontal = 16.dp, vertical = 4.dp)
+        ) {
+            itemsIndexed(com.example.mistreal_mini.util.STICKER_EMOJI_CHOICES) { _, emoji ->
+                Box(
+                    modifier = Modifier
+                        .size(44.dp)
+                        .clip(CircleShape)
+                        .background(Color.DarkGray.copy(alpha = 0.4f))
+                        .clickable(enabled = !isBusy) {
+                            placed = placed + com.example.mistreal_mini.util.PlacedSticker(emoji, 0.5f, 0.5f)
+                        },
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(emoji, fontSize = 22.sp)
+                }
+            }
+        }
+
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(16.dp),
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
+            TextButton(onClick = onCancel, enabled = !isBusy) { Text("Cancel") }
+            Button(onClick = { onConfirm(placed) }, enabled = !isBusy && placed.isNotEmpty()) { Text("Apply") }
+        }
+    }
+}
 
 @Composable
 private fun CropEditor(

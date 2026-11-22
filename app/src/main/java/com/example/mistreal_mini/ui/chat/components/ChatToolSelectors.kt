@@ -18,7 +18,8 @@ import androidx.compose.ui.unit.sp
 fun MediaToolSelector(
     onDismiss: () -> Unit,
     onPhoto: () -> Unit,
-    onVideo: () -> Unit
+    onVideo: () -> Unit,
+    onArFilters: () -> Unit = {}
 ) {
     Surface(
         modifier = Modifier.padding(16.dp),
@@ -30,6 +31,7 @@ fun MediaToolSelector(
             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
                 ToolButton(Icons.Default.PhotoCamera, "PHOTO", onPhoto)
                 ToolButton(Icons.Default.Videocam, "VIDEO", onVideo)
+                ToolButton(Icons.Default.FaceRetouchingNatural, "FILTERS", onArFilters)
             }
         }
     }

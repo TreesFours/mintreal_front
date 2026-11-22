@@ -1268,6 +1268,64 @@ fun SettingsScreen(
 
                         Spacer(modifier = Modifier.height(8.dp))
 
+                        // Voice Changer — same persisted preset applies to both the
+                        // human's own voice notes and the AI's spoken-reply voice
+                        // notes (ChatViewModel.selectedVoicePreset reads this same
+                        // PreferenceManager-backed value).
+                        var showVoiceFxPicker by remember { mutableStateOf(false) }
+                        val voiceFxPreset by viewModel.voiceFxPreset.collectAsStateWithLifecycle()
+                        val voiceFxCustomPitch by viewModel.voiceFxCustomPitch.collectAsStateWithLifecycle()
+
+                        OutlinedCard(onClick = { showVoiceFxPicker = true }, modifier = Modifier.fillMaxWidth()) {
+                            Row(modifier = Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text("Voice Changer", style = MaterialTheme.typography.labelSmall)
+                                    Text("${voiceFxPreset.emoji} ${voiceFxPreset.displayName}", style = MaterialTheme.typography.bodyMedium)
+                                }
+                                Icon(Icons.Default.GraphicEq, null)
+                            }
+                        }
+
+                        if (showVoiceFxPicker) {
+                            AlertDialog(
+                                onDismissRequest = { showVoiceFxPicker = false },
+                                title = { Text("Voice Changer") },
+                                text = {
+                                    Column {
+                                        Text(
+                                            "Applied to your own voice notes and to the AI's spoken replies — stays set until you change it here.",
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = Color.Gray
+                                        )
+                                        Spacer(modifier = Modifier.height(8.dp))
+                                        com.example.mistreal_mini.util.VoicePreset.entries.forEach { preset ->
+                                            ListItem(
+                                                headlineContent = { Text("${preset.emoji}  ${preset.displayName}") },
+                                                modifier = Modifier.clickable { viewModel.setVoiceFxPreset(preset) },
+                                                trailingContent = {
+                                                    if (preset == voiceFxPreset) {
+                                                        Icon(Icons.Default.Check, null, tint = MaterialTheme.colorScheme.primary)
+                                                    }
+                                                }
+                                            )
+                                        }
+                                        if (voiceFxPreset == com.example.mistreal_mini.util.VoicePreset.CUSTOM) {
+                                            Spacer(modifier = Modifier.height(8.dp))
+                                            Text("Custom pitch: ${String.format("%.2f", voiceFxCustomPitch)}x", style = MaterialTheme.typography.labelSmall)
+                                            Slider(
+                                                value = voiceFxCustomPitch,
+                                                onValueChange = { viewModel.setVoiceFxCustomPitch(it) },
+                                                valueRange = 0.5f..2.0f
+                                            )
+                                        }
+                                    }
+                                },
+                                confirmButton = { TextButton(onClick = { showVoiceFxPicker = false }) { Text("Close") } }
+                            )
+                        }
+
+                        Spacer(modifier = Modifier.height(8.dp))
+
                         OutlinedCard(modifier = Modifier.fillMaxWidth()) {
                             Row(
                                 modifier = Modifier.padding(16.dp).fillMaxWidth(),
@@ -1421,6 +1479,9 @@ fun SettingsScreen(
 
                     Spacer(modifier = Modifier.height(24.dp))
                     ByokVideoSettingsSection(viewModel)
+
+                    Spacer(modifier = Modifier.height(24.dp))
+                    ByokVoiceSettingsSection(viewModel)
 
                     Spacer(modifier = Modifier.height(24.dp))
                     MediaGenProviderSection(viewModel, "image_gen", "IMAGE GENERATION PROVIDER", "Our Recommended (Imagen)")

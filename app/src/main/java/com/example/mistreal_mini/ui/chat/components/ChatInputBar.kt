@@ -50,6 +50,7 @@ fun ChatInputBar(
     onScreenRecordClick: () -> Unit,
     onCameraClick: () -> Unit,
     onVideoClick: () -> Unit,
+    onArCameraClick: () -> Unit = {},
     onFileClick: () -> Unit,
     onVoiceClick: () -> Unit,
     onScribeClick: () -> Unit,
@@ -75,6 +76,8 @@ fun ChatInputBar(
     onAiEditVideo: (Uri, Uri?, Uri?, String, (Boolean) -> Unit) -> Unit = { _, _, _, _, cb -> cb(false) },
     isAiEditingImage: Boolean = false,
     onAiEditImage: (Uri, List<Uri>, Boolean, String, (Boolean) -> Unit) -> Unit = { _, _, _, _, cb -> cb(false) },
+    isQuickSwapping: Boolean = false,
+    onQuickFaceSwap: (Uri, Uri, (Boolean) -> Unit) -> Unit = { _, _, cb -> cb(false) },
     isSynthesizingVoiceOver: Boolean = false,
     onAddVoiceOver: (Uri, String, (Uri?) -> Unit) -> Unit = { _, _, cb -> cb(null) },
     isSceneMode: Boolean = false,
@@ -339,7 +342,8 @@ fun ChatInputBar(
                 MediaToolSelector(
                     onDismiss = { showMediaTools = false },
                     onPhoto = { onCameraClick(); showMediaTools = false },
-                    onVideo = { onVideoClick(); showMediaTools = false }
+                    onVideo = { onVideoClick(); showMediaTools = false },
+                    onArFilters = { onArCameraClick(); showMediaTools = false }
                 )
             }
 
@@ -479,7 +483,9 @@ fun ChatInputBar(
             isAiEditingVideo = isAiEditingVideo,
             onAiEditVideo = onAiEditVideo,
             isAiEditingImage = isAiEditingImage,
-            onAiEditImage = onAiEditImage
+            onAiEditImage = onAiEditImage,
+            isQuickSwapping = isQuickSwapping,
+            onQuickFaceSwap = onQuickFaceSwap
         )
     }
 

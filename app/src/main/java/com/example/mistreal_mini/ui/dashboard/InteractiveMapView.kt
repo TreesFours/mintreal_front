@@ -1118,7 +1118,6 @@ private fun getMapHtml(): String = """
             function clearGpsLocation() {
                 if(gpsMarker) { map.removeLayer(gpsMarker); gpsMarker = null; }
             }
-            }
             function reportMapCenter() {
                 var center = map.getCenter();
                 AndroidMap.onMapCenterReported(center.lat, center.lng);

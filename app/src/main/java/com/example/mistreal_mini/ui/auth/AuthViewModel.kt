@@ -60,5 +60,21 @@ class AuthViewModel @Inject constructor(
         }
     }
 
+    fun resetPassword(email: String) {
+        if (email.isBlank()) {
+            viewModelScope.launch { _errorEvent.emit("Enter your email first") }
+            return
+        }
+        viewModelScope.launch {
+            _isLoading.value = true
+            when (val result = authRepository.sendPasswordResetEmail(email)) {
+                is Resource.Success -> _errorEvent.emit("Password reset email sent to $email")
+                is Resource.Error -> _errorEvent.emit(result.message ?: "Couldn't send reset email")
+                else -> {}
+            }
+            _isLoading.value = false
+        }
+    }
+
     fun isUserLoggedIn() = authRepository.currentUser != null
 }

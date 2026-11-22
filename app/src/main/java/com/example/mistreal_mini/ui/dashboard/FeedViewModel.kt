@@ -38,6 +38,21 @@ class FeedViewModel @Inject constructor(
     private val _socialUpdates = mutableStateListOf<PlatformUpdate>()
     val socialUpdates: List<PlatformUpdate> = _socialUpdates
 
+    // The user's own multi-platform broadcasts (DispatchCenterView) and
+    // their merged-across-platforms comments — a separate surface from the
+    // Zernio-synced feed above (fetchFeed still explodes a multi-platform
+    // post into one item per platform on the read side; unifying that is a
+    // separate, bigger fix. This at least lets a user see their own
+    // broadcast as the one post it actually is, with its real comments).
+    private val _ownPosts = mutableStateListOf<com.example.mistreal_mini.data.api.PostDto>()
+    val ownPosts: List<com.example.mistreal_mini.data.api.PostDto> = _ownPosts
+
+    private val _aggregatedComments = mutableStateListOf<com.example.mistreal_mini.data.api.AggregatedCommentDto>()
+    val aggregatedComments: List<com.example.mistreal_mini.data.api.AggregatedCommentDto> = _aggregatedComments
+
+    private val _isLoadingComments = mutableStateOf(false)
+    val isLoadingComments: State<Boolean> = _isLoadingComments
+
     private val _socialPosts = mutableStateListOf<SocialPost>()
     val socialPosts: List<SocialPost> = _socialPosts
 
@@ -258,6 +273,50 @@ class FeedViewModel @Inject constructor(
             mistrealOnly = mistrealOnly,
             shareToCommunity = shareToCommunity
         )
+        return result is Resource.Success
+    }
+
+    /** Returns (success, unlinkedPlatforms) — see DispatchCenterView's onPostMultiPlatform doc. */
+    suspend fun postMultiPlatform(
+        deviceId: String, content: String, platforms: List<String>,
+        mediaBase64: String? = null, mediaMimeType: String? = null
+    ): Pair<Boolean, List<String>> {
+        val result = infoRepository.createMultiPlatformPost(deviceId, content, platforms, mediaBase64, mediaMimeType)
+        return when (result) {
+            is Resource.Success -> true to (result.data?.unlinkedPlatforms ?: emptyList())
+            else -> false to emptyList()
+        }
+    }
+
+    fun loadOwnPosts(deviceId: String) {
+        viewModelScope.launch {
+            val result = infoRepository.getOwnPosts(deviceId)
+            if (result is Resource.Success) {
+                _ownPosts.clear()
+                _ownPosts.addAll(result.data ?: emptyList())
+            }
+        }
+    }
+
+    private var loadCommentsJob: kotlinx.coroutines.Job? = null
+
+    fun loadAggregatedComments(postId: String, deviceId: String) {
+        // Cleared synchronously, before launching — otherwise switching from
+        // post A's comment sheet straight to post B's briefly shows A's
+        // stale comments for a frame (the clear used to happen only after
+        // the network call landed, inside the coroutine).
+        _aggregatedComments.clear()
+        _isLoadingComments.value = true
+        loadCommentsJob?.cancel() // a fast A->B->A tap sequence shouldn't let A's slower first load overwrite B's
+        loadCommentsJob = viewModelScope.launch {
+            val result = infoRepository.getAggregatedComments(postId, deviceId)
+            if (result is Resource.Success) _aggregatedComments.addAll(result.data ?: emptyList())
+            _isLoadingComments.value = false
+        }
+    }
+
+    suspend fun addPostComment(postId: String, deviceId: String, content: String): Boolean {
+        val result = infoRepository.addPostComment(postId, deviceId, content)
         return result is Resource.Success
     }
 }

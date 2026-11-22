@@ -1,0 +1,958 @@
+<title>Mistreal Ops Board</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wght@500;600;700;800&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@500;600&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #f1f3f7;
+    --surface: #ffffff;
+    --surface-raised: #ffffff;
+    --border: #dde2ea;
+    --text: #10172a;
+    --text-muted: #5b6577;
+    --accent: #5457e5;
+    --accent-soft: #eceeff;
+    --status-done-fg: #0f7a3d;
+    --status-done-bg: #e3f6ea;
+    --status-pending-fg: #a35a00;
+    --status-pending-bg: #fdf0db;
+    --status-scoped-fg: #1d5fd6;
+    --status-scoped-bg: #e6f0fe;
+    --status-blocked-fg: #5b6577;
+    --status-blocked-bg: #e9ebf0;
+    --mono-chip-bg: #10172a;
+    --mono-chip-fg: #e9ebf0;
+    --shadow: 0 1px 2px rgba(16,23,42,0.04), 0 8px 24px -12px rgba(16,23,42,0.12);
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #0b1020;
+      --surface: #141a30;
+      --surface-raised: #182040;
+      --border: #272f4d;
+      --text: #eef0f8;
+      --text-muted: #9aa3bf;
+      --accent: #8b8ef8;
+      --accent-soft: #232a52;
+      --status-done-fg: #4ddb94;
+      --status-done-bg: #123524;
+      --status-pending-fg: #f0b35c;
+      --status-pending-bg: #3a2a0f;
+      --status-scoped-fg: #7db2ff;
+      --status-scoped-bg: #142440;
+      --status-blocked-fg: #9aa3bf;
+      --status-blocked-bg: #1d2338;
+      --mono-chip-bg: #232a52;
+      --mono-chip-fg: #c7cdea;
+      --shadow: 0 1px 2px rgba(0,0,0,0.3), 0 8px 24px -12px rgba(0,0,0,0.5);
+    }
+  }
+
+  :root[data-theme="dark"] {
+    --bg: #0b1020;
+    --surface: #141a30;
+    --surface-raised: #182040;
+    --border: #272f4d;
+    --text: #eef0f8;
+    --text-muted: #9aa3bf;
+    --accent: #8b8ef8;
+    --accent-soft: #232a52;
+    --status-done-fg: #4ddb94;
+    --status-done-bg: #123524;
+    --status-pending-fg: #f0b35c;
+    --status-pending-bg: #3a2a0f;
+    --status-scoped-fg: #7db2ff;
+    --status-scoped-bg: #142440;
+    --status-blocked-fg: #9aa3bf;
+    --status-blocked-bg: #1d2338;
+    --mono-chip-bg: #232a52;
+    --mono-chip-fg: #c7cdea;
+    --shadow: 0 1px 2px rgba(0,0,0,0.3), 0 8px 24px -12px rgba(0,0,0,0.5);
+  }
+
+  * { box-sizing: border-box; }
+  html { text-size-adjust: 100%; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font-family: "IBM Plex Sans", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  .mono {
+    font-family: "IBM Plex Mono", ui-monospace, "SF Mono", Consolas, monospace;
+  }
+
+  .wrap {
+    max-width: 920px;
+    margin: 0 auto;
+    padding: 40px 24px 96px;
+  }
+
+  header.masthead {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    margin-bottom: 28px;
+  }
+  .eyebrow {
+    font-family: "IBM Plex Mono", monospace;
+    font-size: 12px;
+    font-weight: 600;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--accent);
+  }
+  h1 {
+    font-family: "Archivo", sans-serif;
+    font-weight: 800;
+    font-size: clamp(28px, 4vw, 38px);
+    letter-spacing: -0.01em;
+    margin: 0;
+    text-wrap: balance;
+  }
+  .subhead {
+    color: var(--text-muted);
+    font-size: 15px;
+    max-width: 62ch;
+    line-height: 1.5;
+    margin: 2px 0 0;
+  }
+
+  .summary-strip {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 1px;
+    background: var(--border);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    overflow: hidden;
+    margin: 28px 0 40px;
+    box-shadow: var(--shadow);
+  }
+  .summary-cell {
+    background: var(--surface);
+    padding: 16px 14px;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+  .summary-count {
+    font-family: "Archivo", sans-serif;
+    font-weight: 800;
+    font-size: 28px;
+    font-variant-numeric: tabular-nums;
+    line-height: 1;
+  }
+  .summary-label {
+    font-family: "IBM Plex Mono", monospace;
+    font-size: 11px;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--text-muted);
+  }
+  .summary-cell[data-tone="done"] .summary-count { color: var(--status-done-fg); }
+  .summary-cell[data-tone="pending"] .summary-count { color: var(--status-pending-fg); }
+  .summary-cell[data-tone="scoped"] .summary-count { color: var(--status-scoped-fg); }
+  .summary-cell[data-tone="blocked"] .summary-count { color: var(--status-blocked-fg); }
+
+  section.tier {
+    margin-bottom: 40px;
+  }
+  .tier-head {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 12px;
+    border-bottom: 1px solid var(--border);
+    padding-bottom: 10px;
+    margin-bottom: 16px;
+  }
+  .tier-title {
+    font-family: "Archivo", sans-serif;
+    font-weight: 700;
+    font-size: 17px;
+    letter-spacing: -0.005em;
+  }
+  .tier-note {
+    font-size: 13px;
+    color: var(--text-muted);
+    text-align: right;
+    max-width: 38ch;
+  }
+
+  .card-list {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+
+  details.item {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    box-shadow: var(--shadow);
+  }
+  details.item > summary {
+    list-style: none;
+    cursor: pointer;
+    padding: 14px 16px;
+    display: flex;
+    align-items: flex-start;
+    gap: 12px;
+  }
+  details.item > summary::-webkit-details-marker { display: none; }
+  details.item > summary::before {
+    content: "+";
+    font-family: "IBM Plex Mono", monospace;
+    font-weight: 600;
+    font-size: 15px;
+    color: var(--text-muted);
+    width: 16px;
+    flex: none;
+    padding-top: 1px;
+  }
+  details.item[open] > summary::before { content: "–"; color: var(--accent); }
+
+  .item-main {
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+    flex: 1;
+    min-width: 0;
+  }
+  .item-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-wrap: wrap;
+  }
+  .status-chip {
+    font-family: "IBM Plex Mono", monospace;
+    font-size: 10.5px;
+    font-weight: 600;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+    padding: 3px 8px;
+    border-radius: 5px;
+    white-space: nowrap;
+  }
+  .status-chip[data-tone="done"] { color: var(--status-done-fg); background: var(--status-done-bg); }
+  .status-chip[data-tone="pending"] { color: var(--status-pending-fg); background: var(--status-pending-bg); }
+  .status-chip[data-tone="scoped"] { color: var(--status-scoped-fg); background: var(--status-scoped-bg); }
+  .status-chip[data-tone="blocked"] { color: var(--status-blocked-fg); background: var(--status-blocked-bg); }
+
+  .item-title {
+    font-weight: 600;
+    font-size: 15px;
+  }
+  .item-summary {
+    color: var(--text-muted);
+    font-size: 13.5px;
+    line-height: 1.5;
+  }
+
+  .item-detail {
+    padding: 0 16px 18px 44px;
+    font-size: 13.5px;
+    line-height: 1.6;
+    color: var(--text);
+  }
+  .item-detail p { margin: 0 0 10px; }
+  .item-detail p:last-child { margin-bottom: 0; }
+  .item-detail strong { font-weight: 600; }
+  .item-detail code {
+    font-family: "IBM Plex Mono", monospace;
+    font-size: 12.5px;
+    background: var(--accent-soft);
+    color: var(--accent);
+    padding: 1px 5px;
+    border-radius: 4px;
+  }
+  .item-detail ul {
+    margin: 0 0 10px;
+    padding-left: 18px;
+  }
+  .item-detail li { margin-bottom: 4px; }
+  .flag {
+    display: inline-block;
+    margin-top: 2px;
+    padding: 8px 10px;
+    border-radius: 7px;
+    background: var(--status-pending-bg);
+    color: var(--status-pending-fg);
+    font-size: 13px;
+  }
+  .flag.critical {
+    background: var(--status-blocked-bg);
+    color: var(--status-blocked-fg);
+    font-weight: 600;
+  }
+
+  footer {
+    margin-top: 56px;
+    padding-top: 20px;
+    border-top: 1px solid var(--border);
+    color: var(--text-muted);
+    font-size: 12.5px;
+    display: flex;
+    justify-content: space-between;
+    gap: 12px;
+    flex-wrap: wrap;
+  }
+
+  @media (max-width: 640px) {
+    .summary-strip { grid-template-columns: repeat(2, 1fr); }
+    .tier-head { flex-direction: column; align-items: flex-start; }
+    .tier-note { text-align: left; }
+    .item-detail { padding-left: 16px; }
+  }
+
+  a { color: var(--accent); }
+  :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+</style>
+
+<div class="wrap">
+  <header class="masthead">
+    <span class="eyebrow">Mistreal · Build Log</span>
+    <h1>Ops Board</h1>
+    <p class="subhead">Everything in flight across the app and backend, grouped by what's actually true about it right now — not by when it was asked for. Tap any line for the detail.</p>
+  </header>
+
+  <div class="summary-strip">
+    <div class="summary-cell" data-tone="done">
+      <span class="summary-count">18</span>
+      <span class="summary-label">Shipped this pass</span>
+    </div>
+    <div class="summary-cell" data-tone="pending">
+      <span class="summary-count">7</span>
+      <span class="summary-label">Needs your call</span>
+    </div>
+    <div class="summary-cell" data-tone="scoped">
+      <span class="summary-count">5</span>
+      <span class="summary-label">Scoped, not started</span>
+    </div>
+    <div class="summary-cell" data-tone="blocked">
+      <span class="summary-count">6</span>
+      <span class="summary-label">Needs real scoping</span>
+    </div>
+  </div>
+
+  <section class="tier">
+    <div class="tier-head">
+      <span class="tier-title">Shipped this pass</span>
+      <span class="tier-note">Backend items are committed + pushed to both branches. App items compile clean; most are committed locally, a handful still sitting as working-tree edits pending your go-ahead.</span>
+    </div>
+    <div class="card-list">
+
+      <details class="item" open>
+        <summary>
+          <div class="item-main">
+            <div class="item-row">
+              <span class="status-chip mono" data-tone="done">bug fix</span>
+              <span class="item-title">Map was a black screen — a stray brace broke the entire embedded script</span>
+            </div>
+            <div class="item-summary">Not a missing API key or config issue: one orphan closing <code>}</code> in the map's embedded Leaflet.js JavaScript threw a syntax error that aborted the whole script before <code>L.map(...)</code> ever ran — so the page "loaded" (dark navy CSS background only) but tiles, pins, and search/GPS updates never appeared.</div>
+          </div>
+        </summary>
+        <div class="item-detail">
+          <p><code>InteractiveMapView.kt</code>'s <code>getMapHtml()</code> had an extra <code>}</code> right after <code>clearGpsLocation()</code>'s closing brace — brace-balance check confirmed exactly one unmatched token across the whole embedded script. Deleted the stray brace; also confirmed the <code>/api/discovery/nearby</code> route it calls is registered (directly in <code>index.ts</code>, not <code>businessRoutes.ts</code> — easy to miss on a quick grep) and already deployed.</p>
+        </div>
+      </details>
+
+      <details class="item" open>
+        <summary>
+          <div class="item-main">
+            <div class="item-row">
+              <span class="status-chip mono" data-tone="done">built</span>
+              <span class="item-title">Forgot Password</span>
+            </div>
+            <div class="item-summary">Login/signup had no recovery path at all. Added a "Forgot password?" link on the sign-in screen that sends a real Firebase password-reset email.</div>
+          </div>
+        </summary>
+        <div class="item-detail">
+          <p>Auth in this app is entirely client-side Firebase (no backend route involved) — added <code>AuthRepository.sendPasswordResetEmail</code>, a <code>resetPassword()</code> entry point on <code>AuthViewModel</code>, and a small dialog on <code>AuthScreen.kt</code> prompting for/confirming the email before sending.</p>
+        </div>
+      </details>
+
+      <details class="item" open>
+        <summary>
+          <div class="item-main">
+            <div class="item-row">
+              <span class="status-chip mono" data-tone="done">built — phase 1 of 4</span>
+              <span class="item-title">AR Filter Camera — real live preview + face tracking, replacing a non-functional mockup</span>
+            </div>
+            <div class="item-summary">The existing "AR filter camera" screen was a dead mockup: launched the stock system camera, drew static emoji on top, had zero callers anywhere in the app. Now a real CameraX preview with live ML Kit face tracking and landmark-pinned sticker filters — a genuinely new, demoable feature on its own.</div>
+          </div>
+        </summary>
+        <div class="item-detail">
+          <p>New: <code>util/ar/FaceTracker.kt</code>, <code>FaceTrackResult.kt</code>, <code>FrameMapper.kt</code>, <code>StickerBitmapRenderer.kt</code> (bakes the active sticker into the captured still); <code>ui/camera/ar/ArCameraViewModel.kt</code>, <code>ArStickerCatalog.kt</code>, <code>ArStickerOverlay.kt</code>. <code>ArFilterCameraScreen.kt</code> rewritten around them. Entry point: a new "FILTERS" option in chat's existing media-tools tray, presented as a full-screen overlay inside <code>ChatScreen.kt</code> — deliberately not a NavHost route, since there's no existing pattern in this app for passing captured media back across nav destinations, and the overlay reuses <code>ChatViewModel.addPendingAttachment</code> directly. Compiles clean.</p>
+          <p class="flag">You explicitly chose true live real-time face-swap AR over the cheaper capture-then-AI-edit alternative, knowing it's a multi-week build with zero existing foundation (no MediaPipe/GL pipeline in this app). This ships only Phase 1 (tracking + stickers, no swap rendering yet) — see the "Live AR Face Swap" card below for what's left. Also unverified: front-camera mirroring/coordinate math, real tracking latency — no device in this environment to confirm.</p>
+        </div>
+      </details>
+
+      <details class="item">
+        <summary>
+          <div class="item-main">
+            <div class="item-row">
+              <span class="status-chip mono" data-tone="done">security fix</span>
+              <span class="item-title">Account-isolation bug — a new signup could inherit an old account</span>
+            </div>
+            <div class="item-summary">ANDROID_ID survives a reinstall; a brand-new account on a device that previously held a different one silently merged into that old account's entire row instead of creating its own.</div>
+          </div>
+        </summary>
+        <div class="item-detail">
+          <p><code>userResolver.ts</code>'s <code>getOrCreateUserInternal</code> fell back to a deviceId-only lookup whenever a new firebaseUid didn't match an existing row — and since that deviceId already belonged to someone, the "new" signup just became them. Now a firebaseUid with no match always creates a genuinely new row; the device's claim moves to it, and the old account releases that claim but keeps every field of its own data (<code>deviceId</code> is now nullable for exactly this reason).</p>
+          <p class="flag critical">Only prevents this going forward. If an account got merged before this deployed, that merge already happened in the database and needs a direct fix — say so if you hit it.</p>
+        </div>
+      </details>
+
+      <details class="item">
+        <summary>
+          <div class="item-main">
+            <div class="item-row">
+              <span class="status-chip mono" data-tone="done">root cause</span>
+              <span class="item-title">Render was deploying a 5-week-stale <code>main</code> — not your code, a branch mismatch</span>
+            </div>
+            <div class="item-summary">The "fix one error, same error comes back" loop all session was never a flaky deploy — Render builds from <code>main</code>, and every fix was only ever pushed to <code>phase-2-ai-byok</code>.</div>
+          </div>
+        </summary>
+        <div class="item-detail">
+          <p>Matched the exact line numbers in a pasted build error to a commit from months back to prove it, rather than guessing. Fast-forward merged <code>phase-2-ai-byok</code> into <code>main</code> (clean, no conflicts) and pushed — both branches now track together, and every fix below actually reaches the deployed service for the first time.</p>
+        </div>
+      </details>
+
+      <details class="item">
+        <summary>
+          <div class="item-main">
+            <div class="item-row">
+              <span class="status-chip mono" data-tone="done">operational</span>
+              <span class="item-title">Instagram posting via Zernio was silently rejecting every post</span>
+            </div>
+            <div class="item-summary">Connecting worked; posting failed with "not linked to this profile" every time — a strict string-equality bug, not an Instagram-specific gap.</div>
+          </div>
+        </summary>
+        <div class="item-detail">
+          <p><code>zernioAdapter.ts</code>'s account lookup used plain <code>===</code> while connection/reconciliation elsewhere already normalizes the platform string first — an account could show connected while every post to it failed. Extracted the shared normalizer to <code>utils/platformId.ts</code> (avoids a circular import back through <code>socialService.ts</code>) and fixed the lookup to match.</p>
+        </div>
+      </details>
+
+      <details class="item">
+        <summary>
+          <div class="item-main">
+            <div class="item-row">
+              <span class="status-chip mono" data-tone="done">operational</span>
+              <span class="item-title">YouTube videos never appeared in the social feed</span>
+            </div>
+            <div class="item-summary">Real data, real API — the feed just silently stayed empty every time, with a bug hiding behind a bare catch block.</div>
+          </div>
+        </summary>
+        <div class="item-detail">
+          <p>Postgres BIGINT columns (view/like/comment count) come back from Sequelize as JSON strings; the client deserializes them into <code>Long</code> fields. Gson threw on the mismatch, swallowed by a <code>catch { emptyList() }</code> with zero logging. Coerced to real numbers server-side before the response leaves, and added the missing log client-side so this class of failure can't go invisible again.</p>
+        </div>
+      </details>
+
+      <details class="item">
+        <summary>
+          <div class="item-main">
+            <div class="item-row">
+              <span class="status-chip mono" data-tone="done">operational</span>
+              <span class="item-title">AI model selection — dynamic ranking, not hardcoded strings</span>
+            </div>
+            <div class="item-summary">The "best free model" logic only recognized "1.5" as good via a literal text check, and deprecated fallback model names were leaking into live results even when discovery succeeded.</div>
+          </div>
+        </summary>
+        <div class="item-detail">
+          <ul>
+            <li><code>rankModelStability</code> now reads whatever version number actually appears in a model's name and scores newer generations higher, instead of a hardcoded <code>includes('1.5')</code> — stays correct without a manual patch every time Google ships a new generation.</li>
+            <li><code>getRankedGeminiModels</code> was unconditionally merging long-deprecated defaults into the result on every call, even with good live candidates available; now only falls back to them if live discovery genuinely found nothing.</li>
+            <li>Two call sites (<code>index.ts</code>, <code>webhookService.ts</code>) defaulted to a literal stale model name instead of <code>'dynamic'</code>, bypassing the ranking logic entirely — fixed.</li>
+          </ul>
+        </div>
+      </details>
+
+      <details class="item">
+        <summary>
+          <div class="item-main">
+            <div class="item-row">
+              <span class="status-chip mono" data-tone="done">built</span>
+              <span class="item-title">BYOK personal email — connect your own inbox, send &amp; receive</span>
+            </div>
+            <div class="item-summary">App-password IMAP/SMTP, distinct from the existing shared-sender compose-only Email feature. Gmail/Outlook/Yahoo/iCloud presets with in-form guidance on where to generate the app password.</div>
+          </div>
+        </summary>
+        <div class="item-detail">
+          <p>Backend: <code>EmailAccountConfig</code> model, <code>emailAccountService.ts</code> (<code>imapflow</code> + <code>mailparser</code> + <code>nodemailer</code>), <code>emailAccountRoutes.ts</code> — connect (tests login before saving), list/switch/remove accounts, inbox fetch, read-and-mark-seen, send. App: full connect/inbox/compose/message-detail screens, reachable from Settings.</p>
+          <p class="flag">Honest caveat: no Node runtime in this sandbox to type-check the <code>imapflow</code> calls against the real installed library — written from its documented API, not verified. Same class of risk as the <code>EmergencyAlert.createdAt</code> miss earlier — if the next deploy throws a TS error here, that's why.</p>
+        </div>
+      </details>
+
+      <details class="item">
+        <summary>
+          <div class="item-main">
+            <div class="item-row">
+              <span class="status-chip mono" data-tone="done">built</span>
+              <span class="item-title">Watch Hub — Browse Nearby Broadcasts</span>
+            </div>
+            <div class="item-summary">A viewer can now see and tap into nearby hosts over Bluetooth/Wi-Fi without already knowing a share code — the code-based join path still works unchanged alongside it.</div>
+          </div>
+        </summary>
+        <div class="item-detail">
+          <p>Reused the existing Nearby Connections transport rather than duplicating the WebRTC/signaling logic — added a second, non-filtering discovery mode in <code>NearbyTransport.kt</code> that surfaces every broadcast instead of matching one known code.</p>
+        </div>
+      </details>
+
+      <details class="item">
+        <summary>
+          <div class="item-main">
+            <div class="item-row">
+              <span class="status-chip mono" data-tone="done">built</span>
+              <span class="item-title">Live video chat with the AI — shipped, not just scoped</span>
+            </div>
+            <div class="item-summary">Real-time two-way voice + video with the AI. Was fully net-new as of the last board; now built end-to-end on a backend relay, after an abandoned direct-to-Firebase attempt hit a real Kotlin-version wall.</div>
+          </div>
+        </summary>
+        <div class="item-detail">
+          <p>Backend: <code>liveAiRelayService.ts</code> (new <code>/live-ai</code> Socket.IO namespace relaying to Gemini's own Live API over a raw WebSocket). App: <code>LiveAiViewModel.kt</code> (real <code>AudioRecord</code>/<code>AudioTrack</code> capture+playback — net-new, nothing in this app used raw PCM audio before), <code>LiveAiRepository.kt</code>, <code>LiveAiScreen.kt</code>. A hang-forever bug (ack never firing if the upstream socket errored before opening) was found and fixed in review.</p>
+          <p class="flag">The exact Gemini Live model id for this raw endpoint was never confirmed against an authoritative source — env-configurable so a wrong guess is a one-line fix. No device in this sandbox to confirm a real end-to-end conversation actually works; verified by compiling, not by talking to it.</p>
+        </div>
+      </details>
+
+      <details class="item">
+        <summary>
+          <div class="item-main">
+            <div class="item-row">
+              <span class="status-chip mono" data-tone="done">built</span>
+              <span class="item-title">Business Hub — logo, location, and a way to edit after registering</span>
+            </div>
+            <div class="item-summary">All three were genuinely missing end-to-end, not just hidden: no logo upload existed anywhere, GPS verification and the typed address were disconnected from each other, and nothing could be changed once a business was registered.</div>
+          </div>
+        </summary>
+        <div class="item-detail">
+          <ul>
+            <li>New <code>/business/:id/logo</code> endpoint, mirrors the existing owner-photo pattern.</li>
+            <li>"Verify Current Location" now reverse-geocodes into the address field automatically; address is required to register.</li>
+            <li>New "Edit Business Info" dialog — name/category/address can be changed post-registration, with its own re-verify-location action.</li>
+          </ul>
+        </div>
+      </details>
+
+      <details class="item">
+        <summary>
+          <div class="item-main">
+            <div class="item-row">
+              <span class="status-chip mono" data-tone="done">built</span>
+              <span class="item-title">Map — zoom, polish, and two real functional bugs</span>
+            </div>
+            <div class="item-summary">Zoom controls were explicitly turned off with nothing in their place; the SCAN category chips had zero backend mapping, so every one of them returned the same generic results.</div>
+          </div>
+        </summary>
+        <div class="item-detail">
+          <ul>
+            <li>Visible zoom controls restored + half-step zoom instead of whole-level-only.</li>
+            <li>SCAN chips (restaurant/cafe/atm/hospital/police/pharmacy/gas station) each got a real Geoapify tag mapping; added Government Building as an eighth category (backend mapping already existed, just wasn't exposed).</li>
+            <li>City name now truncates instead of wrapping to 5 lines; bottom panel got a proper Material drag-handle instead of looking like a plain resizing box.</li>
+            <li>Compass indicator (bearing + tap-to-calibrate) was computed but never rendered outside the Map tab — now shown on the Intel feed too.</li>
+            <li>Location button and search field now distinguish permission-denied, no-GPS-fix, and slow-but-working instead of all three looking identical.</li>
+          </ul>
+        </div>
+      </details>
+
+      <details class="item">
+        <summary>
+          <div class="item-main">
+            <div class="item-row">
+              <span class="status-chip mono" data-tone="done">built</span>
+              <span class="item-title">Browse Games had nothing to browse</span>
+            </div>
+            <div class="item-summary">The tap-to-play logic itself was always correct — the catalog was just permanently empty, no seed data and no in-app way to add any.</div>
+          </div>
+        </summary>
+        <div class="item-detail">
+          <p>Seeds 5 real external browser games (2048, Tetris, Solitaire, Slither, Chess via lichess) once on boot, only if the table is empty — an admin's own later edits are never overwritten.</p>
+        </div>
+      </details>
+
+      <details class="item">
+        <summary>
+          <div class="item-main">
+            <div class="item-row">
+              <span class="status-chip mono" data-tone="done">built</span>
+              <span class="item-title">"Also Share to Mistreal" + a real Advertise entry point</span>
+            </div>
+            <div class="item-summary">The community feed's read side was already fully built and working — the compose screen just never exposed a way to turn it on for a real cross-posted broadcast.</div>
+          </div>
+        </summary>
+        <div class="item-detail">
+          <p>Added the missing toggle to the Broadcast composer, separate from "Mistreal Only" (that one skips real platforms; this one adds a community copy alongside them). Also added a plainly separate "Advertise Your Business" entry above a divider in the same screen, instead of the only path being a tiny icon in a crowded row — still requires a registered business.</p>
+        </div>
+      </details>
+
+      <details class="item">
+        <summary>
+          <div class="item-main">
+            <div class="item-row">
+              <span class="status-chip mono" data-tone="done">cleanup</span>
+              <span class="item-title">Dead UI removed: two unreachable boot/stealth screens, one unused library</span>
+            </div>
+            <div class="item-summary">PhoenixBootActivity and StealthActivity both had zero code path to launch them anywhere in the app — confirmed, not assumed.</div>
+          </div>
+        </summary>
+        <div class="item-detail">
+          <p>StealthActivity's hands-free intent is already fully covered by Chat's real Conversation Mode. Both files deleted, manifest entries removed, and the Lottie dependency (used only by the removed screen) stripped from <code>build.gradle.kts</code>/the version catalog.</p>
+        </div>
+      </details>
+
+      <details class="item">
+        <summary>
+          <div class="item-main">
+            <div class="item-row">
+              <span class="status-chip mono" data-tone="done">consistency</span>
+              <span class="item-title">Every single-value input field now submits properly</span>
+            </div>
+            <div class="item-summary">Across Settings, Email, Needs, business registration, and the map search — single-line fields now use the keyboard's Done/Search key correctly instead of inserting a newline with no way to confirm.</div>
+          </div>
+        </summary>
+        <div class="item-detail">
+          <p>A background pass across ~20 files; verified clean after fixing two real breakages the interrupted first run left behind (a corrupted identifier, a wrong lambda signature on one keyboard action) — caught by an actual compile run, not assumed fixed.</p>
+        </div>
+      </details>
+
+      <details class="item">
+        <summary>
+          <div class="item-main">
+            <div class="item-row">
+              <span class="status-chip mono" data-tone="done">resilience</span>
+              <span class="item-title">Client now rides out the backend's cold-start instead of failing on it</span>
+            </div>
+            <div class="item-summary">This backend is on Render's free tier and sleeps after ~15 min idle — the first request after that was hitting a real connection failure before the server finished waking up.</div>
+          </div>
+        </summary>
+        <div class="item-detail">
+          <p>Added a transport-level retry to the OkHttp client (up to 3 attempts, short backoff) for genuine connection failures. Doesn't eliminate the cold start — that's a Render plan decision, not a code fix — just means the app recovers from it quietly instead of surfacing "Network error" on the first try after idle.</p>
+        </div>
+      </details>
+
+    </div>
+  </section>
+
+  <section class="tier">
+    <div class="tier-head">
+      <span class="tier-title">Needs your call</span>
+      <span class="tier-note">Each of these has a real decision, a missing credential, or a limitation only you can resolve.</span>
+    </div>
+    <div class="card-list">
+
+      <details class="item">
+        <summary>
+          <div class="item-main">
+            <div class="item-row">
+              <span class="status-chip mono" data-tone="pending">check env vars</span>
+              <span class="item-title">Instagram DMs not arriving</span>
+            </div>
+            <div class="item-summary">Code path is platform-agnostic and correct — this traces to <code>ZERNIO_API_KEY</code>/<code>ZERNIO_WEBHOOK_SECRET</code> possibly missing in Render's environment, not a code gap.</div>
+          </div>
+        </summary>
+        <div class="item-detail">
+          <p>Webhook registration is silently skipped (logged, not fatal) if the secret isn't set, and every inbound webhook gets rejected if it's missing — both fail-safe by design. Check Render's dashboard → Environment for this service.</p>
+        </div>
+      </details>
+
+      <details class="item">
+        <summary>
+          <div class="item-main">
+            <div class="item-row">
+              <span class="status-chip mono" data-tone="pending">check env vars</span>
+              <span class="item-title">Celestial badge and weather may be showing placeholders, not real data</span>
+            </div>
+            <div class="item-summary">Both fetch paths are intact and unchanged this session — the celestial moon-phase badge needs <code>ASTRONOMY_API_ID</code>/<code>ASTRONOMY_API_SECRET</code>, weather needs a valid <code>OPENWEATHER_API_KEY</code>.</div>
+          </div>
+        </summary>
+        <div class="item-detail">
+          <p>Both have a silent fail-safe (no crash, just nothing/a placeholder string) if the key is missing or invalid — confirm both are actually set and the weather key hasn't hit a quota/expiry wall.</p>
+        </div>
+      </details>
+
+      <details class="item">
+        <summary>
+          <div class="item-main">
+            <div class="item-row">
+              <span class="status-chip mono" data-tone="pending">confirm &amp; delete</span>
+              <span class="item-title">SocialAuthScreen — a second, unreachable copy of Connections</span>
+            </div>
+            <div class="item-summary">Fully built, 238 lines, same job as the working SocialConnectionsScreen — gated behind a flag nothing ever sets true.</div>
+          </div>
+        </summary>
+        <div class="item-detail">
+          <p>Reads exactly like an earlier version that got replaced and never deleted. Safe to remove outright once you confirm <code>SocialConnectionsScreen</code> is the one you want — not deleted yet, waiting on that confirmation.</p>
+        </div>
+      </details>
+
+      <details class="item">
+        <summary>
+          <div class="item-main">
+            <div class="item-row">
+              <span class="status-chip mono" data-tone="pending">needs a URL</span>
+              <span class="item-title">Marketing website built, Download buttons are placeholders</span>
+            </div>
+            <div class="item-summary">Full site scaffolded at <code>~/Desktop/Server_whol3Mini</code> — hero, every real feature described accurately, a live Market mirror pulling from the real backend. Direct-APK and Google-Play buttons both say "Coming Soon."</div>
+          </div>
+        </summary>
+        <div class="item-detail">
+          <p>Needs the real distribution URLs for both before they can be wired up — not something to guess at. Also still uncommitted, and the repo's remote is still named for the old project it replaced.</p>
+        </div>
+      </details>
+
+      <details class="item">
+        <summary>
+          <div class="item-main">
+            <div class="item-row">
+              <span class="status-chip mono" data-tone="pending">limitation</span>
+              <span class="item-title">Calling has no TURN server</span>
+            </div>
+            <div class="item-summary">Two callers both on restrictive/carrier-grade NAT won't connect — no error shown, just stuck at "Connecting…". Normal home Wi-Fi or typical mobile data works fine.</div>
+          </div>
+        </summary>
+        <div class="item-detail">
+          <p>Needs real infrastructure — a self-hosted <code>coturn</code> server or a paid relay (Twilio, Xirsys) — not something to fabricate credentials for.</p>
+        </div>
+      </details>
+
+      <details class="item">
+        <summary>
+          <div class="item-main">
+            <div class="item-row">
+              <span class="status-chip mono" data-tone="pending">gap</span>
+              <span class="item-title">No "who can I call" list</span>
+            </div>
+            <div class="item-summary">The only way to start a call today is from a profile page you already know the device ID of.</div>
+          </div>
+        </summary>
+        <div class="item-detail">
+          <p>Needs a Mistreal-native linking mechanism — invite link, QR code, or username/phone search — a separate, smaller, unstarted feature.</p>
+        </div>
+      </details>
+
+      <details class="item">
+        <summary>
+          <div class="item-main">
+            <div class="item-row">
+              <span class="status-chip mono" data-tone="blocked">dead end</span>
+              <span class="item-title">Facebook-contact call button can't light up</span>
+            </div>
+            <div class="item-summary">Investigated and closed — Zernio never exposes a contact's real Facebook ID anywhere, for either side of a chat.</div>
+          </div>
+        </summary>
+        <div class="item-detail">
+          <p>Every identifier in that data path is Zernio-internal and opaque, confirmed in <code>zernioAdapter.ts</code>'s own comments. Nothing to cross-reference — stays greyed out permanently unless a Mistreal-native friend system replaces the whole approach.</p>
+        </div>
+      </details>
+
+    </div>
+  </section>
+
+  <section class="tier">
+    <div class="tier-head">
+      <span class="tier-title">Scoped, not started</span>
+      <span class="tier-note">Reuse patterns identified, or detailed enough from your own description to start. One open decision each.</span>
+    </div>
+    <div class="card-list">
+
+      <details class="item" open>
+        <summary>
+          <div class="item-main">
+            <div class="item-row">
+              <span class="status-chip mono" data-tone="scoped">phase 1 shipped, 3 to go</span>
+              <span class="item-title">Live AR Face Swap — real-time Snapchat-style warp, recording, voice changer</span>
+            </div>
+            <div class="item-summary">A 4-phase build. Phase 1 (live camera + sticker filters) shipped this pass — see above. Phases 2–4 (actual live face-swap warping, baking it into recorded video, and wiring up a dead-but-fully-built voice-changer module) are planned but not started.</div>
+          </div>
+        </summary>
+        <div class="item-detail">
+          <p><strong>Phase 2 — the hard part:</strong> real-time warp of a chosen target face onto the live tracked face. Needs MediaPipe Tasks Vision's <code>FaceLandmarker</code> (478-point mesh — ML Kit's ~133-point contour isn't dense enough) plus a from-scratch OpenGL compositor, neither of which exist anywhere in this app today. This is a genuinely hard multi-week CV/graphics problem even for experienced teams, not a quick add — expect visible seams in a first pass.</p>
+          <p><strong>Phase 3:</strong> bake the composited output into a real saved video file (default plan: record raw, then re-apply the effect on export via <code>media3-transformer</code>, already a dependency — trades true WYSIWYG recording for a guaranteed-correct save).</p>
+          <p><strong>Phase 4:</strong> wire <code>util/VoiceFxProcessor.kt</code> — fully built (ROBOT/CHILD/ALIEN/MAN/WOMAN/MONSTER/TACTICAL presets, real PCM pitch-shift/ring-mod/distortion) but with zero callers anywhere — into real voice-message recording first (low risk), then optionally live AI playback and live user-to-user calls (the latter needs a spike: WebRTC's native audio capture has no confirmed app-level hook to intercept/mutate samples).</p>
+          <p class="flag critical">No physical device or emulator in this environment at any point so far. Every phase above compiles clean but frame rate, tracking accuracy, mirroring correctness, and warp visual quality all need validation on real hardware before they can be called done — not just built. Full phase-by-phase file list in <code>~/.claude/plans/elegant-knitting-nygaard.md</code>.</p>
+        </div>
+      </details>
+
+      <details class="item">
+        <summary>
+          <div class="item-main">
+            <div class="item-row">
+              <span class="status-chip mono" data-tone="scoped">designed, not built</span>
+              <span class="item-title">AI-reply notification banner — app-wide</span>
+            </div>
+            <div class="item-summary">A top banner for a reply arriving while you're elsewhere in the app — truncated preview, tap for a full overlay with a text-or-voice reply box. Scope now includes real DMs and other sources too, with a lighter treatment for those.</div>
+          </div>
+        </summary>
+        <div class="item-detail">
+          <p>AI replies: tap opens the full overlay, text reply jumps into that minichat, voice reply records and sends as a voice note the same way voice notes already work. Read-aloud respects the existing Speak Out setting — auto-reads if on, a manual play button if off, your own call and the right one. Non-AI notifications (DMs, weather, etc.): no reply box, just read-aloud-or-play plus tap-to-navigate to the source. The one genuinely new piece of architecture here is app-wide "what screen is the user actually on" tracking, which doesn't exist yet — that's the part worth building carefully rather than bolting on fast.</p>
+        </div>
+      </details>
+
+      <details class="item">
+        <summary>
+          <div class="item-main">
+            <div class="item-row">
+              <span class="status-chip mono" data-tone="scoped">vision captured</span>
+              <span class="item-title">Market redesign, Jumia-style — real financial data + a social-commerce advert feed</span>
+            </div>
+            <div class="item-summary">A real marketplace layout, not a tweak: auto-scrolling price carousel, a newest-first filterable advert feed, deep-linking into business pages, and folding in Zernio's separate Ads API — all one connected vision, captured in detail, not yet built.</div>
+          </div>
+        </summary>
+        <div class="item-detail">
+          <ul>
+            <li>Top: auto-scrolling (~3s) banner mixing real crypto/commodity prices-per-country with a "Post New Advert" CTA. Extends the Market Watch ticker/charts already built, not net-new from scratch.</li>
+            <li>Below: scrollable commodity-advert feed from other users/businesses, newest-first, filterable by category and price.</li>
+            <li>Tapping an advert goes to the advertiser's <strong>business page</strong> first (full listing, stock/sold status) — not straight to their personal profile. Matches the existing Business Detail → Owner Profile hierarchy already in the app, just needs to be the entry point from Market/Intel too.</li>
+            <li>New adverts should trigger the AI-reply/notification system above once that's built — click straight to the DM or the relevant Market page.</li>
+            <li>Tapping a price-ticker item pops up asset detail + a chart with short intraday timeframes (1h/4h) — the existing Market Watch chart only does 1M/3M/6M today, so this is a real extension, not a rebuild.</li>
+            <li>Confirmed gap: <code>MarketScreen.kt</code> has no profile button for the current user at all right now — needs adding regardless of the rest.</li>
+            <li><strong>Open integration question, not yet answered:</strong> Zernio has its own separate Ads API (<code>POST /ads/standalone</code>, plus a fuller campaigns system with reach estimation across 16 platforms/7 ad networks, same auth already in this codebase) that could run a business's ad on real Instagram/Facebook — whether/how that folds into this same feed alongside Mistreal-native adverts is a real product decision (paid ad spend, budget/targeting UI), not a quick addition.</li>
+          </ul>
+          <p class="flag">Depends on the AI-reply notification system above for its own notification piece — natural sequencing is that one first, this second.</p>
+        </div>
+      </details>
+
+      <details class="item">
+        <summary>
+          <div class="item-main">
+            <div class="item-row">
+              <span class="status-chip mono" data-tone="scoped">ready-ish</span>
+              <span class="item-title">Comic Nook</span>
+            </div>
+            <div class="item-summary">Daily-rotating character art, ~2 bundled offline comics, user uploads join a shared pool. Nav and upload patterns both already identified.</div>
+          </div>
+        </summary>
+        <div class="item-detail">
+          <p>Shape should mirror the Games module; uploads should mirror the review voice-note flow. <strong>Open decision:</strong> this app has no general content-moderation system anywhere — a user-upload pool needs one built for the first time, not reused from somewhere.</p>
+        </div>
+      </details>
+
+      <details class="item">
+        <summary>
+          <div class="item-main">
+            <div class="item-row">
+              <span class="status-chip mono" data-tone="scoped">small, real</span>
+              <span class="item-title">Business inventory still doesn't sync — local-only</span>
+            </div>
+            <div class="item-summary">Items only ever save to the device's local database; no backend route exists for them at all, and the delete function that does exist has no UI calling it.</div>
+          </div>
+        </summary>
+        <div class="item-detail">
+          <p>Deliberately deferred when the rest of Business Hub shipped this session. Smallest of the open items — a new backend model/routes plus wiring the existing (unused) delete function into the UI.</p>
+        </div>
+      </details>
+
+    </div>
+  </section>
+
+  <section class="tier">
+    <div class="tier-head">
+      <span class="tier-title">Needs real scoping</span>
+      <span class="tier-note">Raised, understood at a concept level, nowhere near a build yet.</span>
+    </div>
+    <div class="card-list">
+
+      <details class="item">
+        <summary>
+          <div class="item-main">
+            <div class="item-row">
+              <span class="status-chip mono" data-tone="blocked">~15 themes, unprioritized</span>
+              <span class="item-title">Large multi-topic dump, 2026-11-20</span>
+            </div>
+            <div class="item-summary">One message covering startup-loading consolidation, per-user BYO cloud storage, a screenshot→AI model picker, screen-record stickers/captions, an AI-can-press-buttons permission system, a Reels live-cam/drone tab, a nav-bar visibility bug, a textbox/reply-bubble redesign, an SOS panic flow, a games/GPU-addon marketplace, a Jumia-style market overhaul, cross-platform comment unification, and Watch Hub refinements.</div>
+          </div>
+        </summary>
+        <div class="item-detail">
+          <p>Triaged, not built — almost all of this is vision-level musing, not a firm spec, and several items depend on real product/legal calls only you can make (storage architecture, a deliberately lenient content-moderation stance for face-swap videos going to external platforms, SOS feature scope, promo-code economics). Full theme-by-theme breakdown is in the backlog memory file, not duplicated here to keep this board scannable — ask for it by name next session, or just bring up whichever theme you want scoped first.</p>
+          <p class="flag">The bottom nav bar covering a screen it shouldn't ("Intelligence") is the one concrete bug buried in this dump — worth pulling out and fixing on its own next time, separate from the bigger vision items.</p>
+        </div>
+      </details>
+
+      <details class="item">
+        <summary>
+          <div class="item-main">
+            <div class="item-row">
+              <span class="status-chip mono" data-tone="blocked">concept</span>
+              <span class="item-title">Watch Hub as a host-switched channel</span>
+            </div>
+            <div class="item-summary">Not a group-call grid — one screen live to everyone at a time, host picks whose. Plus file transfer, TV casting, and a "replay" idea.</div>
+          </div>
+        </summary>
+        <div class="item-detail">
+          <p>Today's Watch Hub is strictly one host broadcasting to N viewers. This turns it into something closer to a basic switcher/mixer — viewers would need to run their own capture too, and the host needs a live picker over multiple incoming feeds. File transfer needs a data channel; TV casting and "replay" are separate, even less defined, on top.</p>
+          <p class="flag">One fragment from this idea was never successfully parsed — flagged for a re-ask if this comes up again, not guessed at.</p>
+        </div>
+      </details>
+
+      <details class="item">
+        <summary>
+          <div class="item-main">
+            <div class="item-row">
+              <span class="status-chip mono" data-tone="blocked">concept</span>
+              <span class="item-title">Live-cam discovery feed + drone footage</span>
+            </div>
+            <div class="item-summary">A reels-style scroll through live cameras — both users' own feeds made public, and other already-public camera links people attach.</div>
+          </div>
+        </summary>
+        <div class="item-detail">
+          <p><strong>Flagged directly, not yet resolved:</strong> a user-submitted "here's a public camera" directory has a real moderation gap — nothing stops someone submitting an unsecured/private feed mislabeled as public. That's an app-store-rejection and legal-exposure risk if shipped without a safeguard, and needs an answer as part of scoping, not after.</p>
+        </div>
+      </details>
+
+      <details class="item">
+        <summary>
+          <div class="item-main">
+            <div class="item-row">
+              <span class="status-chip mono" data-tone="blocked">concept</span>
+              <span class="item-title">AI-summarized post comments</span>
+            </div>
+            <div class="item-summary">A review layer on posts themselves (not people), feeding an AI summary shown at the top of the comment thread.</div>
+          </div>
+        </summary>
+        <div class="item-detail">
+          <p>Distinct from the existing person-to-person review feature. Unscoped: new model vs. extending an existing one, when summarization would trigger, and the UI shape. A lighter, explicitly-an-aside idea came with it — slick emoji reactions, panels that stay collapsed until needed — not a spec, parked alongside this.</p>
+        </div>
+      </details>
+
+      <details class="item">
+        <summary>
+          <div class="item-main">
+            <div class="item-row">
+              <span class="status-chip mono" data-tone="blocked">on hold</span>
+              <span class="item-title">God Mode inside minichats</span>
+            </div>
+            <div class="item-summary">Explicitly parked by you — strict factual grounding vs. God Mode's more expansive reasoning could conflict, and it needs discussion before any change.</div>
+          </div>
+        </summary>
+        <div class="item-detail">
+          <p>Not touched until you revisit it on purpose.</p>
+        </div>
+      </details>
+
+      <details class="item">
+        <summary>
+          <div class="item-main">
+            <div class="item-row">
+              <span class="status-chip mono" data-tone="blocked">unclear</span>
+              <span class="item-title">Shared-contact notification idea</span>
+            </div>
+            <div class="item-summary">Something about two people chatting elsewhere, both turning out to have Mistreal, and a notification suggesting a review.</div>
+          </div>
+        </summary>
+        <div class="item-detail">
+          <p>Came through too garbled to act on twice now. Needs restating in a sentence or two before this becomes a real line item.</p>
+        </div>
+      </details>
+
+    </div>
+  </section>
+
+  <footer>
+    <span>Mistreal · internal build tracking</span>
+    <span class="mono">2026-11-20</span>
+  </footer>

@@ -1,6 +1,11 @@
 package com.example.mistreal_mini.ui.chat.components
 
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ContentCut
@@ -13,8 +18,10 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
+import com.example.mistreal_mini.util.VoicePreset
 import java.io.File
 
 @Composable
@@ -29,7 +36,12 @@ fun VoiceRecordingBar(
     onSend: () -> Unit,
     // Durations in ms, relative to the full recording — applies the trim and
     // replaces recordedFile with the result (see MediaEditorUtil.trimAudio).
-    onTrim: (startMs: Long, endMs: Long) -> Unit = { _, _ -> }
+    onTrim: (startMs: Long, endMs: Long) -> Unit = { _, _ -> },
+    // Applied to the recording right before it's sent (ChatViewModel.sendRecordedVoiceNote) —
+    // preview playback here is still the unprocessed clip, since VoiceFxRenderer's
+    // decode/re-encode pass only runs once, on send.
+    selectedVoicePreset: VoicePreset = VoicePreset.NONE,
+    onVoicePresetSelected: (VoicePreset) -> Unit = {}
 ) {
     Surface(
         tonalElevation = 4.dp,
@@ -61,7 +73,20 @@ fun VoiceRecordingBar(
                         IconButton(onClick = onPlay) {
                             Icon(if (isPlayingBack) Icons.Default.Stop else Icons.Default.PlayArrow, contentDescription = "Play")
                         }
-                        Text("Voice Preview", style = MaterialTheme.typography.bodyMedium)
+                        Column {
+                            Text("Voice Preview", style = MaterialTheme.typography.bodyMedium)
+                            // Preview playback is still the unprocessed clip (see
+                            // selectedVoicePreset's doc below) — this tag is what
+                            // will actually go out once sent, so it's shown even
+                            // though the preview itself doesn't reflect it yet.
+                            if (selectedVoicePreset != VoicePreset.NONE) {
+                                Text(
+                                    "${selectedVoicePreset.emoji} ${selectedVoicePreset.displayName}",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.primary
+                                )
+                            }
+                        }
                     }
 
                     FloatingActionButton(
@@ -72,6 +97,31 @@ fun VoiceRecordingBar(
                         shape = RoundedCornerShape(24.dp)
                     ) {
                         Icon(Icons.Default.Send, contentDescription = "Send")
+                    }
+                }
+            }
+
+            // Voice effect — applied by ChatViewModel right before send, not live.
+            if (!isRecording && recordedFile != null) {
+                Spacer(modifier = Modifier.height(8.dp))
+                LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    items(VoicePreset.entries) { preset ->
+                        val isSel = preset == selectedVoicePreset
+                        Row(
+                            modifier = Modifier
+                                .clip(CircleShape)
+                                .background(if (isSel) MaterialTheme.colorScheme.primary.copy(alpha = 0.18f) else Color.Transparent)
+                                .clickable { onVoicePresetSelected(preset) }
+                                .padding(horizontal = 10.dp, vertical = 6.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(preset.emoji, modifier = Modifier.padding(end = 4.dp))
+                            Text(
+                                preset.displayName,
+                                style = MaterialTheme.typography.labelSmall,
+                                color = if (isSel) MaterialTheme.colorScheme.primary else Color.Gray
+                            )
+                        }
                     }
                 }
             }

@@ -10,7 +10,9 @@ enum class VoicePreset(val displayName: String, val emoji: String) {
     MAN("Deep Bass Man", "👨"),
     WOMAN("Soft Treble Woman", "👩"),
     MONSTER("Shadow Monster", "👹"),
-    TACTICAL("Tactical Walkie-Talkie", "📻")
+    TACTICAL("Tactical Walkie-Talkie", "📻"),
+    /** Pitch multiplier isn't fixed — comes from [customPitch], a user-adjustable Settings slider (see PreferenceManager.voiceFxCustomPitch), not a hardcoded value like every other preset. */
+    CUSTOM("Custom", "🎚️")
 }
 
 /**
@@ -23,7 +25,8 @@ object VoiceFxProcessor {
         inputBuffer: ShortArray,
         length: Int,
         preset: VoicePreset,
-        sampleRate: Int = 16000
+        sampleRate: Int = 16000,
+        customPitch: Float = 1.0f
     ): ShortArray {
         if (preset == VoicePreset.NONE || length <= 0) {
             return inputBuffer
@@ -38,6 +41,7 @@ object VoiceFxProcessor {
             VoicePreset.ROBOT -> 0.85f
             VoicePreset.ALIEN -> 1.30f
             VoicePreset.TACTICAL -> 0.95f
+            VoicePreset.CUSTOM -> customPitch.coerceIn(0.5f, 2.0f)
             VoicePreset.NONE -> 1.0f
         }
 

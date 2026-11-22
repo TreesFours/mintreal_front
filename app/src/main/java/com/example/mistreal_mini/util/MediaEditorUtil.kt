@@ -8,6 +8,8 @@ import android.media.MediaMetadataRetriever
 import android.net.Uri
 import androidx.core.content.FileProvider
 import androidx.media3.common.MediaItem
+import androidx.media3.effect.BitmapOverlay
+import androidx.media3.effect.OverlayEffect
 import androidx.media3.effect.Presentation
 import androidx.media3.transformer.Composition
 import androidx.media3.transformer.DefaultEncoderFactory
@@ -31,6 +33,15 @@ import kotlin.coroutines.resume
  * extraction for the 6-way video segmentation workflow. Output files follow the
  * same cacheDir + FileProvider convention as [ScreenshotHelper].
  */
+/** A decorative emoji dragged onto a static image in [com.example.mistreal_mini.ui.chat.components.AttachmentEditorDialog]'s sticker tool — [fx]/[fy] are 0f..1f fractions of the image, same convention as crop/region coordinates elsewhere in this file. */
+data class PlacedSticker(val emoji: String, val fx: Float, val fy: Float, val scale: Float = 1f)
+
+/** General-purpose decorative stickers for the editor's drag-to-place tool — deliberately not tied to face tracking (contrast [com.example.mistreal_mini.ui.camera.ar.AR_STICKER_CATALOG], which anchors to a live tracked face), so any future image/video surface can reuse this same list. */
+val STICKER_EMOJI_CHOICES = listOf(
+    "😂", "😍", "🔥", "💯", "✨", "❤️", "👑", "🎉",
+    "😎", "🥳", "💀", "🤣", "⭐", "🎄", "🎃", "❄️"
+)
+
 object MediaEditorUtil {
 
     /**
@@ -114,6 +125,112 @@ object MediaEditorUtil {
             null
         }
     }
+
+    /** Bakes [stickers] onto a copy of [sourceUri], scaled relative to the image's own width so a sticker looks the same size regardless of resolution. */
+    suspend fun applyStickers(context: Context, sourceUri: Uri, stickers: List<PlacedSticker>): Uri? =
+        withContext(Dispatchers.IO) {
+            try {
+                val source = context.contentResolver.openInputStream(sourceUri)?.use { stream ->
+                    BitmapFactory.decodeStream(stream)
+                } ?: return@withContext null
+                val composite = source.copy(Bitmap.Config.ARGB_8888, true)
+                val canvas = android.graphics.Canvas(composite)
+                for (sticker in stickers) {
+                    val paint = android.graphics.Paint().apply {
+                        textSize = composite.width * 0.12f * sticker.scale
+                        textAlign = android.graphics.Paint.Align.CENTER
+                        isAntiAlias = true
+                    }
+                    val metrics = paint.fontMetrics
+                    val x = sticker.fx * composite.width
+                    val y = sticker.fy * composite.height - (metrics.ascent + metrics.descent) / 2f
+                    canvas.drawText(sticker.emoji, x, y, paint)
+                }
+                saveBitmapAndGetUri(context, composite, "stickers")
+            } catch (e: Exception) {
+                Timber.e(e, "applyStickers failed for %s", sourceUri)
+                null
+            }
+        }
+
+    /**
+     * Video sibling of [applyStickers] — same fixed-position emoji
+     * placement, baked onto every frame of [sourceUri] via Media3
+     * Transformer's [OverlayEffect] (the same mechanism
+     * [com.example.mistreal_mini.util.ar.VideoFilterBaker] already proved
+     * out for the AR camera's face-tracked stickers). Simpler than that
+     * one: stickers here don't track a moving face, so the SAME overlay
+     * bitmap is reused for every frame instead of being redrawn per frame —
+     * no per-frame detection cost at all. Dimensions are derived from a
+     * real decoded frame rather than video metadata, since metadata can
+     * disagree with `getFrameAtTime`'s actual (already-rotated) output —
+     * same reasoning as `VideoFilterBaker`.
+     */
+    suspend fun applyStickersToVideo(context: Context, sourceUri: Uri, stickers: List<PlacedSticker>): Uri? =
+        withContext(Dispatchers.Main) {
+            if (stickers.isEmpty()) return@withContext sourceUri
+            try {
+                val retriever = MediaMetadataRetriever()
+                val frame = try {
+                    retriever.setDataSource(context, sourceUri)
+                    retriever.getFrameAtTime(0, MediaMetadataRetriever.OPTION_CLOSEST)
+                } finally {
+                    retriever.release()
+                }
+                if (frame == null) return@withContext null
+
+                val overlayBitmap = frame.copy(Bitmap.Config.ARGB_8888, true).also { bmp ->
+                    // Starts from a transparent copy, not the real frame content —
+                    // Media3 composites this on top of the actual decoded frame
+                    // itself, so only the stickers should be opaque here.
+                    bmp.eraseColor(android.graphics.Color.TRANSPARENT)
+                }
+                val canvas = android.graphics.Canvas(overlayBitmap)
+                for (sticker in stickers) {
+                    val paint = android.graphics.Paint().apply {
+                        textSize = overlayBitmap.width * 0.12f * sticker.scale
+                        textAlign = android.graphics.Paint.Align.CENTER
+                        isAntiAlias = true
+                    }
+                    val metrics = paint.fontMetrics
+                    val x = sticker.fx * overlayBitmap.width
+                    val y = sticker.fy * overlayBitmap.height - (metrics.ascent + metrics.descent) / 2f
+                    canvas.drawText(sticker.emoji, x, y, paint)
+                }
+
+                val overlay = object : BitmapOverlay() {
+                    override fun getBitmap(presentationTimeUs: Long): Bitmap = overlayBitmap
+                }
+
+                val outputFile = File(context.cacheDir, "video_stickers_${System.currentTimeMillis()}.mp4")
+                val mediaItem = MediaItem.Builder().setUri(sourceUri).build()
+                val editedMediaItem = EditedMediaItem.Builder(mediaItem)
+                    .setEffects(Effects(emptyList(), listOf(OverlayEffect(com.google.common.collect.ImmutableList.of(overlay)))))
+                    .build()
+
+                suspendCancellableCoroutine<Uri?> { continuation ->
+                    val transformer = Transformer.Builder(context)
+                        .addListener(object : Transformer.Listener {
+                            override fun onCompleted(composition: Composition, exportResult: ExportResult) {
+                                if (continuation.isActive) {
+                                    continuation.resume(FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", outputFile))
+                                }
+                            }
+
+                            override fun onError(composition: Composition, exportResult: ExportResult, exportException: ExportException) {
+                                Timber.e(exportException, "Video sticker bake failed")
+                                if (continuation.isActive) continuation.resume(null)
+                            }
+                        })
+                        .build()
+                    transformer.start(editedMediaItem, outputFile.absolutePath)
+                    continuation.invokeOnCancellation { transformer.cancel() }
+                }
+            } catch (e: Exception) {
+                Timber.e(e, "applyStickersToVideo failed for %s", sourceUri)
+                null
+            }
+        }
 
     /** [normalizedRect] fields are 0f..1f fractions of the source image's width/height. */
     suspend fun cropImage(context: Context, sourceUri: Uri, normalizedRect: RectF): Uri? =
