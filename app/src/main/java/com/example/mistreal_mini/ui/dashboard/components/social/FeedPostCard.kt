@@ -107,6 +107,25 @@ fun FeedPostCard(
     }
 }
 
+/**
+ * One post that went out to several platforms at once used to show up as N
+ * separate duplicate cards (see zernioAdapter.ts::fetchFeed) — now it's a
+ * single merged card, with this as the only visible trace that it reached
+ * more than one place. Renders nothing when [platforms] is null/≤1, which
+ * is the common case (a normal single-platform post).
+ */
+@Composable
+private fun MultiPlatformCountBadge(platforms: List<String>?) {
+    if (platforms == null || platforms.size <= 1) return
+    Spacer(Modifier.width(2.dp))
+    Text(
+        "+${platforms.size - 1}",
+        style = MaterialTheme.typography.labelSmall,
+        fontWeight = FontWeight.Bold,
+        color = MaterialTheme.colorScheme.secondary
+    )
+}
+
 private fun extractYoutubeId(url: String?): String? {
     if (url.isNullOrBlank()) return null
     if (url.startsWith("youtube://")) return url.removePrefix("youtube://")
@@ -176,6 +195,7 @@ private fun BoxScope.MediaPostBody(
         Column(modifier = Modifier.fillMaxWidth(0.8f)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(post.platformIcon, fontSize = 16.sp)
+                MultiPlatformCountBadge(post.platforms)
                 Spacer(Modifier.width(8.dp))
                 Text(
                     post.author,
@@ -245,6 +265,7 @@ private fun TextPostBody(
                 ) {
                     Text(post.platformIcon, fontSize = 18.sp)
                 }
+                MultiPlatformCountBadge(post.platforms)
                 Spacer(modifier = Modifier.width(12.dp))
                 Column(modifier = Modifier.weight(1f)) {
                     val label = when (post.type.lowercase()) {

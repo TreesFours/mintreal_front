@@ -657,6 +657,12 @@ class SettingsViewModel @Inject constructor(
     private val _selectedChartSymbol = MutableStateFlow<String?>(null)
     val selectedChartSymbol = _selectedChartSymbol.asStateFlow()
 
+    // Needed so a later 1h/4h tap can re-fetch with the right assetClass —
+    // openChart previously only took this as a one-shot function param,
+    // never stored it.
+    private val _selectedChartAssetClass = MutableStateFlow<String?>(null)
+    val selectedChartAssetClass = _selectedChartAssetClass.asStateFlow()
+
     private val _chartCandles = MutableStateFlow<List<com.example.mistreal_mini.data.api.MarketCandle>>(emptyList())
     val chartCandles = _chartCandles.asStateFlow()
 
@@ -665,6 +671,7 @@ class SettingsViewModel @Inject constructor(
 
     fun openChart(symbol: String, assetClass: String) {
         _selectedChartSymbol.value = symbol
+        _selectedChartAssetClass.value = assetClass
         _chartCandles.value = emptyList()
         viewModelScope.launch {
             _isLoadingChart.value = true
@@ -677,8 +684,30 @@ class SettingsViewModel @Inject constructor(
         }
     }
 
+    /**
+     * 1h/4h re-fetch a fresh intraday series (there's no hourly granularity
+     * inside the daily series to slice client-side); passing `interval = null`
+     * returns to the daily series for the existing 1M/3M/6M chips — which
+     * hits MarketRepository's own cache (same key as openChart's original
+     * fetch) rather than a real second network round trip in practice.
+     */
+    fun selectChartInterval(interval: String?) {
+        val symbol = _selectedChartSymbol.value ?: return
+        val assetClass = _selectedChartAssetClass.value ?: return
+        viewModelScope.launch {
+            _isLoadingChart.value = true
+            when (val result = marketRepository.getCandles(symbol, assetClass, interval)) {
+                is Resource.Success -> _chartCandles.value = result.data ?: emptyList()
+                is Resource.Error -> _errorEvent.emit(result.message ?: "Chart unavailable")
+                else -> {}
+            }
+            _isLoadingChart.value = false
+        }
+    }
+
     fun closeChart() {
         _selectedChartSymbol.value = null
+        _selectedChartAssetClass.value = null
     }
 
     // --- Contact Your Bank ---

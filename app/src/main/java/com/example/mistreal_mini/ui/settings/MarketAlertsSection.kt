@@ -188,14 +188,26 @@ fun MarketAlertsSection(viewModel: SettingsViewModel) {
 
     val chartSymbol by viewModel.selectedChartSymbol.collectAsState()
     if (chartSymbol != null) {
+        val chartAssetClass by viewModel.selectedChartAssetClass.collectAsState()
         val candles by viewModel.chartCandles.collectAsState()
         val isLoadingChart by viewModel.isLoadingChart.collectAsState()
         // getCandles() already fetches/caches up to ~180 daily candles
-        // server-side (marketDataService.ts) — the timeframe toggle just
-        // slices what's already in hand, no extra network call per window.
+        // server-side (marketDataService.ts) — the 1M/3M/6M timeframe toggle
+        // just slices what's already in hand, no extra network call per
+        // window. 1h/4h are different: there's no hourly granularity inside
+        // the daily series to slice, so selecting one triggers a real
+        // intraday re-fetch (see selectedIntradayInterval below) instead.
         var timeframeDays by remember { mutableIntStateOf(180) }
         var showMovingAverage by remember { mutableStateOf(false) }
-        val windowedCandles = remember(candles, timeframeDays) { candles.takeLast(timeframeDays) }
+        // null = showing the daily series (1M/3M/6M slice it); non-null =
+        // showing a fresh intraday fetch for that interval, shown as-is
+        // with no further client-side slicing.
+        var selectedIntradayInterval by remember { mutableStateOf<String?>(null) }
+        val windowedCandles = if (selectedIntradayInterval != null) candles else remember(candles, timeframeDays) { candles.takeLast(timeframeDays) }
+        // CoinGecko's free tier has no hourly OHLC for crypto — confirmed,
+        // not assumed (see marketDataService.ts::getCandles) — so the chips
+        // are only offered for stock/forex/commodity, never crypto.
+        val supportsIntraday = chartAssetClass != null && chartAssetClass != "crypto"
 
         AlertDialog(
             onDismissRequest = { viewModel.closeChart() },
@@ -213,10 +225,28 @@ fun MarketAlertsSection(viewModel: SettingsViewModel) {
                     Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                         listOf("1M" to 30, "3M" to 90, "6M" to 180).forEach { (label, days) ->
                             FilterChip(
-                                selected = timeframeDays == days,
-                                onClick = { timeframeDays = days },
+                                selected = selectedIntradayInterval == null && timeframeDays == days,
+                                onClick = {
+                                    timeframeDays = days
+                                    if (selectedIntradayInterval != null) {
+                                        selectedIntradayInterval = null
+                                        viewModel.selectChartInterval(null)
+                                    }
+                                },
                                 label = { Text(label) }
                             )
+                        }
+                        if (supportsIntraday) {
+                            listOf("1h", "4h").forEach { interval ->
+                                FilterChip(
+                                    selected = selectedIntradayInterval == interval,
+                                    onClick = {
+                                        selectedIntradayInterval = interval
+                                        viewModel.selectChartInterval(interval)
+                                    },
+                                    label = { Text(interval) }
+                                )
+                            }
                         }
                     }
                     Spacer(modifier = Modifier.height(6.dp))

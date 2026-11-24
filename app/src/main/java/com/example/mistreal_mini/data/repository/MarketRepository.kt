@@ -38,11 +38,15 @@ class MarketRepository @Inject constructor(
     // user reopens the same chart twice in one app session.
     private val candleCache = mutableMapOf<String, List<MarketCandle>>()
 
-    suspend fun getCandles(symbol: String, assetClass: String): Resource<List<MarketCandle>> {
-        val cacheKey = "$assetClass:$symbol"
+    suspend fun getCandles(symbol: String, assetClass: String, interval: String? = null): Resource<List<MarketCandle>> {
+        // interval is part of the cache key for the same reason the
+        // backend's own candleCache needed the same fix — a 1h and a 1day
+        // fetch for the same symbol would otherwise collide and silently
+        // serve the wrong granularity.
+        val cacheKey = "$assetClass:$symbol:${interval ?: "1day"}"
         candleCache[cacheKey]?.let { return Resource.Success(it) }
-        return safeApiCall("Chart data unavailable", logTag = "MarketRepository.getCandles($symbol, $assetClass) failed") {
-            val response = api.getCandles(symbol, assetClass)
+        return safeApiCall("Chart data unavailable", logTag = "MarketRepository.getCandles($symbol, $assetClass, $interval) failed") {
+            val response = api.getCandles(symbol, assetClass, interval)
             if (response.success) {
                 candleCache[cacheKey] = response.candles
                 Resource.Success(response.candles)

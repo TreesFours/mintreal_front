@@ -13,6 +13,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.Call
 import androidx.compose.material.icons.filled.Language
+import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -49,6 +50,13 @@ fun MarketScreen(
     onBack: () -> Unit,
     onContactBusiness: (RemoteBusiness) -> Unit,
     onViewBusinessDetail: (RemoteBusiness) -> Unit,
+    // Confirmed gap: this screen previously had no profile button at all.
+    onMyProfileClick: () -> Unit = {},
+    // An advert's card always deep-links to the POSTING business's owner
+    // profile — never a personal profile — matching the original vision
+    // exactly and reusing the same Routes.ownerProfile(...) builder
+    // BusinessDetailScreen's own onViewOwnerProfile already uses.
+    onViewOwnerProfile: (ownerDeviceId: String, ownerName: String?, ownerPhotoUrl: String?, businessId: String) -> Unit = { _, _, _, _ -> },
     viewModel: MarketViewModel = hiltViewModel(),
     adHostViewModel: AdHostViewModel = hiltViewModel()
 ) {
@@ -61,6 +69,16 @@ fun MarketScreen(
     val nativeResults by viewModel.nativeResults.collectAsState()
     val externalResults by viewModel.externalResults.collectAsState()
     val dueAd by adHostViewModel.dueAd.collectAsState()
+    val marketplaceMode by viewModel.marketplaceMode.collectAsState()
+    val myBusiness by viewModel.myBusiness.collectAsState()
+    val advertCategory by viewModel.advertCategory.collectAsState()
+    val isLoadingAdverts by viewModel.isLoadingAdverts.collectAsState()
+    val adverts by viewModel.adverts.collectAsState()
+    var showPostAdvertDialog by remember { mutableStateOf(false) }
+
+    LaunchedEffect(marketplaceMode) {
+        if (marketplaceMode) viewModel.loadAdverts()
+    }
 
     val selectedTicker by viewModel.selectedTicker.collectAsState()
     val chartCandles by viewModel.chartCandles.collectAsState()
@@ -70,7 +88,12 @@ fun MarketScreen(
         topBar = {
             TopAppBar(
                 title = { Text("Market Hub") },
-                navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.Default.ArrowBack, contentDescription = "Back") } }
+                navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.Default.ArrowBack, contentDescription = "Back") } },
+                actions = {
+                    IconButton(onClick = onMyProfileClick) {
+                        Icon(Icons.Default.Person, contentDescription = "My Profile")
+                    }
+                }
             )
         }
     ) { padding ->
@@ -114,80 +137,263 @@ fun MarketScreen(
                 }
             }
 
-            // --- Search ---
+            // --- Businesses / Marketplace segmented toggle — defaults to
+            // Businesses (today's unchanged search behavior); Marketplace is
+            // the new classifieds advert feed.
             item {
-                Column(modifier = Modifier.padding(16.dp)) {
-                    OutlinedTextField(
-                        value = searchQuery,
-                        onValueChange = { viewModel.onSearchQueryChanged(it) },
-                        modifier = Modifier.fillMaxWidth(),
-                        placeholder = { Text("Search goods, services, or a business...") },
-                        leadingIcon = { Icon(Icons.Default.Search, null) },
-                        shape = RoundedCornerShape(12.dp),
-                        singleLine = true,
-                        keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
-                        keyboardActions = KeyboardActions(onSearch = { focusManager.clearFocus() })
-                    )
-                }
-            }
-            item {
-                LazyRow(
-                    contentPadding = PaddingValues(horizontal = 16.dp),
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    items(listOf("All") + BusinessCategories) { cat ->
-                        FilterChip(
-                            selected = selectedCategory == cat,
-                            onClick = { viewModel.onCategorySelected(cat) },
-                            label = { Text(cat) }
-                        )
-                    }
+                    FilterChip(
+                        selected = !marketplaceMode,
+                        onClick = { viewModel.setMarketplaceMode(false) },
+                        label = { Text("Businesses") }
+                    )
+                    FilterChip(
+                        selected = marketplaceMode,
+                        onClick = { viewModel.setMarketplaceMode(true) },
+                        label = { Text("Marketplace") }
+                    )
                 }
             }
 
-            item { Spacer(modifier = Modifier.height(12.dp)) }
-
-            if (isSearching && nativeResults.isEmpty() && externalResults.isEmpty()) {
+            if (!marketplaceMode) {
+                // --- Search ---
                 item {
-                    Box(modifier = Modifier.fillMaxWidth().padding(32.dp), contentAlignment = Alignment.Center) {
-                        CircularProgressIndicator()
-                    }
-                }
-            } else if (nativeResults.isNotEmpty()) {
-                items(nativeResults) { business ->
-                    Box(modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp)) {
-                        BusinessResultCard(
-                            business,
-                            onContact = { onContactBusiness(business) },
-                            onClick = { onViewBusinessDetail(business) }
+                    Column(modifier = Modifier.padding(16.dp)) {
+                        OutlinedTextField(
+                            value = searchQuery,
+                            onValueChange = { viewModel.onSearchQueryChanged(it) },
+                            modifier = Modifier.fillMaxWidth(),
+                            placeholder = { Text("Search goods, services, or a business...") },
+                            leadingIcon = { Icon(Icons.Default.Search, null) },
+                            shape = RoundedCornerShape(12.dp),
+                            singleLine = true,
+                            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
+                            keyboardActions = KeyboardActions(onSearch = { focusManager.clearFocus() })
                         )
                     }
                 }
-            } else if (externalResults.isNotEmpty()) {
                 item {
-                    Text(
-                        "No matching businesses on Mistreal yet — here's what's nearby outside the app. We can't vouch for these.",
-                        style = MaterialTheme.typography.labelMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
-                    )
+                    LazyRow(
+                        contentPadding = PaddingValues(horizontal = 16.dp),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        items(listOf("All") + BusinessCategories) { cat ->
+                            FilterChip(
+                                selected = selectedCategory == cat,
+                                onClick = { viewModel.onCategorySelected(cat) },
+                                label = { Text(cat) }
+                            )
+                        }
+                    }
                 }
-                items(externalResults) { poi ->
-                    Box(modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp)) {
-                        ExternalResultCard(poi)
+
+                item { Spacer(modifier = Modifier.height(12.dp)) }
+
+                if (isSearching && nativeResults.isEmpty() && externalResults.isEmpty()) {
+                    item {
+                        Box(modifier = Modifier.fillMaxWidth().padding(32.dp), contentAlignment = Alignment.Center) {
+                            CircularProgressIndicator()
+                        }
+                    }
+                } else if (nativeResults.isNotEmpty()) {
+                    items(nativeResults) { business ->
+                        Box(modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp)) {
+                            BusinessResultCard(
+                                business,
+                                onContact = { onContactBusiness(business) },
+                                onClick = { onViewBusinessDetail(business) }
+                            )
+                        }
+                    }
+                } else if (externalResults.isNotEmpty()) {
+                    item {
+                        Text(
+                            "No matching businesses on Mistreal yet — here's what's nearby outside the app. We can't vouch for these.",
+                            style = MaterialTheme.typography.labelMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
+                        )
+                    }
+                    items(externalResults) { poi ->
+                        Box(modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp)) {
+                            ExternalResultCard(poi)
+                        }
+                    }
+                } else {
+                    item {
+                        Text(
+                            "No results yet — try a different category or search term.",
+                            color = Color.Gray,
+                            modifier = Modifier.padding(32.dp)
+                        )
                     }
                 }
             } else {
+                // --- Marketplace: classifieds advert feed (business-only posting) ---
                 item {
-                    Text(
-                        "No results yet — try a different category or search term.",
-                        color = Color.Gray,
-                        modifier = Modifier.padding(32.dp)
-                    )
+                    Row(
+                        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text("Marketplace", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                        if (myBusiness != null) {
+                            Button(onClick = { showPostAdvertDialog = true }) { Text("Post New Advert") }
+                        }
+                    }
+                }
+                if (myBusiness == null) {
+                    item {
+                        Text(
+                            "Register a business in Business Hub to post an advert here.",
+                            style = MaterialTheme.typography.labelMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
+                        )
+                    }
+                }
+                item {
+                    LazyRow(
+                        contentPadding = PaddingValues(horizontal = 16.dp),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        items(listOf("All") + BusinessCategories) { cat ->
+                            FilterChip(
+                                selected = advertCategory == cat,
+                                onClick = { viewModel.onAdvertCategorySelected(cat) },
+                                label = { Text(cat) }
+                            )
+                        }
+                    }
+                }
+                item { Spacer(modifier = Modifier.height(12.dp)) }
+                if (isLoadingAdverts && adverts.isEmpty()) {
+                    item {
+                        Box(modifier = Modifier.fillMaxWidth().padding(32.dp), contentAlignment = Alignment.Center) {
+                            CircularProgressIndicator()
+                        }
+                    }
+                } else if (adverts.isEmpty()) {
+                    item {
+                        Text(
+                            "No adverts yet — try a different category, or be the first to post one.",
+                            color = Color.Gray,
+                            modifier = Modifier.padding(32.dp)
+                        )
+                    }
+                } else {
+                    items(adverts) { advert ->
+                        Box(modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp)) {
+                            AdvertCard(
+                                advert = advert,
+                                onClick = {
+                                    advert.ownerDeviceId?.let { ownerDeviceId ->
+                                        onViewOwnerProfile(ownerDeviceId, advert.ownerName, advert.ownerPhotoUrl, advert.businessId)
+                                    }
+                                }
+                            )
+                        }
+                    }
                 }
             }
         }
     }
+
+    if (showPostAdvertDialog) {
+        myBusiness?.let { business ->
+            PostAdvertDialog(
+                isPosting = viewModel.isPostingAdvert.collectAsState().value,
+                error = viewModel.advertPostError.collectAsState().value,
+                onDismiss = { showPostAdvertDialog = false },
+                onPost = { title, description, price, category, imageUri ->
+                    viewModel.postAdvert(business.businessId, title, description, price, category, imageUri, context) { success ->
+                        if (success) showPostAdvertDialog = false
+                    }
+                }
+            )
+        }
+    }
+}
+
+@Composable
+private fun AdvertCard(advert: com.example.mistreal_mini.data.api.RemoteAdvert, onClick: () -> Unit) {
+    Card(modifier = Modifier.fillMaxWidth().clickable(onClick = onClick)) {
+        Row(modifier = Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
+            if (!advert.imageUrl.isNullOrBlank()) {
+                coil.compose.AsyncImage(
+                    model = advert.imageUrl,
+                    contentDescription = advert.title,
+                    modifier = Modifier.size(64.dp).clip(RoundedCornerShape(8.dp)),
+                    contentScale = androidx.compose.ui.layout.ContentScale.Crop
+                )
+                Spacer(modifier = Modifier.width(12.dp))
+            }
+            Column(modifier = Modifier.weight(1f)) {
+                Text(advert.title, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.bodyLarge)
+                advert.price?.let {
+                    Text(it, style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.primary)
+                }
+                Text(advert.category, style = MaterialTheme.typography.labelSmall, color = Color.Gray)
+                Text("by ${advert.ownerName ?: "Unknown"}", style = MaterialTheme.typography.labelSmall, color = Color.Gray)
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun PostAdvertDialog(
+    isPosting: Boolean,
+    error: String?,
+    onDismiss: () -> Unit,
+    onPost: (title: String, description: String?, price: String?, category: String, imageUri: android.net.Uri?) -> Unit
+) {
+    var title by remember { mutableStateOf("") }
+    var description by remember { mutableStateOf("") }
+    var price by remember { mutableStateOf("") }
+    var category by remember { mutableStateOf(BusinessCategories.first()) }
+    var imageUri by remember { mutableStateOf<android.net.Uri?>(null) }
+    val imagePicker = androidx.activity.compose.rememberLauncherForActivityResult(
+        androidx.activity.result.contract.ActivityResultContracts.GetContent()
+    ) { uri -> imageUri = uri }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Post New Advert") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedTextField(value = title, onValueChange = { title = it }, label = { Text("Title") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+                OutlinedTextField(value = description, onValueChange = { description = it }, label = { Text("Description") }, modifier = Modifier.fillMaxWidth())
+                OutlinedTextField(value = price, onValueChange = { price = it }, label = { Text("Price") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+                LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    items(BusinessCategories) { cat ->
+                        FilterChip(selected = category == cat, onClick = { category = cat }, label = { Text(cat) })
+                    }
+                }
+                TextButton(onClick = { imagePicker.launch("image/*") }) {
+                    Text(if (imageUri == null) "Add Photo" else "Photo selected")
+                }
+                if (error != null) {
+                    Text(error, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.labelSmall)
+                }
+            }
+        },
+        confirmButton = {
+            Button(
+                enabled = title.isNotBlank() && !isPosting,
+                onClick = {
+                    onPost(title, description.ifBlank { null }, price.ifBlank { null }, category, imageUri)
+                }
+            ) {
+                if (isPosting) CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
+                else Text("Post")
+            }
+        },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } }
+    )
 }
 
 @Composable

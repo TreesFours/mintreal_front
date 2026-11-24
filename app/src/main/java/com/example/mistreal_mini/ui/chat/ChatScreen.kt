@@ -28,6 +28,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
@@ -107,6 +108,13 @@ fun ChatScreen(
         viewModel.errorEvents.collectLatest { error ->
             snackbarHostState.showSnackbar(error)
         }
+    }
+
+    // Focused when the AI-reply notification banner's "Reply" action brings
+    // the user back here — see NotificationBannerCenter.requestInputFocus().
+    val inputFocusRequester = remember { FocusRequester() }
+    LaunchedEffect(Unit) {
+        viewModel.focusInputRequests.collect { inputFocusRequester.requestFocus() }
     }
 
     var showContactList by remember { mutableStateOf(false) }
@@ -441,6 +449,7 @@ fun ChatScreen(
                     onArCameraClick = { showArCamera = true },
                     onFileClick = { filePickerLauncher.launch("*/*") },
                     onVoiceClick = { viewModel.startRecording() },
+                    onVoiceLongPress = { viewModel.startHandsFreeLoop("") },
                     onScribeClick = {
                         if (isScribing) viewModel.stopScribe() else viewModel.startScribe()
                     },
@@ -488,7 +497,8 @@ fun ChatScreen(
                         else viewModel.setGuardianEnabled(it)
                     },
                     replyingTo = if (viewModel.isSocialChat.value) viewModel.replyingTo.value else null,
-                    onCancelReply = { viewModel.setReplyingTo(null) }
+                    onCancelReply = { viewModel.setReplyingTo(null) },
+                    focusRequester = inputFocusRequester
                 )
             }
         }
@@ -663,7 +673,12 @@ fun ChatScreen(
                     contentColor = MaterialTheme.colorScheme.onPrimary,
                     shape = RoundedCornerShape(20.dp),
                     tonalElevation = 8.dp,
-                    shadowElevation = 8.dp
+                    shadowElevation = 8.dp,
+                    // The Close button below has its own clickable region and
+                    // consumes taps within its own bounds first — this only
+                    // ever fires for the rest of the card (the "tap to speak/
+                    // tap to send" text the banner itself advertises).
+                    modifier = Modifier.clickable { viewModel.advanceHandsFreeTurn() }
                 ) {
                     Row(
                         verticalAlignment = Alignment.CenterVertically,

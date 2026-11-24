@@ -44,6 +44,7 @@ fun SellerCommandScreen(
     onBack: () -> Unit,
     onUpgradeClick: () -> Unit = {},
     onStartLiveView: (businessId: String) -> Unit = {},
+    onOpenAds: (businessId: String, connectedAdPlatforms: List<String>) -> Unit = { _, _ -> },
     viewModel: BusinessViewModel = hiltViewModel()
 ) {
     val myBusiness by viewModel.myBusiness.collectAsStateWithLifecycle()
@@ -78,6 +79,7 @@ fun SellerCommandScreen(
                 isPro = isPro,
                 onUpgradeClick = onUpgradeClick,
                 onStartLiveView = onStartLiveView,
+                onOpenAds = { onOpenAds(myBusiness!!.businessId, emptyList()) },
                 modifier = Modifier.padding(padding)
             )
         }
@@ -156,7 +158,9 @@ fun BusinessRegistrationForm(
                     }
                 }
             },
-            modifier = Modifier.fillMaxWidth(),
+            // Same height as the final "SECURE REGISTRATION" button below —
+            // these are the form's two key actions, previously mismatched.
+            modifier = Modifier.fillMaxWidth().height(56.dp),
             colors = ButtonDefaults.buttonColors(containerColor = if(verifiedLoc != null) Color(0xFF4CAF50) else MaterialTheme.colorScheme.secondary)
         ) {
             if (isVerifying) CircularProgressIndicator(modifier = Modifier.size(20.dp), color = Color.White)
@@ -249,6 +253,7 @@ fun InventoryManager(
     isPro: Boolean = false,
     onUpgradeClick: () -> Unit = {},
     onStartLiveView: (businessId: String) -> Unit = {},
+    onOpenAds: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val items by viewModel.getInventory(business.businessId).collectAsStateWithLifecycle(initialValue = emptyList())
@@ -308,6 +313,12 @@ fun InventoryManager(
                 }
                 IconButton(onClick = { showCreateAd = true }) {
                     Icon(Icons.Default.Campaign, "Launch Ad", tint = MaterialTheme.colorScheme.secondary, modifier = Modifier.size(28.dp))
+                }
+                // Real paid campaigns on Meta/Google/TikTok etc. via Zernio —
+                // distinct from "Launch Ad" above, which is this app's own
+                // in-house self-promotion banner (AdHostViewModel/AdMediaView).
+                IconButton(onClick = onOpenAds) {
+                    Icon(Icons.Default.TrendingUp, "Business Ads", tint = MaterialTheme.colorScheme.secondary, modifier = Modifier.size(28.dp))
                 }
                 IconButton(onClick = { onStartLiveView(business.businessId) }) {
                     Icon(Icons.Default.ScreenShare, "Start Live View", tint = Color.Red, modifier = Modifier.size(26.dp))

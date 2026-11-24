@@ -36,6 +36,7 @@ object Routes {
     const val BUSINESS_DETAIL_TEMPLATE = "business_detail/{businessId}"
     const val BUSINESS_SELLER = "business_seller"
     const val BUSINESS_ADVERTISE = "business_advertise"
+    const val BUSINESS_ADS_TEMPLATE = "business_ads/{businessId}?connectedAdPlatforms={connectedAdPlatforms}"
     const val GAMES = "games"
     const val GAME_PLAY_TEMPLATE = "game_play?title={title}&playUrl={playUrl}"
     const val CALL_TEMPLATE = "call?calleeDeviceId={calleeDeviceId}&callId={callId}&callerDeviceId={callerDeviceId}"
@@ -81,6 +82,9 @@ object Routes {
         "call?callId=${encode(callId)}&callerDeviceId=${encode(callerDeviceId)}"
 
     fun businessDetail(businessId: String) = "business_detail/$businessId"
+
+    fun businessAds(businessId: String, connectedAdPlatforms: List<String>) =
+        "business_ads/$businessId?connectedAdPlatforms=${encode(connectedAdPlatforms.joinToString(","))}"
 
     fun gamePlay(title: String, playUrl: String) = "game_play?title=${encode(title)}&playUrl=${encode(playUrl)}"
 

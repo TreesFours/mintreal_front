@@ -24,6 +24,7 @@ import com.example.mistreal_mini.data.webrtc.WebRtcInitializer
 import com.example.mistreal_mini.monitor.PressureLevel
 import com.example.mistreal_mini.monitor.ResourceMonitor
 import com.example.mistreal_mini.util.NotificationChannels
+import com.example.mistreal_mini.util.webrtc.FileTransferChannel
 import dagger.hilt.android.AndroidEntryPoint
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -70,6 +71,7 @@ class WatchHostService : Service() {
     // over the internet, or Nearby over Bluetooth/Wi-Fi-Direct) so replies
     // route back over the same channel the request arrived on.
     private val peerChannels = mutableMapOf<String, SignalingChannel>()
+    private val fileTransferChannels = mutableMapOf<String, FileTransferChannel>()
 
     private val deviceId: String
         get() = deviceIdProvider.deviceId
@@ -78,10 +80,25 @@ class WatchHostService : Service() {
         const val ACTION_START = "ACTION_START"
         const val ACTION_STOP = "ACTION_STOP"
         const val ACTION_SAVE_RECORDING = "ACTION_SAVE_RECORDING"
+        const val ACTION_SEND_FILE = "ACTION_SEND_FILE"
         const val EXTRA_RESULT_CODE = "EXTRA_RESULT_CODE"
         const val EXTRA_RESULT_DATA = "EXTRA_RESULT_DATA"
         const val EXTRA_CONTEXT_TYPE = "EXTRA_CONTEXT_TYPE"
         const val EXTRA_CONTEXT_ID = "EXTRA_CONTEXT_ID"
+        const val EXTRA_FILE_URI = "EXTRA_FILE_URI"
+
+        // Broadcasts to every currently-connected viewer's FileTransferChannel
+        // — there's no "pick one viewer" concept anywhere else in Watch Hub
+        // either, so sending to all is consistent with the feature's existing
+        // one-host-to-many-viewers shape.
+        private val _incomingFileState = MutableStateFlow<Triple<String, Long, Long>?>(null)
+        val incomingFileState: StateFlow<Triple<String, Long, Long>?> = _incomingFileState.asStateFlow()
+
+        private val _incomingFileCompleted = MutableStateFlow<File?>(null)
+        val incomingFileCompleted: StateFlow<File?> = _incomingFileCompleted.asStateFlow()
+
+        private val _outgoingFileProgress = MutableStateFlow<Pair<Long, Long>?>(null)
+        val outgoingFileProgress: StateFlow<Pair<Long, Long>?> = _outgoingFileProgress.asStateFlow()
 
         // Lets WatchHostScreen show the live share code without needing a
         // bound service connection — the service is launched fire-and-forget
@@ -136,8 +153,28 @@ class WatchHostService : Service() {
             }
             ACTION_STOP -> stopSharing()
             ACTION_SAVE_RECORDING -> saveRecording()
+            ACTION_SEND_FILE -> {
+                val uri = intent.getParcelableExtra<android.net.Uri>(EXTRA_FILE_URI)
+                if (uri != null) sendFileToViewers(uri)
+            }
         }
         return START_NOT_STICKY
+    }
+
+    // Broadcasts one file to every connected viewer's data channel — same
+    // one-host-to-many shape as the video track itself. _outgoingFileProgress
+    // reflects whichever viewer's send last reported (fine for v1: this is a
+    // "how's the send going" indicator, not a per-viewer delivery receipt).
+    private fun sendFileToViewers(uri: android.net.Uri) {
+        if (fileTransferChannels.isEmpty()) return
+        _outgoingFileProgress.value = 0L to 0L
+        fileTransferChannels.values.forEach { transfer ->
+            transfer.sendFile(
+                uri,
+                onProgress = { sent, total -> _outgoingFileProgress.value = sent to total },
+                onComplete = { _outgoingFileProgress.value = null }
+            )
+        }
     }
 
     private fun startSharing(resultCode: Int, resultData: Intent, contextType: String, contextId: String?) {
@@ -312,6 +349,22 @@ class WatchHostService : Service() {
         _viewerCountState.value = peerConnections.size
         applyBitrateCap(pc, resourceMonitor.pressureNow())
 
+        // Created before createOffer() below so the SCTP data association is
+        // negotiated in this same offer/answer exchange — once established,
+        // either side can send on it with no further renegotiation needed.
+        val dataChannel = pc.createDataChannel("files", DataChannel.Init())
+        if (dataChannel != null) {
+            fileTransferChannels[event.viewerSocketId] = FileTransferChannel(
+                dataChannel,
+                applicationContext,
+                onIncomingProgress = { fileName, received, total -> _incomingFileState.value = Triple(fileName, received, total) },
+                onFileReceived = { _, _, file ->
+                    _incomingFileState.value = null
+                    _incomingFileCompleted.value = file
+                }
+            )
+        }
+
         pc.createOffer(object : SimpleSdpObserver() {
             override fun onCreateSuccess(sdp: SessionDescription?) {
                 sdp ?: return
@@ -324,6 +377,7 @@ class WatchHostService : Service() {
     private fun onViewerLeft(viewerId: String) {
         peerConnections.remove(viewerId)?.close()
         peerChannels.remove(viewerId)
+        fileTransferChannels.remove(viewerId)
         _viewerCountState.value = peerConnections.size
     }
 
@@ -381,6 +435,10 @@ class WatchHostService : Service() {
         peerConnections.values.forEach { it.close() }
         peerConnections.clear()
         peerChannels.clear()
+        fileTransferChannels.clear()
+        _incomingFileState.value = null
+        _incomingFileCompleted.value = null
+        _outgoingFileProgress.value = null
         videoCapturer?.stopCapture()
         videoCapturer?.dispose()
         surfaceTextureHelper?.dispose()

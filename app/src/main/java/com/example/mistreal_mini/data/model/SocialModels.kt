@@ -3,6 +3,11 @@ package com.example.mistreal_mini.data.model
 data class SocialPost(
     val id: String,
     val platform: String,
+    // Non-null only when this one post actually went to more than one
+    // platform at once (see backend's socialService.ts/zernioAdapter.ts
+    // fetchFeed) — lets the feed show a single merged post with a "+N"
+    // indicator instead of one duplicate card per platform it reached.
+    val platforms: List<String>? = null,
     val author: String,
     val content: String,
     val timestamp: String,

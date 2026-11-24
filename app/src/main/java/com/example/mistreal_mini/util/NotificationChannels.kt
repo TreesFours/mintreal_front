@@ -46,4 +46,18 @@ object NotificationChannels {
                 .build()
         )
     }
+
+    /** Separate from CALL_CHANNEL_ID on purpose — a DM isn't call-grade. */
+    const val DM_CHANNEL_ID = "DM_CHANNEL"
+
+    fun ensureDmChannel(context: Context) {
+        ensure(
+            context, DM_CHANNEL_ID, "Direct Messages", NotificationManager.IMPORTANCE_DEFAULT,
+            sound = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION),
+            audioAttributes = AudioAttributes.Builder()
+                .setUsage(AudioAttributes.USAGE_NOTIFICATION)
+                .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
+                .build()
+        )
+    }
 }

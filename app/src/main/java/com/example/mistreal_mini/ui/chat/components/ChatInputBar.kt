@@ -21,6 +21,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
@@ -53,6 +54,10 @@ fun ChatInputBar(
     onArCameraClick: () -> Unit = {},
     onFileClick: () -> Unit,
     onVoiceClick: () -> Unit,
+    // Long-press the same mic button to start Conversation Mode (hands-free
+    // voice loop) instead of a one-shot recording. No-op default so every
+    // other call site is unaffected.
+    onVoiceLongPress: () -> Unit = {},
     onScribeClick: () -> Unit,
     isLoading: Boolean,
     isScribing: Boolean = false,
@@ -88,7 +93,11 @@ fun ChatInputBar(
     // ChatBubble's "Reply" menu item, which is what sets this.
     replyingTo: com.example.mistreal_mini.data.model.ChatMessage? = null,
     onCancelReply: () -> Unit = {},
-    inputStyle: ChatInputStyle = ChatInputStyle.FLOATING_BAR
+    inputStyle: ChatInputStyle = ChatInputStyle.FLOATING_BAR,
+    // Set only by ChatScreen's notification-banner "Reply" flow, to focus the
+    // text field once the screen navigates back in — every other call site
+    // leaves this null and the TextField behaves exactly as before.
+    focusRequester: androidx.compose.ui.focus.FocusRequester? = null
 ) {
     val focusManager = LocalFocusManager.current
     val context = LocalContext.current
@@ -285,7 +294,14 @@ fun ChatInputBar(
                 }
                 
                 IconButton(onClick = onFileClick, modifier = Modifier.size(30.dp)) { Icon(Icons.Default.AttachFile, "Data Package", tint = iconTint, modifier = Modifier.size(16.dp)) }
-                IconButton(onClick = onVoiceClick, modifier = Modifier.size(30.dp)) { Icon(Icons.Default.Mic, "Voice Protocol", tint = iconTint, modifier = Modifier.size(16.dp)) }
+                Box(
+                    modifier = Modifier
+                        .size(30.dp)
+                        .combinedClickable(onClick = onVoiceClick, onLongClick = onVoiceLongPress),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(Icons.Default.Mic, "Voice Protocol (long-press for Conversation Mode)", tint = iconTint, modifier = Modifier.size(16.dp))
+                }
                 if (onAiVoiceNoteClick != null) {
                     IconButton(onClick = onAiVoiceNoteClick, modifier = Modifier.size(30.dp)) { Icon(Icons.Default.SmartToy, "Voice Note to AI", tint = iconTint, modifier = Modifier.size(16.dp)) }
                 }
@@ -379,7 +395,9 @@ fun ChatInputBar(
                             onTextChange(it)
                         }
                     }, 
-                    modifier = Modifier.weight(1f), 
+                    modifier = Modifier.weight(1f).let {
+                        if (focusRequester != null) it.focusRequester(focusRequester) else it
+                    },
                     placeholder = { Text("Enter command...", style = MaterialTheme.typography.bodyMedium, color = Color.Gray) },
                     maxLines = 4,
                     colors = TextFieldDefaults.colors(

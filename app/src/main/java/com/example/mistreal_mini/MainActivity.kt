@@ -48,7 +48,10 @@ import com.example.mistreal_mini.ui.auth.AuthViewModel
 import com.example.mistreal_mini.ui.settings.SettingsViewModel
 import com.example.mistreal_mini.ui.records.RecordsScreen
 import com.example.mistreal_mini.ui.navigation.Routes
+import com.example.mistreal_mini.ui.notifications.ReplyBannerOverlay
 import com.example.mistreal_mini.ui.util.LocalSfxHapticPlayer
+import com.example.mistreal_mini.notifications.NotificationBannerCenter
+import com.example.mistreal_mini.notifications.PendingBanner
 import com.example.mistreal_mini.util.DeviceIdProvider
 import com.example.mistreal_mini.util.FaceGuard
 import com.example.mistreal_mini.util.SfxHapticPlayer
@@ -69,6 +72,7 @@ class MainActivity : FragmentActivity() {
     @Inject lateinit var preferenceManager: PreferenceManager
     @Inject lateinit var deviceIdProvider: DeviceIdProvider
     @Inject lateinit var sfxHapticPlayer: SfxHapticPlayer
+    @Inject lateinit var notificationBannerCenter: NotificationBannerCenter
     @Inject lateinit var handleDistressUseCase: com.example.mistreal_mini.domain.usecase.HandleDistressUseCase
 
     private var volumePressCount = 0
@@ -245,6 +249,18 @@ class MainActivity : FragmentActivity() {
                             val callerDeviceId = intentState?.getStringExtra("incoming_caller_device_id")
                             if (callId != null && callerDeviceId != null) {
                                 navController.navigate(Routes.incomingCall(callId, callerDeviceId))
+                                _intentState.value = null
+                            }
+                        }
+
+                        // 💬 New-DM notification tap (MistrealFirebaseMessagingService's
+                        // "new_dm" branch) — these extras are only ever present on that path.
+                        LaunchedEffect(intentState) {
+                            val dmSenderName = intentState?.getStringExtra("dm_sender_name")
+                            val dmPlatform = intentState?.getStringExtra("dm_platform")
+                            if (dmSenderName != null && dmPlatform != null) {
+                                chatViewModel.switchChat(dmSenderName, dmPlatform)
+                                navController.navigate(Routes.chat())
                                 _intentState.value = null
                             }
                         }
@@ -465,7 +481,8 @@ class MainActivity : FragmentActivity() {
                                 ownerPhotoUrl = backStackEntry.arguments?.getString("ownerPhotoUrl")?.let(decode),
                                 businessId = backStackEntry.arguments?.getString("businessId")?.let(decode),
                                 onBack = { navController.popBackStack() },
-                                onCallClick = { deviceId -> navController.navigate(Routes.outgoingCall(deviceId)) }
+                                onCallClick = { deviceId -> navController.navigate(Routes.outgoingCall(deviceId)) },
+                                onOpenSocialConnections = { navController.navigate(Routes.CONNECTIONS) }
                             )
                         }
                         composable(Routes.MARKET) {
@@ -474,6 +491,12 @@ class MainActivity : FragmentActivity() {
                                 onContactBusiness = onContactBusiness,
                                 onViewBusinessDetail = { business ->
                                     navController.navigate(Routes.businessDetail(business.businessId))
+                                },
+                                onMyProfileClick = {
+                                    navController.navigate(Routes.ownerProfile(deviceIdProvider.deviceId))
+                                },
+                                onViewOwnerProfile = { ownerDeviceId, ownerName, ownerPhotoUrl, businessId ->
+                                    navController.navigate(Routes.ownerProfile(deviceId = ownerDeviceId, ownerName = ownerName, ownerPhotoUrl = ownerPhotoUrl, businessId = businessId))
                                 }
                             )
                         }
@@ -649,7 +672,23 @@ class MainActivity : FragmentActivity() {
                                 onUpgradeClick = { navController.navigate(Routes.SUBSCRIPTION) },
                                 onStartLiveView = { businessId ->
                                     navController.navigate(Routes.watchHost(contextType = "market", contextId = businessId))
+                                },
+                                onOpenAds = { businessId, connectedAdPlatforms ->
+                                    navController.navigate(Routes.businessAds(businessId, connectedAdPlatforms))
                                 }
+                            )
+                        }
+                        composable(
+                            Routes.BUSINESS_ADS_TEMPLATE,
+                            arguments = listOf(navArgument("connectedAdPlatforms") { type = NavType.StringType; defaultValue = "" })
+                        ) { backStackEntry ->
+                            val businessId = backStackEntry.arguments?.getString("businessId") ?: ""
+                            val connectedAdPlatforms = backStackEntry.arguments?.getString("connectedAdPlatforms")
+                                ?.split(",")?.filter { it.isNotBlank() } ?: emptyList()
+                            com.example.mistreal_mini.ui.business.AdsConnectionsScreen(
+                                businessId = businessId,
+                                connectedAdPlatforms = connectedAdPlatforms,
+                                onBack = { navController.popBackStack() }
                             )
                         }
                     }
@@ -673,6 +712,43 @@ class MainActivity : FragmentActivity() {
                             }
                         )
                     }
+
+                    // 🔔 AI-reply / DM notification banner — app-wide, survives
+                    // navigation to any screen for the same reason the Guardian
+                    // alert above does (sibling-after-NavHost inside this same
+                    // Surface). Fed by ChatViewModel (AiReply) and
+                    // MistrealFirebaseMessagingService (InboundDm).
+                    val pendingBanner by notificationBannerCenter.pending.collectAsState()
+                    ReplyBannerOverlay(
+                        pending = pendingBanner,
+                        isSpeaking = chatViewModel.currentlyReadingContent.value != null,
+                        onDismiss = { notificationBannerCenter.dismiss() },
+                        onPlayPause = { banner ->
+                            when (banner) {
+                                is PendingBanner.AiReply -> chatViewModel.readAloud(banner.fullReplyText)
+                                is PendingBanner.InboundDm -> chatViewModel.readAloud(banner.contentPreview)
+                            }
+                        },
+                        onTapBody = { banner ->
+                            when (banner) {
+                                is PendingBanner.AiReply -> {
+                                    chatViewModel.restoreAiTarget(banner.partnerName, banner.partnerPlatform, banner.trendTitle)
+                                    navController.navigate(Routes.chat())
+                                    notificationBannerCenter.requestInputFocus()
+                                    notificationBannerCenter.dismiss()
+                                }
+                                is PendingBanner.InboundDm -> {
+                                    chatViewModel.switchChat(banner.senderName, banner.platform)
+                                    navController.navigate(Routes.chat())
+                                    notificationBannerCenter.dismiss()
+                                }
+                            }
+                        },
+                        onVoiceReply = { banner ->
+                            chatViewModel.voiceReplyFromBanner(banner)
+                            notificationBannerCenter.dismiss()
+                        }
+                    )
                 }
             }
             }

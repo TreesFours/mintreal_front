@@ -161,6 +161,18 @@ object NetworkModule {
 
     @Provides
     @Singleton
+    fun provideAdsApiService(retrofit: Retrofit): com.example.mistreal_mini.data.api.AdsApiService {
+        return retrofit.create(com.example.mistreal_mini.data.api.AdsApiService::class.java)
+    }
+
+    @Provides
+    @Singleton
+    fun provideCameraApiService(retrofit: Retrofit): com.example.mistreal_mini.data.api.CameraApiService {
+        return retrofit.create(com.example.mistreal_mini.data.api.CameraApiService::class.java)
+    }
+
+    @Provides
+    @Singleton
     fun provideReviewApiService(retrofit: Retrofit): com.example.mistreal_mini.data.api.ReviewApiService {
         return retrofit.create(com.example.mistreal_mini.data.api.ReviewApiService::class.java)
     }

@@ -32,6 +32,8 @@ import com.example.mistreal_mini.data.repository.SensorRepository
 import com.example.mistreal_mini.domain.usecase.HandleDistressUseCase
 import com.example.mistreal_mini.domain.usecase.SendMessageUseCase
 import com.example.mistreal_mini.domain.usecase.SyncSocialsUseCase
+import com.example.mistreal_mini.notifications.NotificationBannerCenter
+import com.example.mistreal_mini.notifications.PendingBanner
 import com.example.mistreal_mini.util.FileUtil
 import com.example.mistreal_mini.util.VoiceManager
 import com.example.mistreal_mini.util.VoiceRecorder
@@ -76,6 +78,7 @@ class ChatViewModel @Inject constructor(
     private val faceVideoEditor: com.example.mistreal_mini.util.FaceVideoEditor,
     private val voiceFxRenderer: com.example.mistreal_mini.util.VoiceFxRenderer,
     private val faceTracker: com.example.mistreal_mini.util.ar.FaceTracker,
+    private val notificationBannerCenter: NotificationBannerCenter,
     private val savedStateHandle: SavedStateHandle,
     @ApplicationContext private val context: Context,
     private val deviceIdProvider: com.example.mistreal_mini.util.DeviceIdProvider
@@ -343,6 +346,35 @@ class ChatViewModel @Inject constructor(
     val scribeText = _scribeText.asStateFlow()
 
     private var recordingTimerJob: Job? = null
+
+    // Passthrough so ChatScreen only needs `viewModel`, not its own direct
+    // reference to the NotificationBannerCenter singleton.
+    val focusInputRequests: SharedFlow<Unit> = notificationBannerCenter.focusInputRequests
+
+    /** Identifies which conversation a performChatRequest() call targets, so its
+     * result handler can tell whether the user is still looking at it when the
+     * reply actually lands (see the away-detection check in performChatRequest). */
+    private data class AiTarget(val partner: String, val platform: String, val trend: String?)
+
+    /** Called from the notification banner (ReplyBannerOverlay) to jump back into
+     * whichever AI/trend conversation a pending reply belongs to. */
+    fun restoreAiTarget(partnerName: String, partnerPlatform: String, trendTitle: String?) {
+        if (_currentChatPartner.value != partnerName || _currentChatPartnerPlatform.value != partnerPlatform) {
+            switchChat(partnerName, partnerPlatform)
+        }
+        if (_currentTrendTitle.value != trendTitle) {
+            if (trendTitle != null) loadTrend(trendTitle) else exitTrend()
+        }
+    }
+
+    /** Voice reply tapped on the AI-reply banner. Deliberately reuses the plain
+     * startRecording()/sendVoiceMessage() path, NOT sendVoiceNoteToAi() — that one
+     * writes a non-persisted "social_draft" aside meant for human chats, which
+     * would neither continue this AI/trend thread nor survive the next Room sync. */
+    fun voiceReplyFromBanner(banner: PendingBanner.AiReply) {
+        restoreAiTarget(banner.partnerName, banner.partnerPlatform, banner.trendTitle)
+        startRecording()
+    }
 
     // Switches the underlying paged source with the active trend so a minichat
     // shows its own messages instead of always rendering the main chat's query.
@@ -1551,6 +1583,12 @@ class ChatViewModel @Inject constructor(
             val resolvedProvider = providerOverride ?: _selectedProvider.value
             val isArchRender = resolvedProvider == ARCH_IMAGE_PROVIDER_ID
 
+            // Captured now, before the suspending call below — compared against
+            // the live state again once the reply actually lands, to detect
+            // whether the user navigated away mid-request (see the banner post
+            // right after this reply is saved, below).
+            val sentTarget = AiTarget(_currentChatPartner.value, _currentChatPartnerPlatform.value, trendTitle ?: _currentTrendTitle.value)
+
             val result = sendMessageUseCase(
                 context = context,
                 prompt = if (systemPromptOverlay.isNotBlank() && !isArchRender) "$systemPromptOverlay\n\n$prompt" else prompt,
@@ -1630,6 +1668,30 @@ class ChatViewModel @Inject constructor(
                             scheduleDelayedReveal(assistantMsg)
                         } else {
                             repository.saveMessage(assistantMsg)
+                        }
+
+                        // Away-detection: did the user navigate to a different
+                        // conversation (or a different trend) while this request
+                        // was in flight? If so, the normal in-chat UI update above
+                        // just happened somewhere the user isn't looking — surface
+                        // the app-wide banner instead of relying on them to notice.
+                        val arrivedTarget = AiTarget(_currentChatPartner.value, _currentChatPartnerPlatform.value, _currentTrendTitle.value)
+                        if (arrivedTarget != sentTarget) {
+                            notificationBannerCenter.postAiReply(
+                                partnerName = sentTarget.partner,
+                                partnerPlatform = sentTarget.platform,
+                                trendTitle = sentTarget.trend,
+                                replyPreview = cleanContent.take(140),
+                                fullReplyText = cleanContent,
+                                provider = response.provider
+                            )
+                            // Don't double-speak — the voice-note branch below already
+                            // gives audio feedback whenever isVoiceRequest/hands-free is
+                            // active, independent of whether the user is still here.
+                            // readAloud() itself already no-ops when Speak Out is off.
+                            if (!isVoiceRequest && !_isHandsFreeActive.value) {
+                                readAloud(cleanContent)
+                            }
                         }
 
                         // AI-generated media comes back as a separate message (not an

@@ -127,6 +127,12 @@ fun DashboardScreen(
 
     val currentPersona by viewModel.currentPersona.collectAsStateWithLifecycle(initialValue = "Shadow")
     val isArchitectMode = currentPersona.contains("Architect", ignoreCase = true)
+    // Shared by both the TabRow and the content `when` below so a tab's
+    // index is computed in exactly one place, not re-derived twice and
+    // risking drift between them.
+    val socialIndex = if (isArchitectMode) 3 else 2
+    val camerasIndex = socialIndex + 1
+    val dispatchIndex = camerasIndex + 1
 
     Scaffold(
         snackbarHost = { SnackbarHost(snackbarHostState) },
@@ -205,7 +211,6 @@ fun DashboardScreen(
                         text = { Text("DESIGN", fontSize = 11.sp, fontWeight = FontWeight.Bold) }
                     )
                 }
-                val socialIndex = if (isArchitectMode) 3 else 2
                 Tab(
                     selected = selectedTab == socialIndex,
                     onClick = { selectedTab = socialIndex },
@@ -221,7 +226,12 @@ fun DashboardScreen(
                     },
                     text = { Text("SOCIAL", fontSize = 11.sp, fontWeight = FontWeight.Bold) }
                 )
-                val dispatchIndex = if (isArchitectMode) 4 else 3
+                Tab(
+                    selected = selectedTab == camerasIndex,
+                    onClick = { selectedTab = camerasIndex },
+                    icon = { Icon(Icons.Default.Videocam, contentDescription = "Cameras", modifier = Modifier.size(18.dp)) },
+                    text = { Text("CAMERAS", fontSize = 11.sp, fontWeight = FontWeight.Bold) }
+                )
                 Tab(
                     selected = selectedTab == dispatchIndex,
                     onClick = { selectedTab = dispatchIndex },
@@ -268,7 +278,7 @@ fun DashboardScreen(
                             snackbarHostState = snackbarHostState
                         )
                     }
-                    (isArchitectMode && selectedTab == 3) || (!isArchitectMode && selectedTab == 2) -> SocialPagerView(
+                    selectedTab == socialIndex -> SocialPagerView(
                         posts = feedViewModel.socialPosts,
                         onPostClick = {},
                         onAiClick = { post, content ->
@@ -283,7 +293,8 @@ fun DashboardScreen(
                         onAuthorClick = onAuthorProfileClick,
                         onVoiceAsk = { showQuickVoiceAsk = true }
                     )
-                    (isArchitectMode && selectedTab == 4) || (!isArchitectMode && selectedTab == 3) -> DispatchCenterView(
+                    selectedTab == camerasIndex -> CamerasTabView(snackbarHostState = snackbarHostState)
+                    selectedTab == dispatchIndex -> DispatchCenterView(
                         deviceId = deviceId,
                         connectedSocials = chatViewModel.availablePlatforms.filter { it.isConnected }.map { it.id.lowercase() },
                         onPostToSocial = { _, platform, type, content, mistrealOnly, mediaBase64, mediaMimeType, shareToCommunity ->

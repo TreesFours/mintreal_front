@@ -7,6 +7,7 @@ import androidx.core.app.NotificationCompat
 import com.example.mistreal_mini.MainActivity
 import com.example.mistreal_mini.data.Resource
 import com.example.mistreal_mini.data.repository.InfoRepository
+import com.example.mistreal_mini.notifications.NotificationBannerCenter
 import com.example.mistreal_mini.util.NotificationChannels
 import com.google.firebase.messaging.FirebaseMessagingService
 import com.google.firebase.messaging.RemoteMessage
@@ -30,6 +31,7 @@ import javax.inject.Inject
 class MistrealFirebaseMessagingService : FirebaseMessagingService() {
 
     @Inject lateinit var infoRepository: InfoRepository
+    @Inject lateinit var notificationBannerCenter: NotificationBannerCenter
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
@@ -48,8 +50,47 @@ class MistrealFirebaseMessagingService : FirebaseMessagingService() {
         val data = message.data
         when (data["type"]) {
             "incoming_call" -> showIncomingCallNotification(data["callId"], data["callerDeviceId"])
+            "new_dm" -> handleNewDmNotification(data)
             else -> Timber.d("MistrealFcm: unhandled data message type=${data["type"]}")
         }
+    }
+
+    /**
+     * Lighter than a call: no full-screen intent, no accept/decline actions.
+     * Always does both of the following rather than picking one based on
+     * foreground state (this app has no ProcessLifecycleOwner-style observer
+     * to tell the two apart) — a harmless no-op banner post if nothing is
+     * collecting it, and a system notification that's the only thing left
+     * if the app isn't in the foreground to show the banner at all.
+     */
+    private fun handleNewDmNotification(data: Map<String, String>) {
+        val senderName = data["senderName"] ?: return
+        val platform = data["platform"] ?: "social"
+        val preview = data["preview"] ?: ""
+        val senderId = data["senderId"]
+
+        notificationBannerCenter.postInboundDm(senderName, platform, preview, senderId)
+
+        NotificationChannels.ensureDmChannel(this)
+        val notifyId = "$platform:$senderId".hashCode()
+        val contentIntent = Intent(this, MainActivity::class.java).apply {
+            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
+            putExtra("dm_sender_name", senderName)
+            putExtra("dm_platform", platform)
+        }
+        val contentPendingIntent = PendingIntent.getActivity(
+            this, notifyId, contentIntent, PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
+        )
+        val notification = NotificationCompat.Builder(this, NotificationChannels.DM_CHANNEL_ID)
+            .setSmallIcon(android.R.drawable.ic_dialog_email)
+            .setContentTitle(senderName)
+            .setContentText(preview)
+            .setContentIntent(contentPendingIntent)
+            .setAutoCancel(true)
+            .build()
+        // Keyed by platform+sender, not a random id, so a burst of DMs from
+        // one contact updates one notification instead of stacking.
+        getSystemService(NotificationManager::class.java).notify(notifyId, notification)
     }
 
     private fun showIncomingCallNotification(callId: String?, callerDeviceId: String?) {

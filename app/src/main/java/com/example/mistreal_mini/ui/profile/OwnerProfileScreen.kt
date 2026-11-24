@@ -51,6 +51,7 @@ fun OwnerProfileScreen(
     businessId: String?,
     onBack: () -> Unit,
     onCallClick: (String) -> Unit = {},
+    onOpenSocialConnections: () -> Unit = {},
     viewModel: ReviewViewModel = hiltViewModel(),
     needsViewModel: NeedsViewModel = hiltViewModel()
 ) {
@@ -287,7 +288,7 @@ fun OwnerProfileScreen(
                         ) {
                             Text("CONNECTED SOCIAL CHANNELS", style = MaterialTheme.typography.labelSmall, color = Color.Gray)
                             if (isOwnProfile) {
-                                TextButton(onClick = { /* Add Platform */ }) {
+                                TextButton(onClick = onOpenSocialConnections) {
                                     Icon(Icons.Default.Add, null, modifier = Modifier.size(14.dp))
                                     Spacer(modifier = Modifier.width(4.dp))
                                     Text("Add Platform", fontSize = 11.sp)

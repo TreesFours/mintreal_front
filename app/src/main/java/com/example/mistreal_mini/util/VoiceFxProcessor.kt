@@ -26,7 +26,16 @@ object VoiceFxProcessor {
         length: Int,
         preset: VoicePreset,
         sampleRate: Int = 16000,
-        customPitch: Float = 1.0f
+        customPitch: Float = 1.0f,
+        // Absolute sample position of this buffer within the ongoing stream —
+        // defaults to 0 for the single-shot whole-clip case (VoiceFxRenderer),
+        // where the one call already spans the entire file and "local index
+        // == absolute index". A live multi-chunk caller (LiveAiViewModel)
+        // should pass a running total instead, so ROBOT/ALIEN/TACTICAL's
+        // periodic modulation stays phase-continuous across chunk boundaries
+        // rather than resetting to phase 0 (an audible click/stutter) on
+        // every chunk.
+        startIndex: Long = 0L
     ): ShortArray {
         if (preset == VoicePreset.NONE || length <= 0) {
             return inputBuffer
@@ -48,16 +57,17 @@ object VoiceFxProcessor {
         for (i in 0 until length) {
             val srcIndex = (i * pitchMultiplier).toInt().coerceIn(0, length - 1)
             var sample = inputBuffer[srcIndex].toFloat()
+            val t = startIndex + i
 
             when (preset) {
                 VoicePreset.ROBOT -> {
                     // Square wave ring modulation (30Hz carrier)
-                    val mod = if (sin(2.0 * Math.PI * 30.0 * i / sampleRate) > 0) 1.0f else -0.7f
+                    val mod = if (sin(2.0 * Math.PI * 30.0 * t / sampleRate) > 0) 1.0f else -0.7f
                     sample *= mod
                 }
                 VoicePreset.ALIEN -> {
                     // Dual sine modulation for robotic flange
-                    val mod = sin(2.0 * Math.PI * 50.0 * i / sampleRate).toFloat() * 0.8f
+                    val mod = sin(2.0 * Math.PI * 50.0 * t / sampleRate).toFloat() * 0.8f
                     sample += sample * mod
                 }
                 VoicePreset.MONSTER -> {
@@ -66,7 +76,7 @@ object VoiceFxProcessor {
                 }
                 VoicePreset.TACTICAL -> {
                     // Radio bandpass filter simulation + soft noise
-                    val noise = ((i % 7) - 3) * 150f
+                    val noise = ((t % 7) - 3) * 150f
                     sample = (sample * 0.85f + noise).coerceIn(-32768f, 32767f)
                 }
                 else -> {}

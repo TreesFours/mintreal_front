@@ -356,7 +356,7 @@ fun ContactListDrawerContent(
             icon = { Icon(Icons.Default.Sos, null, tint = Color.Red) },
             title = { Text("Send SOS alert?") },
             text = {
-                Text("This will email your emergency contacts AND post a public SOS status update to every social account you've connected. This can't be undone once sent.")
+                Text("This will alert your confirmed emergency contacts — by email, SMS, or a private message on whichever platform they're linked through. It does not post anything publicly or notify every connected account. This can't be undone once sent.")
             },
             confirmButton = {
                 Button(

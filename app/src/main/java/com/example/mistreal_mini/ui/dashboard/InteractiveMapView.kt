@@ -11,8 +11,10 @@
 package com.example.mistreal_mini.ui.dashboard
 
 import android.app.Activity
+import android.content.Intent
 import android.net.Uri
 import android.view.ViewGroup
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.mistreal_mini.monitor.PressureLevel
 import android.webkit.WebView
 import android.webkit.WebViewClient
@@ -189,6 +191,24 @@ fun InteractiveMapView(
         val uri = FileProvider.getUriForFile(mapChatContext, "${mapChatContext.packageName}.fileprovider", file)
         mapCameraUri = uri
         mapCameraLauncher.launch(uri)
+    }
+    // Video/scribe/screen-record on this panel's ChatInputBar were wired to
+    // empty lambdas — real on ChatScreen's own ChatInputBar, dead here.
+    // Same pattern as the camera capture just above, mirrored exactly.
+    var mapVideoUri by remember { mutableStateOf<Uri?>(null) }
+    val mapVideoLauncher = rememberLauncherForActivityResult(ActivityResultContracts.CaptureVideo()) { success ->
+        if (success && mapVideoUri != null) viewModel.addPendingAttachment(mapVideoUri!!)
+    }
+    fun captureMapVideo() {
+        val file = File(mapChatContext.cacheDir, "camera_capture_${System.currentTimeMillis()}.mp4")
+        val uri = FileProvider.getUriForFile(mapChatContext, "${mapChatContext.packageName}.fileprovider", file)
+        mapVideoUri = uri
+        mapVideoLauncher.launch(uri)
+    }
+    val isMapChatScribing by viewModel.isScribing
+    val mapChatScribeText by viewModel.scribeText.collectAsStateWithLifecycle()
+    LaunchedEffect(mapChatScribeText) {
+        if (mapChatScribeText.isNotBlank()) chatText = mapChatScribeText
     }
 
     LaunchedEffect(messages.size) {
@@ -602,9 +622,12 @@ fun InteractiveMapView(
                         FloatingActionButton(
                             onClick = { isTopBarVisible = true },
                             containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.85f),
-                            modifier = Modifier.align(Alignment.TopCenter).size(36.dp)
+                            // Matches every other FAB on this screen (48dp) —
+                            // this one was a stray 36dp/20dp, the one visibly
+                            // smaller control in an otherwise consistent row.
+                            modifier = Modifier.align(Alignment.TopCenter).size(48.dp)
                         ) {
-                            Icon(Icons.Default.ExpandMore, "Show Top Controls", tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(20.dp))
+                            Icon(Icons.Default.ExpandMore, "Show Top Controls", tint = MaterialTheme.colorScheme.primary)
                         }
                     }
 
@@ -865,15 +888,24 @@ fun InteractiveMapView(
                                         }
                                     }
                                 },
-                                onScreenRecordClick = {},
+                                onScreenRecordClick = {
+                                    viewModel.startScreenRecord()
+                                    val recordIntent = Intent(mapChatContext, com.example.mistreal_mini.service.recording.ScreenRecordService::class.java).apply {
+                                        action = "START"
+                                    }
+                                    mapChatContext.startForegroundService(recordIntent)
+                                },
                                 onCameraClick = { captureMapCameraImage() },
-                                onVideoClick = {},
+                                onVideoClick = { captureMapVideo() },
                                 onFileClick = { mapFilePickerLauncher.launch("*/*") },
                                 onVoiceClick = { viewModel.startRecording() },
-                                onScribeClick = {},
+                                onScribeClick = {
+                                    if (isMapChatScribing) viewModel.stopScribe() else viewModel.startScribe()
+                                },
+                                isScribing = isMapChatScribing,
                                 isLoading = false,
                                 pendingAttachments = viewModel.pendingAttachments,
-                                onRemoveAttachment = {}
+                                onRemoveAttachment = { viewModel.removePendingAttachment(it) }
                             )
                         }
                     }

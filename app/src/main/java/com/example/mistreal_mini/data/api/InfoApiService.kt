@@ -187,6 +187,20 @@ interface InfoApiService {
     @GET("api/ads/business/{businessId}")
     suspend fun getAdForBusiness(@Path("businessId") businessId: String): BusinessAdResponse
 
+    @POST("api/adverts")
+    suspend fun createAdvert(@Body request: CreateAdvertRequest): CreateAdvertResponse
+
+    @GET("api/adverts")
+    suspend fun getAdverts(
+        @Query("category") category: String?,
+        @Query("maxPrice") maxPrice: Double?,
+        @Query("limit") limit: Int?,
+        @Query("offset") offset: Int?
+    ): AdvertsResponse
+
+    @PATCH("api/adverts/{id}")
+    suspend fun updateAdvertStatus(@Path("id") id: String, @Body request: UpdateAdvertStatusRequest): SocialActionResponse
+
     @POST("api/meetups")
     suspend fun proposeMeetup(@Body request: ProposeMeetupRequest): MeetupResponse
 
@@ -460,8 +474,14 @@ data class RemoteBusiness(
     // plain Business model today; just wasn't declared here until now.
     val ownerDeviceId: String? = null,
     // Null unless the search request included the searcher's own lat/lon.
-    val distanceKm: Double? = null
+    val distanceKm: Double? = null,
+    // [{platform, adAccountId}] — a connected Zernio AD account per
+    // platform, separate from connectedPlatforms (that's the social
+    // profile connection). See AdsConnectionsScreen/businessModel.ts.
+    val connectedAdAccounts: List<AdAccountHandle>? = null
 )
+
+data class AdAccountHandle(val platform: String, val adAccountId: String)
 
 data class BusinessSearchResponse(
     val success: Boolean,
@@ -473,6 +493,56 @@ data class BusinessSearchResponse(
     // one, most don't), not a bug.
     val externalBusinesses: List<RemoteDiscoveryPoi>? = null,
     val error: String? = null
+)
+
+// Classifieds advert — business-only posting (confirmed: no existing model
+// had price+category+location together; distinct from the self-promotion
+// `Ad`/AdMediaView banner).
+data class CreateAdvertRequest(
+    val deviceId: String,
+    val businessId: String,
+    val title: String,
+    val description: String? = null,
+    val price: String? = null,
+    val category: String,
+    val imageUrl: String? = null,
+    // Same base64-upload shape as UploadOwnerPhotoRequest — no image picker
+    // produces an already-hosted URL directly, so this is the real client path.
+    val imageBase64: String? = null,
+    val imageMimeType: String? = null
+)
+
+data class CreateAdvertResponse(
+    val success: Boolean,
+    val error: String? = null
+)
+
+// Carries everything needed to render the card AND navigate straight to
+// Routes.ownerProfile(...) — the server already joins Business so this is a
+// single round-trip per feed load, not one per card.
+data class RemoteAdvert(
+    val id: String,
+    val businessId: String,
+    val title: String,
+    val description: String? = null,
+    val price: String? = null,
+    val category: String,
+    val imageUrl: String? = null,
+    val createdAt: String,
+    val ownerDeviceId: String? = null,
+    val ownerName: String? = null,
+    val ownerPhotoUrl: String? = null
+)
+
+data class AdvertsResponse(
+    val success: Boolean,
+    val adverts: List<RemoteAdvert>? = null,
+    val error: String? = null
+)
+
+data class UpdateAdvertStatusRequest(
+    val deviceId: String,
+    val status: String // "active" | "sold" | "removed"
 )
 
 data class RemoteDiscoveryPoi(

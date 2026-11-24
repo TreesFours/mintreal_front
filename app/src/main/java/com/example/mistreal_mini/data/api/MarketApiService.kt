@@ -13,7 +13,15 @@ interface MarketApiService {
     suspend fun getWatchlist(): MarketWatchlistResponse
 
     @GET("api/markets/candles")
-    suspend fun getCandles(@Query("symbol") symbol: String, @Query("assetClass") assetClass: String): MarketCandlesResponse
+    suspend fun getCandles(
+        @Query("symbol") symbol: String,
+        @Query("assetClass") assetClass: String,
+        // Omitted (server defaults to "1day") for the existing 1M/3M/6M
+        // timeframes, which still slice one daily fetch client-side. Only
+        // 1h/4h (stock/forex/commodity only — crypto has no hourly data on
+        // the server's free tier) pass this to trigger a fresh intraday fetch.
+        @Query("interval") interval: String? = null
+    ): MarketCandlesResponse
 
     @POST("api/markets/alerts")
     suspend fun createAlert(@Body request: CreateMarketAlertRequest): MarketAlertResponse

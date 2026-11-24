@@ -147,4 +147,66 @@ class MarketViewModel @Inject constructor(
     fun onCategorySelected(category: String) {
         _selectedCategory.value = category
     }
+
+    // --- Marketplace (classifieds advert feed) — business-only posting,
+    // kept as a separate toggle alongside the existing business-search
+    // section rather than replacing it, so today's search behavior is
+    // completely unchanged when this toggle is off (the default).
+    private val _marketplaceMode = MutableStateFlow(false)
+    val marketplaceMode = _marketplaceMode.asStateFlow()
+
+    fun setMarketplaceMode(enabled: Boolean) {
+        _marketplaceMode.value = enabled
+    }
+
+    val myBusiness: StateFlow<com.example.mistreal_mini.data.local.entity.BusinessEntity?> =
+        businessRepository.getMyBusiness().stateIn(viewModelScope, SharingStarted.Lazily, null)
+
+    private val _advertCategory = MutableStateFlow("All")
+    val advertCategory = _advertCategory.asStateFlow()
+
+    private val _isLoadingAdverts = MutableStateFlow(false)
+    val isLoadingAdverts = _isLoadingAdverts.asStateFlow()
+
+    private val _adverts = MutableStateFlow<List<com.example.mistreal_mini.data.api.RemoteAdvert>>(emptyList())
+    val adverts = _adverts.asStateFlow()
+
+    private val _isPostingAdvert = MutableStateFlow(false)
+    val isPostingAdvert = _isPostingAdvert.asStateFlow()
+
+    private val _advertPostError = MutableStateFlow<String?>(null)
+    val advertPostError = _advertPostError.asStateFlow()
+
+    fun onAdvertCategorySelected(category: String) {
+        _advertCategory.value = category
+        loadAdverts()
+    }
+
+    fun loadAdverts() {
+        viewModelScope.launch {
+            _isLoadingAdverts.value = true
+            val result = businessRepository.getAdverts(_advertCategory.value)
+            _adverts.value = (result as? Resource.Success)?.data ?: emptyList()
+            _isLoadingAdverts.value = false
+        }
+    }
+
+    fun postAdvert(
+        businessId: String, title: String, description: String?, price: String?, category: String,
+        imageUri: android.net.Uri?, context: android.content.Context, onResult: (Boolean) -> Unit
+    ) {
+        viewModelScope.launch {
+            _isPostingAdvert.value = true
+            _advertPostError.value = null
+            val result = businessRepository.createAdvert(businessId, title, description, price, category, imageUri, context)
+            _isPostingAdvert.value = false
+            if (result is Resource.Success) {
+                loadAdverts()
+                onResult(true)
+            } else {
+                _advertPostError.value = (result as? Resource.Error)?.message ?: "Failed to post advert"
+                onResult(false)
+            }
+        }
+    }
 }

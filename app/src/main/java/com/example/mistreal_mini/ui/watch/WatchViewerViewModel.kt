@@ -18,6 +18,7 @@ import com.example.mistreal_mini.data.webrtc.WebRtcInitializer
 import com.example.mistreal_mini.monitor.PressureLevel
 import com.example.mistreal_mini.monitor.ResourceMonitor
 import com.example.mistreal_mini.util.DeviceIdProvider
+import com.example.mistreal_mini.util.webrtc.FileTransferChannel
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.Dispatchers
@@ -68,6 +69,25 @@ class WatchViewerViewModel @Inject constructor(
     private var recorderFile: File? = null
     private var recorderStarted = false
     private var hasSavedCurrentRecording = false
+    private var fileTransferChannel: FileTransferChannel? = null
+
+    private val _incomingFileState = MutableStateFlow<Triple<String, Long, Long>?>(null)
+    val incomingFileState: StateFlow<Triple<String, Long, Long>?> = _incomingFileState.asStateFlow()
+
+    private val _incomingFileCompleted = MutableStateFlow<File?>(null)
+    val incomingFileCompleted: StateFlow<File?> = _incomingFileCompleted.asStateFlow()
+
+    private val _outgoingFileProgress = MutableStateFlow<Pair<Long, Long>?>(null)
+    val outgoingFileProgress: StateFlow<Pair<Long, Long>?> = _outgoingFileProgress.asStateFlow()
+
+    fun sendFile(uri: android.net.Uri) {
+        _outgoingFileProgress.value = 0L to 0L
+        fileTransferChannel?.sendFile(
+            uri,
+            onProgress = { sent, total -> _outgoingFileProgress.value = sent to total },
+            onComplete = { _outgoingFileProgress.value = null }
+        )
+    }
 
     val eglBaseContext: EglBase.Context?
         get() = eglBase?.eglBaseContext
@@ -212,6 +232,21 @@ class WatchViewerViewModel @Inject constructor(
                     attachRecorder(track)
                 }
             }
+            // Fires automatically once the host's createDataChannel(...)
+            // (called before its offer) is applied via setRemoteDescription
+            // below — no action needed on this side beyond wrapping it.
+            override fun onDataChannel(channel: DataChannel?) {
+                channel?.let {
+                    fileTransferChannel = FileTransferChannel(
+                        it, context,
+                        onIncomingProgress = { fileName, received, total -> _incomingFileState.value = Triple(fileName, received, total) },
+                        onFileReceived = { _, _, file ->
+                            _incomingFileState.value = null
+                            _incomingFileCompleted.value = file
+                        }
+                    )
+                }
+            }
         }) ?: return
         peerConnection = pc
 
@@ -327,5 +362,8 @@ class WatchViewerViewModel @Inject constructor(
         eglBase?.release()
         watchRepository.disconnect()
         nearbyTransport.stop()
+        fileTransferChannel = null
+        _incomingFileState.value = null
+        _outgoingFileProgress.value = null
     }
 }

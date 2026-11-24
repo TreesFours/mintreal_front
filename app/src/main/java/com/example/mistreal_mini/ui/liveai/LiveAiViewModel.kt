@@ -61,6 +61,12 @@ class LiveAiViewModel @Inject constructor(
     private var voicePreset = VoicePreset.NONE
     private var voiceCustomPitch = 1.0f
 
+    // Running total of output samples processed so far this session — passed
+    // into VoiceFxProcessor as startIndex so ROBOT/ALIEN/TACTICAL's periodic
+    // modulation stays phase-continuous across chunk boundaries instead of
+    // resetting to phase 0 on every incoming chunk (an audible click).
+    private var voiceFxSampleIndex = 0L
+
     companion object {
         // Confirmed against Google's own Live API WebSocket reference —
         // input and output run at different rates, not a typo.
@@ -81,6 +87,7 @@ class LiveAiViewModel @Inject constructor(
                 VoicePreset.NONE
             }
             voiceCustomPitch = preferenceManager.voiceFxCustomPitch.first()
+            voiceFxSampleIndex = 0L
             repository.startSession(deviceIdProvider.deviceId)
                 .onSuccess {
                     _sessionState.value = "active"
@@ -109,8 +116,9 @@ class LiveAiViewModel @Inject constructor(
                             samples[i] = ((bytes[i * 2].toInt() and 0xFF) or (bytes[i * 2 + 1].toInt() shl 8)).toShort()
                         }
                         val processed = VoiceFxProcessor.processPcmBuffer(
-                            samples, samples.size, voicePreset, OUTPUT_SAMPLE_RATE, voiceCustomPitch
+                            samples, samples.size, voicePreset, OUTPUT_SAMPLE_RATE, voiceCustomPitch, voiceFxSampleIndex
                         )
+                        voiceFxSampleIndex += samples.size
                         val out = ByteArray(processed.size * 2)
                         for (i in processed.indices) {
                             out[i * 2] = (processed[i].toInt() and 0xFF).toByte()

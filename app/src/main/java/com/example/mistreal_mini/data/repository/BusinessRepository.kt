@@ -200,4 +200,32 @@ class BusinessRepository @Inject constructor(
     suspend fun deleteItem(item: BusinessItemEntity) {
         businessDao.deleteItem(item)
     }
+
+    /** Business-only posting — the advert's tap target is always the posting business's owner profile. */
+    suspend fun createAdvert(
+        businessId: String, title: String, description: String?, price: String?, category: String,
+        imageUri: Uri?, context: Context
+    ): Resource<Unit> = safeApiCall("Failed to post advert") {
+        val imageBase64 = imageUri?.let { FileUtil.uriToBase64(context, it) }
+        val imageMimeType = imageUri?.let { FileUtil.getMimeType(context, it) }
+        val response = api.createAdvert(
+            com.example.mistreal_mini.data.api.CreateAdvertRequest(
+                deviceId, businessId, title, description, price, category,
+                imageUrl = null, imageBase64 = imageBase64, imageMimeType = imageMimeType
+            )
+        )
+        if (response.success) Resource.Success(Unit) else Resource.Error(response.error ?: "Failed to post advert")
+    }
+
+    suspend fun getAdverts(category: String, maxPrice: Double? = null, limit: Int? = null, offset: Int? = null): Resource<List<com.example.mistreal_mini.data.api.RemoteAdvert>> =
+        safeApiCall("Failed to load adverts") {
+            val response = api.getAdverts(category.takeIf { it != "All" }, maxPrice, limit, offset)
+            if (response.success) Resource.Success(response.adverts ?: emptyList())
+            else Resource.Error(response.error ?: "Failed to load adverts")
+        }
+
+    suspend fun updateAdvertStatus(advertId: String, status: String): Resource<Unit> = safeApiCall("Failed to update advert") {
+        val response = api.updateAdvertStatus(advertId, com.example.mistreal_mini.data.api.UpdateAdvertStatusRequest(deviceId, status))
+        if (response.success) Resource.Success(Unit) else Resource.Error(response.error ?: "Failed to update advert")
+    }
 }
