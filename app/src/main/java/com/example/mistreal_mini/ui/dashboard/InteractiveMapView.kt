@@ -369,6 +369,7 @@ fun InteractiveMapView(
                 // unrelated state like tacticalCircle).
                 var lastPushedPinsKey by remember { mutableStateOf<String?>(null) }
                 var lastPushedDiscoveryJson by remember { mutableStateOf<String?>(null) }
+                var lastPushedBusinessJson by remember { mutableStateOf<String?>(null) }
 
                 AndroidView(
                     factory = { context ->
@@ -509,6 +510,12 @@ fun InteractiveMapView(
                                 if (renderKey != lastPushedDiscoveryJson) {
                                     lastPushedDiscoveryJson = renderKey
                                     webView.evaluateJavascript("renderDiscovery('$json', ${center.first}, ${center.second})", null)
+                                }
+
+                                val businessJson = com.google.gson.Gson().toJson(mapViewModel.registeredBusinesses).replace("'", "\\'")
+                                if (businessJson != lastPushedBusinessJson) {
+                                    lastPushedBusinessJson = businessJson
+                                    webView.evaluateJavascript("renderBusinessPins('$businessJson')", null)
                                 }
                             }
                         }
@@ -1044,11 +1051,22 @@ private fun getMapHtml(): String = """
                 }
             });
             var satLayer = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {
-                attribution: 'Tiles &copy; Esri'
+                attribution: 'Tiles &copy; Esri',
+                // Esri's free World_Imagery service doesn't actually have
+                // native tiles at every zoom this map allows (up to 19) in
+                // most areas — without maxNativeZoom, Leaflet requests tiles
+                // that don't exist past the real coverage depth and gets
+                // back blank/error tiles, which looks exactly like
+                // "satellite view shows nothing." This tells Leaflet to stop
+                // requesting past 17 and instead upscale the deepest real
+                // tile it has, so there's always imagery to show.
+                maxNativeZoom: 17,
+                maxZoom: 19
             });
             var pins = L.layerGroup().addTo(map);
             var ghostMarkers = L.layerGroup().addTo(map);
             var discoveryLayer = L.layerGroup().addTo(map);
+            var businessLayer = L.layerGroup().addTo(map);
             var tacticalCircle, focusPlaceMarker, searchMarker, gpsMarker, routeLine;
             var manualSatelliteOn = false;
 
@@ -1172,6 +1190,34 @@ private fun getMapHtml(): String = """
                         marker.bindPopup(popupContent);
                     });
                 } catch(e) { console.error("Discovery Parse Error:", e); }
+            }
+            function escapeHtml(s) {
+                return String(s == null ? "" : s).replace(/[&<>"']/g, function(c) {
+                    return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c];
+                });
+            }
+            // Registered Mistreal businesses, separate from generic
+            // discoveryLayer pins — distinct icon/color so a real business
+            // doesn't look like a generic OSM place, with enough detail
+            // (description/address) in the popup for the AI to explain it.
+            function renderBusinessPins(json) {
+                businessLayer.clearLayers();
+                try {
+                    var results = JSON.parse(json);
+                    results.forEach(function(r) {
+                        var icon = L.divIcon({
+                            html: '<div style="background:#FFB300;border:2px solid #fff;border-radius:50%;width:26px;height:26px;display:flex;align-items:center;justify-content:center;font-size:14px;box-shadow:0 1px 4px rgba(0,0,0,0.4);">🏪</div>',
+                            className: '', iconSize: [26, 26], iconAnchor: [13, 13]
+                        });
+                        var marker = L.marker([r.latitude, r.longitude], { icon: icon }).addTo(businessLayer);
+                        var desc = r.description ? escapeHtml(r.description) : "";
+                        var addr = r.address ? escapeHtml(r.address) : "";
+                        var popupContent = "<div style='min-width:160px;'><b>" + escapeHtml(r.name) + "</b><br><small>" + escapeHtml((r.category || "").toUpperCase()) + "</small>" +
+                            (desc ? "<br><br>" + desc : "") + (addr ? "<br><small>" + addr + "</small>" : "") +
+                            "<br><br><button style='background:#FFB300;color:#000;border:none;padding:5px 10px;border-radius:6px;font-weight:bold;cursor:pointer;width:100%;' onclick='AndroidMap.onRequestRoute(" + r.latitude + "," + r.longitude + ")'>Get Directions</button></div>";
+                        marker.bindPopup(popupContent);
+                    });
+                } catch(e) { console.error("Business Pin Parse Error:", e); }
             }
         </script>
     </body>

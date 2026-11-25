@@ -16,7 +16,9 @@ import com.example.mistreal_mini.data.local.dao.SavedIntelDao
 import com.example.mistreal_mini.data.local.entity.LocationHistoryEntity
 import com.example.mistreal_mini.data.local.entity.SavedIntelEntity
 import com.example.mistreal_mini.data.model.DiscoveryResult
+import com.example.mistreal_mini.data.api.RemoteBusiness
 import com.example.mistreal_mini.data.repository.AuthRepository
+import com.example.mistreal_mini.data.repository.BusinessRepository
 import com.example.mistreal_mini.data.repository.InfoRepository
 import com.example.mistreal_mini.data.repository.TacticalRepository
 import com.example.mistreal_mini.monitor.ResourceMonitor
@@ -40,6 +42,7 @@ import javax.inject.Inject
 class TacticalMapViewModel @Inject constructor(
     @ApplicationContext private val context: Context,
     private val infoRepository: InfoRepository,
+    private val businessRepository: BusinessRepository,
     private val authRepository: AuthRepository,
     private val tacticalRepository: TacticalRepository,
     val locationHelper: LocationHelper,
@@ -62,6 +65,17 @@ class TacticalMapViewModel @Inject constructor(
 
     private val _discoveryResults = mutableStateListOf<DiscoveryResult>()
     val discoveryResults: List<DiscoveryResult> = _discoveryResults
+
+    // Registered Mistreal businesses near the scan point — previously the
+    // map only ever rendered generic OSM/Overpass discovery pins
+    // (fetchDiscoveryData below), with zero awareness of this app's own
+    // business directory, so a business the owner registered in-app simply
+    // never appeared on this map no matter what. Rendered as a separate,
+    // distinctly-styled pin layer (see InteractiveMapView's
+    // renderBusinessPins) with enough detail (description/address) for the
+    // AI to actually explain what's there, not just a name.
+    private val _registeredBusinesses = mutableStateListOf<RemoteBusiness>()
+    val registeredBusinesses: List<RemoteBusiness> = _registeredBusinesses
 
     private val _discoveryError = mutableStateOf<String?>(null)
     val discoveryError: State<String?> = _discoveryError
@@ -143,6 +157,7 @@ class TacticalMapViewModel @Inject constructor(
             _mapLocation.value = fullLabel
             _mapFocusCoords.value = addr.latitude to addr.longitude
             _discoveryResults.clear()
+            _registeredBusinesses.clear()
             clearTacticalCircle()
             
             // Precision Zoom Logic
@@ -292,6 +307,21 @@ class TacticalMapViewModel @Inject constructor(
         val radius = circle?.radius ?: 2000.0
         _isMapLoading.value = true
         _discoveryError.value = null
+        // Independent of the Overpass discovery call below — a failure in
+        // one (e.g. Overpass mirrors all down) shouldn't also hide
+        // registered businesses, and vice versa.
+        viewModelScope.launch {
+            when (val result = businessRepository.searchBusinessesRemote("All", "", coords.first, coords.second)) {
+                is Resource.Success -> {
+                    val newBusinesses = (result.data ?: emptyList()).filter { rb ->
+                        !_registeredBusinesses.any { it.businessId == rb.businessId }
+                    }
+                    _registeredBusinesses.addAll(newBusinesses)
+                }
+                is Resource.Error -> Timber.e("Registered business fetch for map error: ${result.message}")
+                else -> {}
+            }
+        }
         viewModelScope.launch {
             when (val result = infoRepository.getNearbyPlaces(coords.first, coords.second, radius, category)) {
                 is Resource.Success -> {
@@ -316,6 +346,7 @@ class TacticalMapViewModel @Inject constructor(
 
     fun clearAllDiscoveryData() {
         _discoveryResults.clear()
+        _registeredBusinesses.clear()
     }
 
     fun selectAmbiguousLocation(address: Address) {
@@ -326,6 +357,7 @@ class TacticalMapViewModel @Inject constructor(
         _mapLocation.value = fullLabel
         _mapFocusCoords.value = address.latitude to address.longitude
         _discoveryResults.clear()
+        _registeredBusinesses.clear()
         clearTacticalCircle()
         _suggestedCircleRadius.value = 5000.0
 
