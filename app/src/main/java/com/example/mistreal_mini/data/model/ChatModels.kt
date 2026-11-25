@@ -49,6 +49,9 @@ data class ChatResponse(
     val generatedImageMimeType: String? = null,
     val generatedImageUrl: String? = null,
     val generatedVideoUrl: String? = null,
+    val generatedFileBase64: String? = null,
+    val generatedFileMimeType: String? = null,
+    val generatedFileName: String? = null,
     // Only ever set when Gemini's search-grounding tool backed the answer.
     val groundingCitations: List<GroundingCitation>? = null
 )

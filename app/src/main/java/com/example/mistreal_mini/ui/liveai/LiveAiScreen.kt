@@ -2,6 +2,10 @@ package com.example.mistreal_mini.ui.liveai
 
 import android.Manifest
 import android.content.pm.PackageManager
+import android.graphics.pdf.PdfRenderer
+import android.media.MediaMetadataRetriever
+import android.net.Uri
+import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.camera.core.CameraSelector
@@ -14,6 +18,7 @@ import androidx.camera.view.PreviewView
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.AttachFile
 import androidx.compose.material.icons.filled.CallEnd
 import androidx.compose.material.icons.filled.Videocam
 import androidx.compose.material.icons.filled.VideocamOff
@@ -28,6 +33,9 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.ContextCompat
 import androidx.hilt.navigation.compose.hiltViewModel
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.util.concurrent.Executors
 
 /**
@@ -45,9 +53,31 @@ fun LiveAiScreen(onBack: () -> Unit, viewModel: LiveAiViewModel = hiltViewModel(
     val errorMessage by viewModel.errorMessage.collectAsState()
     var missingPermissions by remember { mutableStateOf(false) }
     var cameraOn by remember { mutableStateOf(true) }
+    val coroutineScope = rememberCoroutineScope()
 
     val permissionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { results ->
         if (results.values.all { it }) viewModel.connect() else missingPermissions = true
+    }
+
+    // Lets the user hand the live session an existing image/video/PDF to
+    // look at, instead of only ever seeing whatever the live camera points
+    // at right now. A video/PDF isn't played/read frame-by-frame or page-by-
+    // page into the session — that's a much bigger feature — this sends a
+    // handful of representative stills (video: start/middle/end frames,
+    // PDF: first few pages rendered to images) through the exact same
+    // sendVideoFrame pipeline a live camera frame already uses, so the
+    // backend needs zero changes.
+    val attachLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        if (uri == null) return@rememberLauncherForActivityResult
+        coroutineScope.launch {
+            val frames = withContext(Dispatchers.IO) { extractAttachmentFrames(context, uri) }
+            if (frames.isEmpty()) {
+                Toast.makeText(context, "Couldn't read that file.", Toast.LENGTH_SHORT).show()
+            } else {
+                frames.forEach { viewModel.sendVideoFrame(it) }
+                Toast.makeText(context, "Sent to the AI.", Toast.LENGTH_SHORT).show()
+            }
+        }
     }
 
     LaunchedEffect(Unit) {
@@ -90,6 +120,7 @@ fun LiveAiScreen(onBack: () -> Unit, viewModel: LiveAiViewModel = hiltViewModel(
                     LiveAiControls(
                         cameraOn = cameraOn,
                         onToggleCamera = { cameraOn = !cameraOn },
+                        onAttach = { attachLauncher.launch(arrayOf("image/*", "video/*", "application/pdf")) },
                         onEnd = { viewModel.disconnect(); onBack() }
                     )
                 }
@@ -113,7 +144,7 @@ private fun BoxScope.CenteredMessage(text: String, onBack: () -> Unit, buttonLab
 }
 
 @Composable
-private fun BoxScope.LiveAiControls(cameraOn: Boolean, onToggleCamera: () -> Unit, onEnd: () -> Unit) {
+private fun BoxScope.LiveAiControls(cameraOn: Boolean, onToggleCamera: () -> Unit, onAttach: () -> Unit, onEnd: () -> Unit) {
     Row(
         modifier = Modifier.align(Alignment.BottomCenter).padding(32.dp),
         horizontalArrangement = Arrangement.spacedBy(24.dp),
@@ -122,9 +153,63 @@ private fun BoxScope.LiveAiControls(cameraOn: Boolean, onToggleCamera: () -> Uni
         FilledIconButton(onClick = onToggleCamera) {
             Icon(if (cameraOn) Icons.Default.Videocam else Icons.Default.VideocamOff, contentDescription = if (cameraOn) "Pause camera" else "Resume camera")
         }
+        FilledIconButton(onClick = onAttach) {
+            Icon(Icons.Default.AttachFile, contentDescription = "Attach a photo, video, or PDF for the AI to look at")
+        }
         FloatingActionButton(onClick = onEnd, containerColor = MaterialTheme.colorScheme.error) {
             Icon(Icons.Default.CallEnd, contentDescription = "End session")
         }
+    }
+}
+
+/**
+ * Turns a picked image/video/PDF into one or more still frames to feed
+ * through the live session's existing one-JPEG-at-a-time pipeline. Deliberately
+ * capped (a handful of video frames, first few PDF pages) — this is a vision
+ * snapshot for a live conversation, not a document reader or video player.
+ */
+private fun extractAttachmentFrames(context: android.content.Context, uri: Uri): List<android.graphics.Bitmap> {
+    val mimeType = context.contentResolver.getType(uri) ?: ""
+    return try {
+        when {
+            mimeType.startsWith("image/") -> {
+                context.contentResolver.openInputStream(uri)?.use { stream ->
+                    android.graphics.BitmapFactory.decodeStream(stream)
+                }?.let { listOf(it) } ?: emptyList()
+            }
+            mimeType.startsWith("video/") -> {
+                val retriever = MediaMetadataRetriever()
+                retriever.setDataSource(context, uri)
+                val durationMs = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)?.toLongOrNull() ?: 0L
+                val timestampsUs = if (durationMs > 0) {
+                    listOf(0.1, 0.5, 0.9).map { fraction -> (durationMs * fraction * 1000).toLong() }
+                } else {
+                    listOf(0L)
+                }
+                val frames = timestampsUs.mapNotNull { us -> retriever.getFrameAtTime(us, MediaMetadataRetriever.OPTION_CLOSEST_SYNC) }
+                retriever.release()
+                frames
+            }
+            mimeType == "application/pdf" -> {
+                context.contentResolver.openFileDescriptor(uri, "r")?.use { pfd ->
+                    val renderer = PdfRenderer(pfd)
+                    val pageCount = minOf(renderer.pageCount, 5)
+                    val pages = (0 until pageCount).map { i ->
+                        val page = renderer.openPage(i)
+                        val bitmap = android.graphics.Bitmap.createBitmap(page.width * 2, page.height * 2, android.graphics.Bitmap.Config.ARGB_8888)
+                        bitmap.eraseColor(android.graphics.Color.WHITE)
+                        page.render(bitmap, null, null, PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY)
+                        page.close()
+                        bitmap
+                    }
+                    renderer.close()
+                    pages
+                } ?: emptyList()
+            }
+            else -> emptyList()
+        }
+    } catch (e: Exception) {
+        emptyList()
     }
 }
 

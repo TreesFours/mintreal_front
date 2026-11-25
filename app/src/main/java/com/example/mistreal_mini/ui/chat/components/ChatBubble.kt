@@ -188,6 +188,62 @@ fun ChatBubble(
                         }
                     }
                     
+                    if (message.type == "file") {
+                        val fileUri = message.attachmentPaths?.firstOrNull() ?: message.attachmentUrl
+                        if (fileUri != null) {
+                            val context = LocalContext.current
+                            Surface(
+                                color = textColor.copy(alpha = 0.08f),
+                                shape = RoundedCornerShape(10.dp),
+                                modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp)
+                            ) {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth().padding(10.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Icon(Icons.Default.PictureAsPdf, null, tint = textColor, modifier = Modifier.size(28.dp))
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                    Text(
+                                        message.content.ifBlank { "Document.pdf" },
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = textColor,
+                                        modifier = Modifier.weight(1f),
+                                        maxLines = 1
+                                    )
+                                    IconButton(onClick = {
+                                        try {
+                                            val uri = android.net.Uri.parse(fileUri)
+                                            val intent = android.content.Intent(android.content.Intent.ACTION_VIEW).apply {
+                                                setDataAndType(uri, "application/pdf")
+                                                addFlags(android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION or android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
+                                            }
+                                            context.startActivity(intent)
+                                        } catch (e: Exception) {
+                                            coroutineScope.launch { snackbarHostState.showSnackbar("No app found to open this file.") }
+                                        }
+                                    }) {
+                                        Icon(Icons.Default.OpenInNew, "Open", modifier = Modifier.size(18.dp), tint = textColor)
+                                    }
+                                    IconButton(onClick = {
+                                        try {
+                                            val uri = android.net.Uri.parse(fileUri)
+                                            val intent = android.content.Intent(android.content.Intent.ACTION_SEND).apply {
+                                                type = "application/pdf"
+                                                putExtra(android.content.Intent.EXTRA_STREAM, uri)
+                                                addFlags(android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                                            }
+                                            context.startActivity(android.content.Intent.createChooser(intent, "Share file"))
+                                        } catch (e: Exception) {
+                                            coroutineScope.launch { snackbarHostState.showSnackbar("Couldn't share this file.") }
+                                        }
+                                    }) {
+                                        Icon(Icons.Default.Share, "Share", modifier = Modifier.size(18.dp), tint = textColor)
+                                    }
+                                }
+                            }
+                        }
+                    }
+
                     if (isEditing) {
                         OutlinedTextField(
                             value = editContent,
@@ -203,8 +259,12 @@ fun ChatBubble(
                                 }
                             }
                         )
-                    } else if (message.content.isNotEmpty()) {
-                        val displayContent = message.content.replace(Regex("\\[FILE_REQUEST:.*?\\]"), "📄 Secure File generated and encrypted.")
+                    } else if (message.type != "file" && message.content.isNotEmpty()) {
+                        // [FILE_REQUEST] is now resolved into a real file (see the
+                        // "file" type block above) before a message is ever saved —
+                        // this strip is just a defensive fallback for any message
+                        // saved before that fix, not a claim that a file exists.
+                        val displayContent = message.content.replace(Regex("\\[FILE_REQUEST:.*?\\]"), "")
                         
                         // 🧠 TRUE FEELINGS SUMMARY
                         if (message.trueFeelings != null) {
@@ -421,6 +481,20 @@ fun ChatBubble(
                                             showMenu = false
                                         },
                                         leadingIcon = { Icon(Icons.AutoMirrored.Filled.Send, null) }
+                                    )
+                                    DropdownMenuItem(
+                                        text = { Text("Save to Gallery") },
+                                        onClick = {
+                                            showMenu = false
+                                            viewModel.saveAttachmentToGallery(imageUri, message.type == "video") { success ->
+                                                coroutineScope.launch {
+                                                    snackbarHostState.showSnackbar(
+                                                        if (success) "Saved to Gallery." else "Couldn't save to Gallery."
+                                                    )
+                                                }
+                                            }
+                                        },
+                                        leadingIcon = { Icon(Icons.Default.Download, null) }
                                     )
                                 }
                             }

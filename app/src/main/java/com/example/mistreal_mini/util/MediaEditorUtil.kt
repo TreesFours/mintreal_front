@@ -74,6 +74,86 @@ object MediaEditorUtil {
         }
 
     /**
+     * Copies an AI-generated image/video into the public gallery via
+     * MediaStore. Generated media only ever landed in this app's private
+     * cache dir (saveBase64Image above) or a remote URL (Pollinations,
+     * custom BYOK, Veo) — neither was ever actually exported anywhere, so
+     * there was no real "download" despite the chat bubble showing it.
+     * [sourceUri] may be our own content:// (FileProvider) or a remote
+     * http(s) URL — the latter is fetched here, not assumed pre-downloaded.
+     */
+    suspend fun saveToGallery(context: Context, sourceUri: Uri, isVideo: Boolean, mimeType: String? = null): Uri? =
+        withContext(Dispatchers.IO) {
+            try {
+                val resolver = context.contentResolver
+                val extension = mimeType?.substringAfterLast('/')?.takeIf { it.isNotBlank() } ?: if (isVideo) "mp4" else "jpg"
+                val displayName = "mistreal_ai_${System.currentTimeMillis()}.$extension"
+                val destUri = if (isVideo) {
+                    val values = android.content.ContentValues().apply {
+                        put(android.provider.MediaStore.Video.Media.DISPLAY_NAME, displayName)
+                        put(android.provider.MediaStore.Video.Media.MIME_TYPE, mimeType ?: "video/mp4")
+                        put(android.provider.MediaStore.Video.Media.RELATIVE_PATH, "Movies/Mistreal")
+                    }
+                    resolver.insert(android.provider.MediaStore.Video.Media.EXTERNAL_CONTENT_URI, values)
+                } else {
+                    val values = android.content.ContentValues().apply {
+                        put(android.provider.MediaStore.Images.Media.DISPLAY_NAME, displayName)
+                        put(android.provider.MediaStore.Images.Media.MIME_TYPE, mimeType ?: "image/jpeg")
+                        put(android.provider.MediaStore.Images.Media.RELATIVE_PATH, "Pictures/Mistreal")
+                    }
+                    resolver.insert(android.provider.MediaStore.Images.Media.EXTERNAL_CONTENT_URI, values)
+                } ?: return@withContext null
+
+                val input = if (sourceUri.scheme == "http" || sourceUri.scheme == "https") {
+                    java.net.URL(sourceUri.toString()).openStream()
+                } else {
+                    resolver.openInputStream(sourceUri)
+                }
+                input?.use { inStream -> resolver.openOutputStream(destUri)?.use { out -> inStream.copyTo(out) } }
+                destUri
+            } catch (e: Exception) {
+                Timber.e(e, "Failed to save AI-generated media to gallery")
+                null
+            }
+        }
+
+    /**
+     * Writes an AI-generated file (currently only PDFs — see aiService.ts's
+     * [FILE_REQUEST] handling) straight into the public Downloads folder, so
+     * it's genuinely "downloaded" the moment it arrives rather than sitting
+     * only in the chat thread. API 29+ uses MediaStore.Downloads directly;
+     * below that (this app's minSdk 26) falls back to the app's own cache +
+     * FileProvider — still fully shareable/openable via the file bubble's
+     * actions, just not visible in the system Downloads app on those older
+     * OS versions, the same scoped-storage line every other save-to-gallery
+     * path in this app already draws.
+     */
+    suspend fun saveBase64File(context: Context, base64: String, mimeType: String, fileName: String): Uri? =
+        withContext(Dispatchers.IO) {
+            try {
+                val bytes = android.util.Base64.decode(base64, android.util.Base64.DEFAULT)
+                val resolver = context.contentResolver
+                if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.Q) {
+                    val values = android.content.ContentValues().apply {
+                        put(android.provider.MediaStore.Downloads.DISPLAY_NAME, fileName)
+                        put(android.provider.MediaStore.Downloads.MIME_TYPE, mimeType)
+                        put(android.provider.MediaStore.Downloads.RELATIVE_PATH, "Download/Mistreal")
+                    }
+                    val destUri = resolver.insert(android.provider.MediaStore.Downloads.EXTERNAL_CONTENT_URI, values) ?: return@withContext null
+                    resolver.openOutputStream(destUri)?.use { out -> out.write(bytes) }
+                    destUri
+                } else {
+                    val file = File(context.cacheDir, fileName)
+                    FileOutputStream(file).use { out -> out.write(bytes) }
+                    FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", file)
+                }
+            } catch (e: Exception) {
+                Timber.e(e, "Failed to save AI-generated file")
+                null
+            }
+        }
+
+    /**
      * Draws a small rounded "AI" badge onto a copy of [source] at [position].
      * Deliberately small/unobtrusive (proportional to image width) rather
      * than a watermark covering the whole image.

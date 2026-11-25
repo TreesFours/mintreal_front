@@ -195,7 +195,13 @@ class MainActivity : FragmentActivity() {
                         val guardianViewModel: com.example.mistreal_mini.ui.guardian.GuardianViewModel = hiltViewModel()
 
                         LaunchedEffect(isAuthenticated) {
-                            if (isAuthenticated) guardianViewModel.fetchAlerts()
+                            if (isAuthenticated) {
+                                guardianViewModel.fetchAlerts()
+                                // Needed so the blocking "I'm safe" dialog below knows
+                                // up front whether a Safe Zone exists yet, instead of
+                                // only finding out when the resolve call fails.
+                                guardianViewModel.fetchSafeZone()
+                            }
                         }
 
                         // Keeps lastKnownLat/Lon roughly fresh for the Needs/Offers
@@ -698,16 +704,76 @@ class MainActivity : FragmentActivity() {
                     // Confirming here cancels the 30-day public-escalation sweep
                     // server-side immediately; dismissing by tapping outside is
                     // intentionally not allowed (onDismissRequest is a no-op).
+                    //
+                    // Resolve is anti-coercion: the server only accepts it when the
+                    // device's current location is inside a pre-configured Safe Zone
+                    // (emergencyRoutes.ts's /alerts/:id/resolve). If no Safe Zone was
+                    // ever set up, that call fails EVERY time — and previously that
+                    // failure (GuardianViewModel.resolveError) had zero collectors
+                    // anywhere in the app, so the button looked broken: tap it, nothing
+                    // visibly happens. With no escape hatch inside a modal dialog that
+                    // blocks the whole NavHost, a user in that state was genuinely stuck.
+                    // Now the failure reason is shown inline, and a "Set Safe Zone Here"
+                    // action is offered right in the dialog so there's always a real way
+                    // to get unstuck without having to reach Settings separately.
                     val activeAlert by guardianViewModel.activeAlert.collectAsState()
+                    val guardianSafeZone by guardianViewModel.safeZone.collectAsState()
+                    var sosResolveErrorText by remember { mutableStateOf<String?>(null) }
+                    var isResolvingSosAlert by remember { mutableStateOf(false) }
+                    var isSettingSafeZoneFromSos by remember { mutableStateOf(false) }
+                    LaunchedEffect(isAuthenticated) {
+                        if (isAuthenticated) {
+                            guardianViewModel.resolveError.collect { message ->
+                                isResolvingSosAlert = false
+                                sosResolveErrorText = message
+                            }
+                        }
+                    }
+                    LaunchedEffect(activeAlert?.id) {
+                        if (activeAlert != null) sosResolveErrorText = null
+                    }
                     if (isAuthenticated && activeAlert != null) {
+                        val sosDialogMessage = buildString {
+                            append("You triggered a safety alert. If you're safe now, confirm below — otherwise this may be shared publicly if no confirmed emergency contact responds in time.")
+                            if (guardianSafeZone == null) {
+                                append("\n\nYou haven't set up a Safe Zone yet, so \"I'm safe\" can't be confirmed — tap \"Set Safe Zone Here\" below first, from somewhere you're actually safe.")
+                            }
+                            sosResolveErrorText?.let { append("\n\n⚠ "); append(it) }
+                        }
                         AlertDialog(
                             onDismissRequest = { },
                             icon = { Icon(Icons.Default.Warning, null, tint = MaterialTheme.colorScheme.error) },
                             title = { Text("Active Safety Alert") },
-                            text = { Text("You triggered a safety alert. If you're safe now, confirm below — otherwise this may be shared publicly if no confirmed emergency contact responds in time.") },
+                            text = { Text(sosDialogMessage) },
                             confirmButton = {
-                                Button(onClick = { guardianViewModel.resolveActiveAlert() }) {
-                                    Text("I'm safe — cancel alert")
+                                Button(
+                                    enabled = !isResolvingSosAlert,
+                                    onClick = {
+                                        sosResolveErrorText = null
+                                        isResolvingSosAlert = true
+                                        guardianViewModel.resolveActiveAlert()
+                                    }
+                                ) {
+                                    Text(if (isResolvingSosAlert) "CHECKING..." else "I'm safe — cancel alert")
+                                }
+                            },
+                            dismissButton = {
+                                if (guardianSafeZone == null) {
+                                    androidx.compose.material3.TextButton(
+                                        enabled = !isSettingSafeZoneFromSos,
+                                        onClick = {
+                                            sosResolveErrorText = null
+                                            isSettingSafeZoneFromSos = true
+                                            guardianViewModel.saveSafeZoneHere { success ->
+                                                isSettingSafeZoneFromSos = false
+                                                // On failure, GuardianViewModel.resolveError already carries the
+                                                // specific reason (no location fix, server error, etc.) — the
+                                                // collector above sets sosResolveErrorText from that.
+                                            }
+                                        }
+                                    ) {
+                                        Text(if (isSettingSafeZoneFromSos) "SETTING ZONE..." else "Set Safe Zone Here")
+                                    }
                                 }
                             }
                         )

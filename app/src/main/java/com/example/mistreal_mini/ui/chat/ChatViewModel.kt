@@ -214,6 +214,19 @@ class ChatViewModel @Inject constructor(
     fun sendImageToContact(imageUri: Uri, platform: String, targetId: String, caption: String, onResult: (Boolean) -> Unit) =
         socialContactsController.sendImageToContact(imageUri, platform, targetId, caption, onResult)
 
+    /**
+     * Downloads/copies an image or video attachment (AI-generated or
+     * user-sent — the chat bubble doesn't distinguish) into the device's
+     * real Photos/Gallery via MediaStore. Previously there was no way to
+     * get a generated image/video out of the chat thread at all.
+     */
+    fun saveAttachmentToGallery(uri: String, isVideo: Boolean, mimeType: String? = null, onResult: (Boolean) -> Unit) {
+        viewModelScope.launch {
+            val saved = com.example.mistreal_mini.util.MediaEditorUtil.saveToGallery(context, Uri.parse(uri), isVideo, mimeType)
+            onResult(saved != null)
+        }
+    }
+
     private val _bearing = mutableStateOf(0f)
     val bearing: State<Float> = _bearing
 
@@ -1744,6 +1757,31 @@ class ChatViewModel @Inject constructor(
                                     trendTitle = trendTitle
                                 )
                             )
+                        }
+                        // Real [FILE_REQUEST] result — this used to be pure
+                        // theater (the tag got swapped for cosmetic text with
+                        // no file ever created). Saved straight to Downloads
+                        // the moment it arrives so it's genuinely downloaded,
+                        // not just viewable inside the chat thread.
+                        response.generatedFileBase64?.let { base64 ->
+                            val mimeType = response.generatedFileMimeType ?: "application/pdf"
+                            val fileName = response.generatedFileName ?: "mistreal_document_${System.currentTimeMillis()}.pdf"
+                            val uri = com.example.mistreal_mini.util.MediaEditorUtil.saveBase64File(context, base64, mimeType, fileName)
+                            if (uri != null) {
+                                repository.saveMessage(
+                                    ChatMessage(
+                                        role = "assistant",
+                                        content = fileName,
+                                        type = "file",
+                                        attachmentPaths = listOf(uri.toString()),
+                                        provider = response.provider,
+                                        isTrend = trendTitle != null,
+                                        trendTitle = trendTitle
+                                    )
+                                )
+                            } else {
+                                _errorEvents.emit("AI generated a file but it couldn't be saved.")
+                            }
                         }
 
                         // WhatsApp-style voice notes: a spoken reply (either a single

@@ -93,7 +93,11 @@ class GuardianViewModel @Inject constructor(
                 return@launch
             }
             val result = infoRepository.setSafeZone(deviceId(), location.latitude, location.longitude)
-            if (result is Resource.Success) _safeZone.value = result.data
+            if (result is Resource.Success) {
+                _safeZone.value = result.data
+            } else {
+                _resolveError.emit((result as? Resource.Error)?.message ?: "Failed to set Safe Zone")
+            }
             onDone(result is Resource.Success)
         }
     }
