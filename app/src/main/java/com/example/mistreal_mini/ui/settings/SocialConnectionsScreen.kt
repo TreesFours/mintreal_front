@@ -25,6 +25,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 @Composable
 fun SocialConnectionsScreen(
     onBack: () -> Unit,
+    onUpgradeClick: () -> Unit = {},
     settingsViewModel: com.example.mistreal_mini.ui.settings.SettingsViewModel = hiltViewModel()
 ) {
     val context = LocalContext.current
@@ -66,9 +67,9 @@ fun SocialConnectionsScreen(
             title = { Text("Connection Limit Reached") },
             text = { Text("Your current tier has reached its maximum number of social connections. Upgrade to connect more platforms.") },
             confirmButton = {
-                Button(onClick = { 
+                Button(onClick = {
                     showLimitDialog = false
-                    // Navigate to subscription or handle upgrade
+                    onUpgradeClick()
                 }) {
                     Text("UPGRADE")
                 }

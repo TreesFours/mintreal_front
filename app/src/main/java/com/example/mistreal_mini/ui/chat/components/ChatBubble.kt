@@ -496,6 +496,31 @@ fun ChatBubble(
                                         },
                                         leadingIcon = { Icon(Icons.Default.Download, null) }
                                     )
+                                    val shareContext = LocalContext.current
+                                    DropdownMenuItem(
+                                        text = { Text("Share") },
+                                        onClick = {
+                                            showMenu = false
+                                            val isVideo = message.type == "video"
+                                            viewModel.shareAttachment(imageUri, isVideo) { shareUri ->
+                                                if (shareUri == null) {
+                                                    coroutineScope.launch { snackbarHostState.showSnackbar("Couldn't prepare this for sharing.") }
+                                                    return@shareAttachment
+                                                }
+                                                try {
+                                                    val intent = android.content.Intent(android.content.Intent.ACTION_SEND).apply {
+                                                        type = if (isVideo) "video/*" else "image/*"
+                                                        putExtra(android.content.Intent.EXTRA_STREAM, shareUri)
+                                                        addFlags(android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                                                    }
+                                                    shareContext.startActivity(android.content.Intent.createChooser(intent, "Share"))
+                                                } catch (e: Exception) {
+                                                    coroutineScope.launch { snackbarHostState.showSnackbar("Couldn't share this.") }
+                                                }
+                                            }
+                                        },
+                                        leadingIcon = { Icon(Icons.Default.Share, null) }
+                                    )
                                 }
                             }
                             if (!isUser) {

@@ -405,7 +405,8 @@ class MainActivity : FragmentActivity() {
                         }
                         composable(Routes.CONNECTIONS) {
                             com.example.mistreal_mini.ui.settings.SocialConnectionsScreen(
-                                onBack = { navController.popBackStack() }
+                                onBack = { navController.popBackStack() },
+                                onUpgradeClick = { navController.navigate(Routes.SUBSCRIPTION) }
                             )
                         }
                         composable(Routes.DASHBOARD) {

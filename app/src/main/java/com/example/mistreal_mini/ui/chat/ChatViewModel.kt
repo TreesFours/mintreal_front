@@ -227,6 +227,19 @@ class ChatViewModel @Inject constructor(
         }
     }
 
+    /**
+     * Resolves an image/video attachment to a shareable content:// Uri
+     * (downloading it first if it's currently just a remote URL) — the
+     * caller fires the actual ACTION_SEND intent, since that needs a live
+     * Activity/Context from the Composable, not the ViewModel.
+     */
+    fun shareAttachment(uri: String, isVideo: Boolean, mimeType: String? = null, onResult: (Uri?) -> Unit) {
+        viewModelScope.launch {
+            val shareUri = com.example.mistreal_mini.util.MediaEditorUtil.prepareForSharing(context, Uri.parse(uri), isVideo, mimeType)
+            onResult(shareUri)
+        }
+    }
+
     private val _bearing = mutableStateOf(0f)
     val bearing: State<Float> = _bearing
 

@@ -118,6 +118,30 @@ object MediaEditorUtil {
         }
 
     /**
+     * Resolves [sourceUri] into a content:// Uri another app can actually
+     * open via Intent.ACTION_SEND — our own cache content:// (FileProvider)
+     * Uris already qualify as-is; a remote http(s) URL (Pollinations,
+     * custom BYOK, Veo) has to be downloaded first, since sharing the bare
+     * link would hand the receiving app a URL instead of the actual image/
+     * video bytes.
+     */
+    suspend fun prepareForSharing(context: Context, sourceUri: Uri, isVideo: Boolean, mimeType: String? = null): Uri? =
+        withContext(Dispatchers.IO) {
+            if (sourceUri.scheme != "http" && sourceUri.scheme != "https") return@withContext sourceUri
+            try {
+                val extension = mimeType?.substringAfterLast('/')?.takeIf { it.isNotBlank() } ?: if (isVideo) "mp4" else "jpg"
+                val file = File(context.cacheDir, "share_${System.currentTimeMillis()}.$extension")
+                java.net.URL(sourceUri.toString()).openStream().use { input ->
+                    FileOutputStream(file).use { out -> input.copyTo(out) }
+                }
+                FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", file)
+            } catch (e: Exception) {
+                Timber.e(e, "Failed to prepare AI-generated media for sharing")
+                null
+            }
+        }
+
+    /**
      * Writes an AI-generated file (currently only PDFs — see aiService.ts's
      * [FILE_REQUEST] handling) straight into the public Downloads folder, so
      * it's genuinely "downloaded" the moment it arrives rather than sitting
