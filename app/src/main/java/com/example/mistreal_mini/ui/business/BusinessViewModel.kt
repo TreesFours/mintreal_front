@@ -219,9 +219,18 @@ class BusinessViewModel @Inject constructor(
 
     fun getInventory(businessId: String) = repository.getInventory(businessId)
 
-    fun addInventoryItem(name: String, price: String?, imageUrl: String?, businessId: String) {
+    private val _inventoryActionResult = MutableSharedFlow<Resource<Unit>>()
+    val inventoryActionResult = _inventoryActionResult.asSharedFlow()
+
+    fun addInventoryItem(name: String, price: String?, imageUri: Uri?, businessId: String, context: android.content.Context) {
         viewModelScope.launch {
-            repository.addInventoryItem(name, price, imageUrl, businessId)
+            _inventoryActionResult.emit(repository.addInventoryItem(name, price, imageUri, businessId, context))
+        }
+    }
+
+    fun deleteInventoryItem(item: BusinessItemEntity) {
+        viewModelScope.launch {
+            _inventoryActionResult.emit(repository.deleteItem(item))
         }
     }
 }

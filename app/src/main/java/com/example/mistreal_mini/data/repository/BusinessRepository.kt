@@ -4,6 +4,7 @@ import android.content.Context
 import android.net.Uri
 import com.example.mistreal_mini.data.Resource
 import com.example.mistreal_mini.data.safeApiCall
+import com.example.mistreal_mini.data.api.AddBusinessItemRequest
 import com.example.mistreal_mini.data.api.BusinessAdResponse
 import com.example.mistreal_mini.data.api.BusinessPlatformHandle
 import com.example.mistreal_mini.data.api.InfoApiService
@@ -183,22 +184,50 @@ class BusinessRepository @Inject constructor(
         }
     }
 
-    suspend fun addInventoryItem(name: String, price: String?, imageUrl: String?, businessId: String) {
-        val item = BusinessItemEntity(
-            businessId = businessId,
-            name = name,
-            price = price,
-            imageUrl = imageUrl
-        )
-        businessDao.insertItem(item)
-    }
+    /**
+     * Previously local-Room-only with no backend route at all — a device
+     * other than the owner's had no way to ever see what this business
+     * sells. Now uploads the image (same base64 shape as createAdvert, not
+     * owner-photo's one-slot PUT-replace, since a business can have many
+     * items) and creates the server row first, then mirrors the
+     * server-assigned id into Room — matching saveBusiness's
+     * server-is-truth-then-cache pattern rather than inserting locally
+     * first and hoping the sync succeeds.
+     */
+    suspend fun addInventoryItem(name: String, price: String?, imageUri: Uri?, businessId: String, context: Context): Resource<Unit> =
+        safeApiCall("Failed to add inventory item") {
+            val imageBase64 = imageUri?.let { FileUtil.uriToBase64(context, it) }
+            val imageMimeType = imageUri?.let { FileUtil.getMimeType(context, it) }
+            val response = api.addBusinessItem(businessId, AddBusinessItemRequest(deviceId, name, price, imageBase64, imageMimeType))
+            if (response.success && response.item != null) {
+                businessDao.insertItem(
+                    BusinessItemEntity(
+                        id = response.item.id.toLong(),
+                        businessId = businessId,
+                        name = response.item.name,
+                        price = response.item.price,
+                        imageUrl = response.item.imageUrl
+                    )
+                )
+                Resource.Success(Unit)
+            } else {
+                Resource.Error(response.error ?: "Failed to add inventory item")
+            }
+        }
 
     fun getInventory(businessId: String): Flow<List<BusinessItemEntity>> {
         return businessDao.getItemsForBusiness(businessId)
     }
 
-    suspend fun deleteItem(item: BusinessItemEntity) {
-        businessDao.deleteItem(item)
+    /** The delete half of the sync gap — this function existed with zero UI calling it before now. */
+    suspend fun deleteItem(item: BusinessItemEntity): Resource<Unit> = safeApiCall("Failed to delete item") {
+        val response = api.deleteBusinessItem(item.businessId, item.id.toInt(), deviceId)
+        if (response.success) {
+            businessDao.deleteItem(item)
+            Resource.Success(Unit)
+        } else {
+            Resource.Error(response.error ?: "Failed to delete item")
+        }
     }
 
     /** Business-only posting — the advert's tap target is always the posting business's owner profile. */

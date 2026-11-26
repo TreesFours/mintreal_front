@@ -282,6 +282,14 @@ fun InventoryManager(
         }
     }
 
+    LaunchedEffect(Unit) {
+        viewModel.inventoryActionResult.collect { result ->
+            if (result is com.example.mistreal_mini.data.Resource.Error) {
+                snackbarHostState.showSnackbar(result.message ?: "Inventory action failed")
+            }
+        }
+    }
+
     Box(modifier = modifier.fillMaxSize()) {
         Column(modifier = Modifier.fillMaxSize().padding(16.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -339,7 +347,7 @@ fun InventoryManager(
                 verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
                 items(items) { item ->
-                    ItemTile(item)
+                    ItemTile(item.name, item.price, item.imageUrl, onDelete = { viewModel.deleteInventoryItem(item) })
                 }
             }
         }
@@ -517,10 +525,11 @@ fun InventoryManager(
     }
 
     if (showAddItem) {
+        val context = androidx.compose.ui.platform.LocalContext.current
         AddItemDialog(
             onDismiss = { showAddItem = false },
             onAdd = { name, price, uri ->
-                viewModel.addInventoryItem(name, price, uri?.toString(), business.businessId)
+                viewModel.addInventoryItem(name, price, uri, business.businessId, context)
                 showAddItem = false
             }
         )
@@ -549,14 +558,16 @@ fun InventoryManager(
 }
 
 @Composable
-fun ItemTile(item: com.example.mistreal_mini.data.local.entity.BusinessItemEntity) {
+fun ItemTile(name: String, price: String?, imageUrl: String?, showDelete: Boolean = true, onDelete: () -> Unit = {}) {
+    var confirmDelete by remember { mutableStateOf(false) }
+
     Card(
         modifier = Modifier.fillMaxWidth().height(180.dp),
         shape = RoundedCornerShape(16.dp)
     ) {
         Box {
             AsyncImage(
-                model = item.imageUrl,
+                model = imageUrl,
                 contentDescription = null,
                 modifier = Modifier.fillMaxSize(),
                 contentScale = ContentScale.Crop
@@ -567,10 +578,30 @@ fun ItemTile(item: com.example.mistreal_mini.data.local.entity.BusinessItemEntit
                     .background(androidx.compose.ui.graphics.Brush.verticalGradient(listOf(Color.Transparent, Color.Black.copy(alpha = 0.7f))))
             )
             Column(modifier = Modifier.align(Alignment.BottomStart).padding(8.dp)) {
-                Text(item.name, color = Color.White, fontWeight = FontWeight.Bold, fontSize = 12.sp)
-                item.price?.let { Text(it, color = Color.Green, fontSize = 10.sp, fontWeight = FontWeight.Bold) }
+                Text(name, color = Color.White, fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                price?.let { Text(it, color = Color.Green, fontSize = 10.sp, fontWeight = FontWeight.Bold) }
+            }
+            if (showDelete) {
+                IconButton(
+                    onClick = { confirmDelete = true },
+                    modifier = Modifier.align(Alignment.TopEnd).padding(4.dp)
+                ) {
+                    Icon(Icons.Default.Delete, contentDescription = "Delete item", tint = Color.White)
+                }
             }
         }
+    }
+
+    if (confirmDelete) {
+        AlertDialog(
+            onDismissRequest = { confirmDelete = false },
+            title = { Text("Remove this item?") },
+            text = { Text("\"$name\" will be removed from your inventory for everyone viewing this business.") },
+            confirmButton = {
+                TextButton(onClick = { confirmDelete = false; onDelete() }) { Text("Remove") }
+            },
+            dismissButton = { TextButton(onClick = { confirmDelete = false }) { Text("Cancel") } }
+        )
     }
 }
 

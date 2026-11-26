@@ -175,6 +175,28 @@ fun BusinessDetailScreen(
                 }
             }
 
+            val businessItems = detail?.items.orEmpty()
+            if (businessItems.isNotEmpty()) {
+                item {
+                    Text(
+                        "PRODUCTS & SERVICES",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = Color.Gray,
+                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp)
+                    )
+                    androidx.compose.foundation.lazy.LazyRow(
+                        contentPadding = PaddingValues(horizontal = 16.dp),
+                        horizontalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        items(businessItems) { businessItem ->
+                            Box(modifier = Modifier.width(140.dp)) {
+                                ItemTile(businessItem.name, businessItem.price, businessItem.imageUrl, showDelete = false)
+                            }
+                        }
+                    }
+                }
+            }
+
             val testimonials = detail?.testimonials.orEmpty()
             if (testimonials.isNotEmpty()) {
                 item {
