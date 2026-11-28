@@ -38,7 +38,7 @@ class MarketRepository @Inject constructor(
     // user reopens the same chart twice in one app session.
     private val candleCache = mutableMapOf<String, List<MarketCandle>>()
 
-    suspend fun getCandles(symbol: String, assetClass: String, interval: String? = null): Resource<List<MarketCandle>> {
+    suspend fun getCandles(symbol: String, assetClass: String, interval: String? = null, coingeckoId: String? = null): Resource<List<MarketCandle>> {
         // interval is part of the cache key for the same reason the
         // backend's own candleCache needed the same fix — a 1h and a 1day
         // fetch for the same symbol would otherwise collide and silently
@@ -46,7 +46,7 @@ class MarketRepository @Inject constructor(
         val cacheKey = "$assetClass:$symbol:${interval ?: "1day"}"
         candleCache[cacheKey]?.let { return Resource.Success(it) }
         return safeApiCall("Chart data unavailable", logTag = "MarketRepository.getCandles($symbol, $assetClass, $interval) failed") {
-            val response = api.getCandles(symbol, assetClass, interval)
+            val response = api.getCandles(symbol, assetClass, interval, coingeckoId)
             if (response.success) {
                 candleCache[cacheKey] = response.candles
                 Resource.Success(response.candles)
@@ -56,6 +56,16 @@ class MarketRepository @Inject constructor(
             }
         }
     }
+
+    suspend fun searchSymbols(query: String): Resource<List<com.example.mistreal_mini.data.api.SymbolSearchResult>> =
+        safeApiCall("Search unavailable", logTag = "MarketRepository.searchSymbols($query) failed") {
+            val response = api.searchSymbols(query)
+            if (response.success) Resource.Success(response.results)
+            else {
+                Timber.w("MarketRepository.searchSymbols(%s): success=false — %s", query, response.error)
+                Resource.Error(response.error ?: "Search unavailable")
+            }
+        }
 
     suspend fun createAlert(symbol: String, assetClass: String, direction: String, targetPrice: Double): Resource<MarketAlert> =
         safeApiCall("Could not create alert", logTag = "MarketRepository.createAlert($symbol) failed") {

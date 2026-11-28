@@ -14,6 +14,7 @@ import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.Call
 import androidx.compose.material.icons.filled.Language
 import androidx.compose.material.icons.filled.Person
+import androidx.compose.material.icons.filled.Psychology
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -66,11 +67,16 @@ fun MarketScreen(
     onOpenReels: () -> Unit = {},
     onOpenWatchHub: () -> Unit = {},
     onOpenChat: () -> Unit = {},
+    // Shared instance with the rest of the app (see MainActivity) — lets a
+    // ticker's chart dialog open the same AI drafting popup the Intelligence
+    // feed's "AI Analysis" buttons already use, with zero separate AI wiring.
+    chatViewModel: com.example.mistreal_mini.ui.chat.ChatViewModel? = null,
     viewModel: MarketViewModel = hiltViewModel(),
     adHostViewModel: AdHostViewModel = hiltViewModel()
 ) {
     val context = LocalContext.current
     val focusManager = LocalFocusManager.current
+    var aiAnalysisContext by remember { mutableStateOf<String?>(null) }
     val tickerBands by viewModel.tickerBands.collectAsState()
     val selectedCategory by viewModel.selectedCategory.collectAsState()
     val searchQuery by viewModel.searchQuery.collectAsState()
@@ -135,6 +141,49 @@ fun MarketScreen(
             item { MarqueeTickerRow(label = "CRYPTO", quotes = tickerBands["crypto"].orEmpty(), onSelect = { viewModel.selectTicker(it.symbol, it.assetClass ?: "crypto") }) }
             item { MarqueeTickerRow(label = "FOREX", quotes = tickerBands["forex"].orEmpty(), onSelect = { viewModel.selectTicker(it.symbol, it.assetClass ?: "forex") }) }
             item { MarqueeTickerRow(label = "TICKERS & COMMODITIES", quotes = tickerBands["tickers"].orEmpty(), onSelect = { viewModel.selectTicker(it.symbol, it.assetClass ?: "commodity") }) }
+
+            // --- Ticker search — finds any symbol beyond the three fixed
+            // bands above, quoted/charted on-demand (see MarketViewModel.
+            // searchSymbols' comment) rather than needing it pre-populated
+            // in a proactively-polled watchlist.
+            item {
+                var tickerSearchQuery by remember { mutableStateOf("") }
+                val searchResults by viewModel.symbolSearchResults.collectAsState()
+                val isSearching by viewModel.isSearchingSymbols.collectAsState()
+
+                Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)) {
+                    OutlinedTextField(
+                        value = tickerSearchQuery,
+                        onValueChange = { tickerSearchQuery = it; viewModel.searchSymbols(it) },
+                        modifier = Modifier.fillMaxWidth(),
+                        placeholder = { Text("Search any ticker (stocks, crypto)...") },
+                        leadingIcon = { Icon(Icons.Default.Search, null) },
+                        trailingIcon = {
+                            if (tickerSearchQuery.isNotEmpty()) {
+                                IconButton(onClick = { tickerSearchQuery = ""; viewModel.clearSymbolSearch() }) {
+                                    Icon(Icons.Default.ArrowBack, contentDescription = "Clear")
+                                }
+                            }
+                        },
+                        singleLine = true
+                    )
+                    if (isSearching) {
+                        LinearProgressIndicator(modifier = Modifier.fillMaxWidth().padding(top = 4.dp))
+                    }
+                    searchResults.forEach { result ->
+                        ListItem(
+                            headlineContent = { Text(result.symbol, fontWeight = FontWeight.Bold) },
+                            supportingContent = { Text(result.name, maxLines = 1) },
+                            trailingContent = { Text(result.assetClass.uppercase(), style = MaterialTheme.typography.labelSmall, color = Color.Gray) },
+                            modifier = Modifier.clickable {
+                                viewModel.selectTicker(result.symbol, result.assetClass, result.coingeckoId)
+                                tickerSearchQuery = ""
+                                viewModel.clearSymbolSearch()
+                            }
+                        )
+                    }
+                }
+            }
 
             // --- Ad slot ---
             dueAd?.let { ad ->
@@ -342,7 +391,22 @@ fun MarketScreen(
             onToggleFibonacci = { viewModel.toggleFibonacci() },
             onSelectTimeframe = { viewModel.selectTimeframeDays(it) },
             onSelectIntraday = { viewModel.selectIntradayInterval(it) },
-            onDismiss = { viewModel.closeChartDialog() }
+            onDismiss = { viewModel.closeChartDialog() },
+            onAiAnalysisClick = if (chatViewModel != null) {
+                {
+                    val series = if (intradayInterval != null) intradayCandles else chartCandles.takeLast(timeframeDays)
+                    val summary = summarizeCandlesForPrompt(selectedTicker ?: "", series)
+                    aiAnalysisContext = "MARKET_ANALYSIS: Provide a concise technical analysis of ${selectedTicker} ($selectedAssetClass). $summary Cover trend, momentum, and key support/resistance levels. This is not financial advice."
+                }
+            } else null
+        )
+    }
+
+    if (aiAnalysisContext != null && chatViewModel != null) {
+        com.example.mistreal_mini.ui.util.AiInsightPopup(
+            contextText = aiAnalysisContext!!,
+            onClose = { aiAnalysisContext = null },
+            viewModel = chatViewModel
         )
     }
 
@@ -441,6 +505,23 @@ private fun PostAdvertDialog(
 }
 
 /**
+ * Feeds a ticker's own recent price action into the "AI Analysis" prompt
+ * instead of asking the model to analyze a symbol it has no actual data
+ * for. Deliberately simple arithmetic (not a second API call) — period
+ * change and range — since the model itself does the real interpretation.
+ */
+private fun summarizeCandlesForPrompt(symbol: String, candles: List<com.example.mistreal_mini.data.api.MarketCandle>): String {
+    if (candles.isEmpty()) return "No recent price data is available for $symbol."
+    val first = candles.first()
+    val last = candles.last()
+    val periodChangePercent = if (first.close != 0.0) ((last.close - first.close) / first.close) * 100 else 0.0
+    val high = candles.maxOf { it.high }
+    val low = candles.minOf { it.low }
+    return "Over the last ${candles.size} periods: opened near ${first.close}, now at ${last.close} " +
+        "(${"%.2f".format(periodChangePercent)}% change), ranging between $low and $high."
+}
+
+/**
  * Replaces what used to be an always-visible inline card that never actually
  * drew a chart — just literal text claiming one existed ("Live Candlestick
  * Series (N points)"). This is a real popup, triggered per-ticker-tap, built
@@ -468,7 +549,8 @@ private fun TickerChartDialog(
     onToggleFibonacci: () -> Unit,
     onSelectTimeframe: (Int) -> Unit,
     onSelectIntraday: (String) -> Unit,
-    onDismiss: () -> Unit
+    onDismiss: () -> Unit,
+    onAiAnalysisClick: (() -> Unit)? = null
 ) {
     // CoinGecko's free /ohlc tier has no hourly granularity to request —
     // confirmed in marketDataService.ts, not assumed — so intraday chips are
@@ -494,7 +576,14 @@ private fun TickerChartDialog(
                         Spacer(modifier = Modifier.width(8.dp))
                         Text(symbol, fontWeight = FontWeight.Black, style = MaterialTheme.typography.titleMedium)
                     }
-                    IconButton(onClick = onDismiss) { Icon(Icons.Default.ArrowBack, contentDescription = "Close") }
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        onAiAnalysisClick?.let { onClick ->
+                            IconButton(onClick = onClick) {
+                                Icon(Icons.Default.Psychology, "AI Analysis", tint = MaterialTheme.colorScheme.primary)
+                            }
+                        }
+                        IconButton(onClick = onDismiss) { Icon(Icons.Default.ArrowBack, contentDescription = "Close") }
+                    }
                 }
 
                 Spacer(modifier = Modifier.height(8.dp))

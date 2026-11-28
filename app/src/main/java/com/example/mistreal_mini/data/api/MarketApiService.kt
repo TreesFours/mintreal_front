@@ -20,8 +20,16 @@ interface MarketApiService {
         // timeframes, which still slice one daily fetch client-side. Only
         // 1h/4h (stock/forex/commodity only — crypto has no hourly data on
         // the server's free tier) pass this to trigger a fresh intraday fetch.
-        @Query("interval") interval: String? = null
+        @Query("interval") interval: String? = null,
+        // Only ever set for a crypto symbol found via search() below that
+        // isn't in the server's hand-curated COINGECKO_ID_MAP.
+        @Query("coingeckoId") coingeckoId: String? = null
     ): MarketCandlesResponse
+
+    // "All tickers" without proactively polling hundreds of symbols — see
+    // searchSymbols' comment in marketDataService.ts.
+    @GET("api/markets/search")
+    suspend fun searchSymbols(@Query("q") query: String): SymbolSearchResponse
 
     @POST("api/markets/alerts")
     suspend fun createAlert(@Body request: CreateMarketAlertRequest): MarketAlertResponse
@@ -68,6 +76,19 @@ data class MarketCandle(
 data class MarketCandlesResponse(
     val success: Boolean,
     val candles: List<MarketCandle> = emptyList(),
+    val error: String? = null
+)
+
+data class SymbolSearchResult(
+    val symbol: String,
+    val name: String,
+    val assetClass: String,
+    val coingeckoId: String? = null
+)
+
+data class SymbolSearchResponse(
+    val success: Boolean,
+    val results: List<SymbolSearchResult> = emptyList(),
     val error: String? = null
 )
 

@@ -540,7 +540,8 @@ class MainActivity : FragmentActivity() {
                                 onOpenGames = { navController.navigate(Routes.GAMES) },
                                 onOpenReels = { navController.navigate(Routes.dashboard("reels")) },
                                 onOpenWatchHub = { navController.navigate(Routes.watchHost()) },
-                                onOpenChat = { navController.navigate(Routes.chat()) }
+                                onOpenChat = { navController.navigate(Routes.chat()) },
+                                chatViewModel = chatViewModel
                             )
                         }
                         composable(Routes.GAMES) {

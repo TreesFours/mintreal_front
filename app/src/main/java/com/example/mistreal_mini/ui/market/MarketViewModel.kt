@@ -116,9 +116,46 @@ class MarketViewModel @Inject constructor(
     private val _timeframeDays = MutableStateFlow(180)
     val timeframeDays: StateFlow<Int> = _timeframeDays.asStateFlow()
 
-    fun selectTicker(symbol: String, assetClass: String = "crypto") {
+    // Ticker search — finds any symbol beyond the fixed three bands above,
+    // quoted/charted on-demand via the existing selectTicker() path rather
+    // than needing it pre-populated in a proactively-polled watchlist.
+    private val _symbolSearchResults = MutableStateFlow<List<com.example.mistreal_mini.data.api.SymbolSearchResult>>(emptyList())
+    val symbolSearchResults: StateFlow<List<com.example.mistreal_mini.data.api.SymbolSearchResult>> = _symbolSearchResults.asStateFlow()
+
+    private val _isSearchingSymbols = MutableStateFlow(false)
+    val isSearchingSymbols: StateFlow<Boolean> = _isSearchingSymbols.asStateFlow()
+
+    private var searchJob: kotlinx.coroutines.Job? = null
+
+    fun searchSymbols(query: String) {
+        searchJob?.cancel()
+        if (query.isBlank()) {
+            _symbolSearchResults.value = emptyList()
+            return
+        }
+        searchJob = viewModelScope.launch {
+            kotlinx.coroutines.delay(300) // debounce — avoid a request per keystroke
+            _isSearchingSymbols.value = true
+            val result = marketRepository.searchSymbols(query)
+            _symbolSearchResults.value = (result as? Resource.Success)?.data.orEmpty()
+            _isSearchingSymbols.value = false
+        }
+    }
+
+    fun clearSymbolSearch() {
+        searchJob?.cancel()
+        _symbolSearchResults.value = emptyList()
+    }
+
+    // Only ever non-null for a crypto symbol opened from a search result that
+    // isn't in the server's hand-curated COINGECKO_ID_MAP — carried alongside
+    // the selected ticker so the intraday re-fetch below also has it.
+    private var selectedCoingeckoId: String? = null
+
+    fun selectTicker(symbol: String, assetClass: String = "crypto", coingeckoId: String? = null) {
         _selectedTicker.value = symbol
         _selectedAssetClass.value = assetClass
+        selectedCoingeckoId = coingeckoId
         _showChartDialog.value = true
         _intradayInterval.value = null
         _timeframeDays.value = 180
@@ -126,7 +163,7 @@ class MarketViewModel @Inject constructor(
         _showFibonacci.value = false
         viewModelScope.launch {
             _isLoadingChart.value = true
-            val result = marketRepository.getCandles(symbol, assetClass)
+            val result = marketRepository.getCandles(symbol, assetClass, coingeckoId = coingeckoId)
             if (result is Resource.Success) {
                 _chartCandles.value = result.data.orEmpty()
             }
@@ -158,7 +195,7 @@ class MarketViewModel @Inject constructor(
         _intradayInterval.value = interval
         viewModelScope.launch {
             _isLoadingChart.value = true
-            val result = marketRepository.getCandles(symbol, assetClass, interval)
+            val result = marketRepository.getCandles(symbol, assetClass, interval, selectedCoingeckoId)
             if (result is Resource.Success) {
                 _intradayCandles.value = result.data.orEmpty()
             }
