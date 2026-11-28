@@ -450,7 +450,8 @@ class MainActivity : FragmentActivity() {
                                 onOpenWatchHub = { navController.navigate(Routes.watchHost()) },
                                 onOpenChat = { navController.navigate(Routes.chat()) },
                                 onOpenLibrarySearch = { navController.navigate(Routes.LIBRARY_SEARCH) },
-                                onOpenBrowser = { url -> navController.navigate(Routes.browser(url)) }
+                                onOpenBrowser = { url -> navController.navigate(Routes.browser(url)) },
+                                onOpenNeeds = { navController.navigate(Routes.NEEDS) }
                             )
                         }
                         composable(Routes.LIBRARY_SEARCH) {

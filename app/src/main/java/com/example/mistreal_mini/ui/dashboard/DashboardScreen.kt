@@ -59,6 +59,7 @@ fun DashboardScreen(
     onOpenChat: () -> Unit = {},
     onOpenLibrarySearch: () -> Unit = {},
     onOpenBrowser: (String) -> Unit = {},
+    onOpenNeeds: () -> Unit = {},
     viewModel: DashboardViewModel = hiltViewModel(),
     feedViewModel: FeedViewModel = hiltViewModel(),
     mapViewModel: TacticalMapViewModel = hiltViewModel(),
@@ -333,6 +334,7 @@ fun DashboardScreen(
                         onLoadComments = { postId -> feedViewModel.loadAggregatedComments(postId, deviceId) },
                         onAddComment = { postId, text -> feedViewModel.addPostComment(postId, deviceId, text) },
                         onAdvertiseClick = onAdvertiseClick,
+                        onOpenNeeds = onOpenNeeds,
                         snackbarHostState = snackbarHostState
                     )
                 }

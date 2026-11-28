@@ -42,14 +42,19 @@ import kotlinx.coroutines.launch
 fun DispatchCenterView(
     deviceId: String,
     connectedSocials: List<String>,
-    onPostToSocial: suspend (String, String, String, String, Boolean, String?, String?, Boolean) -> Boolean,
+    // Returns (success, errorMessage) — errorMessage is whatever the backend
+    // actually said (e.g. "not linked to this profile", "Connect your social
+    // profile first") instead of a generic failure the UI used to show no
+    // matter the real cause.
+    onPostToSocial: suspend (String, String, String, String, Boolean, String?, String?, Boolean) -> Pair<Boolean, String?>,
     // One Zernio call, one Mistreal post record spanning every selected
     // platform — replaces the old per-platform forEach loop below, which
     // created N disconnected posts with no shared comment thread. Returns
-    // (success, unlinkedPlatforms) — the latter lists any selected platform
-    // Zernio reports as not actually connected, so the broadcast result can
-    // say so instead of silently posting to fewer than requested.
-    onPostMultiPlatform: suspend (String, String, List<String>, String?, String?) -> Pair<Boolean, List<String>>,
+    // (success, unlinkedPlatforms, errorMessage) — unlinkedPlatforms lists
+    // any selected platform Zernio reports as not actually connected, so the
+    // broadcast result can say so instead of silently posting to fewer than
+    // requested; errorMessage is the real backend error on outright failure.
+    onPostMultiPlatform: suspend (String, String, List<String>, String?, String?) -> Triple<Boolean, List<String>, String?>,
     // "Your Broadcasts" below the composer, and its comment thread — see
     // FeedViewModel.ownPosts/aggregatedComments. A separate surface from the
     // Zernio-synced feed (that still shows a multi-platform post exploded
@@ -63,6 +68,7 @@ fun DispatchCenterView(
     onLoadComments: (String) -> Unit = {},
     onAddComment: suspend (String, String) -> Boolean = { _, _ -> false },
     onAdvertiseClick: () -> Unit = {},
+    onOpenNeeds: () -> Unit = {},
     snackbarHostState: SnackbarHostState
 ) {
     var content by remember { mutableStateOf("") }
@@ -126,6 +132,34 @@ fun DispatchCenterView(
                     Text("Launch target ads on Market & Social feeds", fontSize = 9.sp, color = Color.Gray)
                 }
                 Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, null, tint = MaterialTheme.colorScheme.primary)
+            }
+        }
+
+        Spacer(modifier = Modifier.height(8.dp))
+
+        // Needs was only ever reachable from Settings — no link from Comms,
+        // where someone composing a broadcast is already in a "post
+        // something" mindset and immediate-need posting fits naturally.
+        Card(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clickable { onOpenNeeds() },
+            shape = RoundedCornerShape(16.dp),
+            colors = CardDefaults.cardColors(
+                containerColor = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.85f)
+            )
+        ) {
+            Row(
+                modifier = Modifier.padding(12.dp).fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Icon(Icons.Default.Handyman, "Needs", tint = MaterialTheme.colorScheme.secondary, modifier = Modifier.size(24.dp))
+                Spacer(modifier = Modifier.width(12.dp))
+                Column(modifier = Modifier.weight(1f)) {
+                    Text("POST AN IMMEDIATE NEED", fontWeight = FontWeight.Black, fontSize = 12.sp, color = MaterialTheme.colorScheme.onSecondaryContainer)
+                    Text("Alerts nearby users with the matching skill set", fontSize = 9.sp, color = Color.Gray)
+                }
+                Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, null, tint = MaterialTheme.colorScheme.secondary)
             }
         }
 
@@ -384,22 +418,22 @@ fun DispatchCenterView(
                     scope.launch {
                         isPosting = true
                         val mediaBase64 = attachedUri?.let { FileUtil.uriToBase64(context, it) }
-                        val result = onPostToSocial(deviceId, "mistreal", postType, content, true, mediaBase64, attachedMimeType, false)
+                        val (success, errorMessage) = onPostToSocial(deviceId, "mistreal", postType, content, true, mediaBase64, attachedMimeType, false)
                         isPosting = false
-                        snackbarHostState.showSnackbar(if (result) "Posted to Mistreal community feed!" else "Failed to post.")
-                        if (result) { content = ""; attachedUri = null; attachedMimeType = null }
+                        snackbarHostState.showSnackbar(if (success) "Posted to Mistreal community feed!" else "Failed to post: ${errorMessage ?: "unknown error"}")
+                        if (success) { content = ""; attachedUri = null; attachedMimeType = null }
                     }
                 } else {
                     scope.launch {
                         isPosting = true
                         val mediaBase64 = attachedUri?.let { FileUtil.uriToBase64(context, it) }
-                        val (success, unlinked) = onPostMultiPlatform(deviceId, content, selectedPlatforms.toList(), mediaBase64, attachedMimeType)
+                        val (success, unlinked, errorMessage) = onPostMultiPlatform(deviceId, content, selectedPlatforms.toList(), mediaBase64, attachedMimeType)
                         isPosting = false
                         val reached = selectedPlatforms.size - unlinked.size
                         val message = when {
                             success && unlinked.isEmpty() -> "Broadcast transmitted to $reached channels!"
                             success -> "Broadcast transmitted to $reached channels — ${unlinked.joinToString()} isn't actually connected."
-                            else -> "Broadcast failed to transmit."
+                            else -> "Broadcast failed to transmit: ${errorMessage ?: "unknown error"}"
                         }
                         snackbarHostState.showSnackbar(message)
                         if (success) { content = ""; attachedUri = null; attachedMimeType = null; onLoadOwnPosts() }

@@ -257,11 +257,18 @@ class FeedViewModel @Inject constructor(
         }
     }
 
+    // Returns (success, errorMessage) — was a bare Boolean, which meant every
+    // failure (wrong/expired Zernio key, account not actually linked despite
+    // showing "connected" in this app's own UI, server error, anything) all
+    // collapsed into the same generic "Failed to post." with zero diagnostic
+    // for either the user or anyone debugging a report of posting "keeps
+    // failing" — the real reason was always available in result.message,
+    // just never read.
     suspend fun postToSocial(
         deviceId: String, platform: String, type: String, content: String, targetId: String = "self",
         mistrealOnly: Boolean = false, mediaBase64: String? = null, mediaMimeType: String? = null,
         shareToCommunity: Boolean = false
-    ): Boolean {
+    ): Pair<Boolean, String?> {
         val result = infoRepository.performSocialAction(
             deviceId = deviceId,
             type = type,
@@ -273,18 +280,18 @@ class FeedViewModel @Inject constructor(
             mistrealOnly = mistrealOnly,
             shareToCommunity = shareToCommunity
         )
-        return result is Resource.Success
+        return (result is Resource.Success) to (result as? Resource.Error)?.message
     }
 
-    /** Returns (success, unlinkedPlatforms) — see DispatchCenterView's onPostMultiPlatform doc. */
+    /** Returns (success, unlinkedPlatforms, errorMessage) — see DispatchCenterView's onPostMultiPlatform doc. */
     suspend fun postMultiPlatform(
         deviceId: String, content: String, platforms: List<String>,
         mediaBase64: String? = null, mediaMimeType: String? = null
-    ): Pair<Boolean, List<String>> {
+    ): Triple<Boolean, List<String>, String?> {
         val result = infoRepository.createMultiPlatformPost(deviceId, content, platforms, mediaBase64, mediaMimeType)
         return when (result) {
-            is Resource.Success -> true to (result.data?.unlinkedPlatforms ?: emptyList())
-            else -> false to emptyList()
+            is Resource.Success -> Triple(true, result.data?.unlinkedPlatforms ?: emptyList(), null)
+            else -> Triple(false, emptyList(), (result as? Resource.Error)?.message)
         }
     }
 

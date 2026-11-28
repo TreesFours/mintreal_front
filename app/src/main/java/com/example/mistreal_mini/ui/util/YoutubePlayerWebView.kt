@@ -28,7 +28,15 @@ fun YoutubePlayerWebView(videoId: String, modifier: Modifier = Modifier) {
                 settings.mediaPlaybackRequiresUserGesture = false
                 settings.cacheMode = WebSettings.LOAD_DEFAULT
                 webChromeClient = WebChromeClient()
-                loadUrl("https://www.youtube.com/embed/$videoId?autoplay=1&playsinline=1")
+                // mediaPlaybackRequiresUserGesture=false above is an Android
+                // WebView-level setting — the underlying Chromium engine still
+                // enforces its own autoplay policy for audible content inside
+                // the loaded page regardless, which silently blocked unmuted
+                // autoplay here and left the embed showing a frozen first
+                // frame (read as "can't play it directly"). Muted autoplay is
+                // universally allowed; the embed's own controls let the user
+                // unmute with one tap.
+                loadUrl("https://www.youtube.com/embed/$videoId?autoplay=1&playsinline=1&mute=1")
             }
         }
     )
