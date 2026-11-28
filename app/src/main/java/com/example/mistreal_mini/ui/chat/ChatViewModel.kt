@@ -125,7 +125,10 @@ class ChatViewModel @Inject constructor(
     private val _currentPersona = mutableStateOf(savedStateHandle.get<String>("currentPersona") ?: "Shadow")
     val currentPersona: State<String> = _currentPersona
 
-    private val _aiCustomName = mutableStateOf("Shadow AI")
+    // Matches PreferenceManager.aiCustomName's default (now "", not "Shadow
+    // AI") — this was the in-memory value for the brief window before
+    // observeInto below syncs it from the real stored value.
+    private val _aiCustomName = mutableStateOf("")
     val aiCustomName: State<String> = _aiCustomName
 
     // Where the "AI" tag gets stamped on AI-generated images before saving —

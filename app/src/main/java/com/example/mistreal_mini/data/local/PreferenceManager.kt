@@ -97,9 +97,14 @@ class PreferenceManager @Inject constructor(
             preferences[IS_PRO_KEY] ?: false
         }
 
+    // Was "User" — shipped as if the operator had already named themselves.
+    // Empty by design now: Tactical Identity's placeholder text ("e.g. Shadow
+    // AI" on the AI name field) only ever meant anything if the real value
+    // could actually be blank: with a non-empty default, the field always
+    // showed that default as real filled-in text, never the hint.
     val userName: Flow<String> = context.dataStore.data
         .map { preferences ->
-            preferences[USER_NAME_KEY] ?: "User"
+            preferences[USER_NAME_KEY] ?: ""
         }
 
     val aiPersona: Flow<String> = context.dataStore.data
@@ -107,9 +112,13 @@ class PreferenceManager @Inject constructor(
             preferences[AI_PERSONA_KEY] ?: "Shadow"
         }
 
+    // Was "Shadow AI" — same reasoning as userName above. ChatViewModel's
+    // IDENTITY_OVERRIDE injection already guards on isNotBlank(), so an empty
+    // value here was always handled correctly downstream; the non-empty
+    // default was the only thing stopping it from ever actually being used.
     val aiCustomName: Flow<String> = context.dataStore.data
         .map { preferences ->
-            preferences[AI_CUSTOM_NAME_KEY] ?: "Shadow AI"
+            preferences[AI_CUSTOM_NAME_KEY] ?: ""
         }
 
     val aiTagPosition: Flow<String> = context.dataStore.data

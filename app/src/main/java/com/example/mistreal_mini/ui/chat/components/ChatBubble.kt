@@ -3,6 +3,8 @@ package com.example.mistreal_mini.ui.chat.components
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
@@ -389,7 +391,14 @@ fun ChatBubble(
                         }
 
                         if (displayContent.length > 800) {
-                            var isExpanded by remember { mutableStateOf(false) }
+                            // Was an inline expand that grew this card's height in
+                            // place — in this reverseLayout=true chat list, growing
+                            // a card anchors from its (visually bottom) edge, so
+                            // "expand" always landed the viewport on the tail end of
+                            // the text instead of staying where the user was reading.
+                            // A separate full-text dialog can't have that problem:
+                            // the list's own layout never changes when it opens.
+                            var showFullTextDialog by remember { mutableStateOf(false) }
                             Card(
                                 modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
                                 colors = CardDefaults.cardColors(containerColor = textColor.copy(alpha = 0.1f)),
@@ -403,14 +412,30 @@ fun ChatBubble(
                                     }
                                     Spacer(modifier = Modifier.height(8.dp))
                                     Text(
-                                        text = if (isExpanded) displayContent else displayContent.take(300) + "...",
+                                        text = displayContent.take(300) + "...",
                                         style = MaterialTheme.typography.bodySmall,
                                         color = textColor
                                     )
-                                    TextButton(onClick = { isExpanded = !isExpanded }) {
-                                        Text(if (isExpanded) "COLLAPSE" else "DECRYPT & VIEW FULL", fontSize = 10.sp, fontWeight = FontWeight.Bold, color = textColor)
+                                    TextButton(onClick = { showFullTextDialog = true }) {
+                                        Text("DECRYPT & VIEW FULL", fontSize = 10.sp, fontWeight = FontWeight.Bold, color = textColor)
                                     }
                                 }
+                            }
+                            if (showFullTextDialog) {
+                                AlertDialog(
+                                    onDismissRequest = { showFullTextDialog = false },
+                                    title = { Text("Full Reply") },
+                                    text = {
+                                        SelectionContainer {
+                                            Column(modifier = Modifier.verticalScroll(rememberScrollState())) {
+                                                Text(displayContent, style = MaterialTheme.typography.bodySmall)
+                                            }
+                                        }
+                                    },
+                                    confirmButton = {
+                                        TextButton(onClick = { showFullTextDialog = false }) { Text("CLOSE") }
+                                    }
+                                )
                             }
                         } else {
                             LinkableText(
@@ -644,7 +669,11 @@ fun ChatBubble(
             val displayName = if (isUser) "OPERATOR" else {
                 val partnerPlatform = viewModel.currentChatPartnerPlatform.value
                 if (partnerPlatform == "ai") {
-                    viewModel.aiCustomName.value.uppercase()
+                    // aiCustomName now defaults to "" (user sets their own
+                    // name instead of shipping "Shadow AI") — this read it
+                    // unconditionally, so a blank value would have shown as
+                    // an empty label under every AI bubble.
+                    viewModel.aiCustomName.value.takeIf { it.isNotBlank() }?.uppercase() ?: "AI"
                 } else {
                     viewModel.currentChatPartner.value.uppercase()
                 }
