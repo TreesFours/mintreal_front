@@ -105,7 +105,7 @@ class AiProviderSelector(
 
         // 1. COMMAND CENTER (Always at top)
         groups["COMMAND CENTER"] = mutableListOf(
-            AiModelResponse("dynamic", "Mistreal Dynamic", "mistreal", false, "Free", "Optimized", 100)
+            AiModelResponse("dynamic", "Mistreal Dynamic", "mistreal", false, "Free")
         )
 
         models.forEach { model ->

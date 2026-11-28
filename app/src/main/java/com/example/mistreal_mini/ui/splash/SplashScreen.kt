@@ -3,7 +3,7 @@
  * 
  * 🚀 FUNCTIONAL PIPELINE:
  * [Input]  <- App Start Event / Initialization
- * [Process] <- Renders animated Psychology icon and motto; triggers 3.5s delay
+ * [Process] <- Renders the ThinkingTreeIcon logo and motto; triggers 3.5s delay
  * [Output] -> Calls onTimeout() to trigger navigation to Auth/Main flow
  *
  * ⚠️ MANDATORY: Never delete history. Only ADD updates/fixes to the Master Map table.
@@ -13,16 +13,14 @@ package com.example.mistreal_mini.ui.splash
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Psychology
 import androidx.compose.material3.*
+import com.example.mistreal_mini.ui.components.ThinkingTreeIcon
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Brush
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -36,7 +34,6 @@ fun SplashScreen(
     onTimeout: () -> Unit,
     viewModel: SplashViewModel = hiltViewModel()
 ) {
-    val statusText by viewModel.statusText.collectAsStateWithLifecycle()
     val isReady by viewModel.isReady.collectAsStateWithLifecycle()
 
     var startAnimation by remember { mutableStateOf(false) }
@@ -49,17 +46,6 @@ fun SplashScreen(
         targetValue = if (startAnimation) 1.2f else 1f,
         animationSpec = tween(durationMillis = 2000, easing = LinearOutSlowInEasing),
         label = "Scale"
-    )
-
-    val pulseTransition = rememberInfiniteTransition(label = "pulse")
-    val pulseScale by pulseTransition.animateFloat(
-        initialValue = 1f,
-        targetValue = 1.1f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(1000, easing = FastOutSlowInEasing),
-            repeatMode = RepeatMode.Reverse
-        ),
-        label = "pulseScale"
     )
 
     // 🛡️ AI NOTE: If you overhaul or fix logic here, log it in the "History & Notes" column of the Master Map.
@@ -89,21 +75,19 @@ fun SplashScreen(
             verticalArrangement = Arrangement.Center,
             modifier = Modifier.padding(24.dp)
         ) {
-            Icon(
-                imageVector = Icons.Default.Psychology,
-                contentDescription = "Mistreal Logo",
+            ThinkingTreeIcon(
+                isThinking = !isReady,
+                size = 88.dp,
                 modifier = Modifier
-                    .size(100.dp)
-                    .scale(scaleAnim.value * if (isReady) 1f else pulseScale)
-                    .alpha(alphaAnim.value),
-                tint = MaterialTheme.colorScheme.primary
+                    .scale(scaleAnim.value)
+                    .alpha(alphaAnim.value)
             )
-            
-            Spacer(modifier = Modifier.height(32.dp))
-            
+
+            Spacer(modifier = Modifier.height(20.dp))
+
             Text(
                 text = "MISTREAL",
-                style = MaterialTheme.typography.displaySmall,
+                style = MaterialTheme.typography.titleMedium,
                 color = MaterialTheme.colorScheme.onSurface,
                 modifier = Modifier.alpha(alphaAnim.value)
             )
@@ -124,37 +108,6 @@ fun SplashScreen(
             )
 
             Spacer(modifier = Modifier.height(24.dp))
-
-            // Animated Status Pill Badge
-            Surface(
-                color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.5f),
-                shape = androidx.compose.foundation.shape.RoundedCornerShape(16.dp),
-                modifier = Modifier
-                    .padding(horizontal = 16.dp)
-                    .alpha(alphaAnim.value)
-            ) {
-                Row(
-                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Box(
-                        modifier = Modifier
-                            .size(8.dp)
-                            .background(
-                                color = if (statusText.contains("Online") || statusText.contains("Ready")) Color(0xFF4CAF50) else Color(0xFFFF9800),
-                                shape = androidx.compose.foundation.shape.CircleShape
-                            )
-                    )
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text(
-                        text = statusText,
-                        style = MaterialTheme.typography.labelSmall,
-                        fontWeight = androidx.compose.ui.text.font.FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.onPrimaryContainer,
-                        textAlign = TextAlign.Center
-                    )
-                }
-            }
 
             if (!isReady) {
                 Spacer(modifier = Modifier.height(20.dp))

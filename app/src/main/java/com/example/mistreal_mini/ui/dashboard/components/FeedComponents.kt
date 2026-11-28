@@ -111,7 +111,9 @@ fun IntelligenceFeedView(
     dashboardViewModel: DashboardViewModel,
     snackbarHostState: SnackbarHostState,
     onRefresh: () -> Unit,
-    onOrbitalClick: () -> Unit
+    onOrbitalClick: () -> Unit,
+    onSearchLibraryClick: () -> Unit = {},
+    onOpenBrowser: (String) -> Unit = {}
 ) {
     var showIntelPopup by remember { mutableStateOf<Article?>(null) }
 
@@ -161,7 +163,7 @@ fun IntelligenceFeedView(
                 modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                listOf("ALL", "NEWS", "TECH", "SCIENCE", "ENTERTAINMENT", "ORBITAL", "RESEARCH").forEach { category ->
+                listOf("ALL", "NEWS", "TECH", "SCIENCE", "ENTERTAINMENT", "SPORT", "RELIGION", "ORBITAL", "RESEARCH").forEach { category ->
                     FilterChip(
                         selected = selectedCategory == category,
                         onClick = { selectedCategory = category },
@@ -178,7 +180,17 @@ fun IntelligenceFeedView(
                 val horizontalArticles = articles.filter { it.type in horizontalTypes }
                 if (horizontalArticles.isNotEmpty()) {
                     Column {
-                        Text("RESEARCH & LITERATURE", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Black, color = Color.Gray)
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text("RESEARCH & LITERATURE", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Black, color = Color.Gray)
+                            Spacer(modifier = Modifier.weight(1f))
+                            // The daily novel pick is passive (one/two a day,
+                            // see refreshLiterature) — this opens the full
+                            // searchable OpenLibrary archive for anyone
+                            // looking for a specific book right now.
+                            IconButton(onClick = onSearchLibraryClick, modifier = Modifier.size(24.dp)) {
+                                Icon(Icons.Default.Search, "Search ebook library", tint = Color.Gray, modifier = Modifier.size(16.dp))
+                            }
+                        }
                         Spacer(modifier = Modifier.height(8.dp))
                         LazyRow(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                             items(horizontalArticles, key = { it.url }) { art ->
@@ -230,6 +242,8 @@ fun IntelligenceFeedView(
                 "TECH" -> article.type == "news" && article.category == "technology"
                 "SCIENCE" -> article.type == "news" && article.category == "science"
                 "ENTERTAINMENT" -> article.type == "news" && article.category == "entertainment"
+                "SPORT" -> article.type == "news" && article.category == "sports"
+                "RELIGION" -> article.type == "news" && article.category == "religion"
                 "ORBITAL" -> article.type == "astro"
                 "RESEARCH" -> article.type in listOf("novel", "wiki", "journal")
                 else -> article.type !in listOf("novel", "wiki", "journal", "sports")
@@ -237,15 +251,10 @@ fun IntelligenceFeedView(
         }
 
         items(filteredArticles, key = { it.url }) { article ->
-            if (article.type == "astro") {
-                NasaApodCard(
-                    article = article,
-                    onPinClick = { onPinClick(article) },
-                    onAiClick = { onAskAi("NASA_APOD: ${article.title}. Explain this astronomical event and its tactical significance.") },
-                    onVoiceAsk = onVoiceAsk
-                )
-            } else if (article.type == "sos_alert") {
+            if (article.type == "sos_alert") {
                 SosAlertCard(article = article)
+            } else if (article.type == "disaster_alert") {
+                DisasterAlertCard(article = article)
             } else {
                 NewsItem(
                     article = article,
@@ -264,10 +273,11 @@ fun IntelligenceFeedView(
             onDismiss = { showIntelPopup = null },
             onAskAi = onAskAi,
             onPin = { onPinClick(showIntelPopup!!) },
-            onSaveToScribe = { 
-                chatViewModel.saveAsNote(showIntelPopup!!.description ?: "") 
+            onSaveToScribe = {
+                chatViewModel.saveAsNote(showIntelPopup!!.description ?: "")
                 showIntelPopup = null
-            }
+            },
+            onOpenBrowser = onOpenBrowser
         )
     }
 }
@@ -278,7 +288,8 @@ fun IntelDetailPopup(
     onDismiss: () -> Unit,
     onAskAi: (String) -> Unit,
     onPin: () -> Unit,
-    onSaveToScribe: () -> Unit
+    onSaveToScribe: () -> Unit,
+    onOpenBrowser: (String) -> Unit = {}
 ) {
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -300,11 +311,10 @@ fun IntelDetailPopup(
         confirmButton = {
             Row {
                 if (article.url.isNotBlank()) {
-                    val context = LocalContext.current
-                    TextButton(onClick = {
-                        androidx.browser.customtabs.CustomTabsIntent.Builder().build()
-                            .launchUrl(context, android.net.Uri.parse(article.url))
-                    }) { Text("OPEN") }
+                    // Was Chrome Custom Tabs (system browser overlay, zero
+                    // control) — now the real in-app browser, with a
+                    // settings-configurable proxy for journal/research links.
+                    TextButton(onClick = { onOpenBrowser(article.url) }) { Text("OPEN") }
                 }
                 TextButton(onClick = onPin) { Text("PIN") }
                 TextButton(onClick = onSaveToScribe) { Text("SAVE TO SCRIBE") }
@@ -558,11 +568,13 @@ fun NewsItem(article: Article, onPinClick: () -> Unit, onAiClick: () -> Unit, on
                 Text(article.description, style = MaterialTheme.typography.bodySmall, color = Color.Gray, maxLines = 3, overflow = TextOverflow.Ellipsis)
             }
             Spacer(modifier = Modifier.height(12.dp))
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Button(onClick = onAiClick, modifier = Modifier.weight(1f), shape = RoundedCornerShape(8.dp)) {
-                    Icon(Icons.Default.Psychology, null, modifier = Modifier.size(14.dp))
-                    Spacer(modifier = Modifier.width(4.dp))
-                    Text("AI ANALYSIS", fontSize = 10.sp)
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                // Was a half-width Button with an icon+label — shrunk to match
+                // the voice-ask button beside it; Icons.Default.Psychology is
+                // this app's established "AI head" icon (same one used in
+                // AiInsightPopup's own header, IntelDetailPopup, etc.).
+                OutlinedButton(onClick = onAiClick, modifier = Modifier.size(36.dp), contentPadding = PaddingValues(0.dp), shape = RoundedCornerShape(8.dp)) {
+                    Icon(Icons.Default.Psychology, "AI Analysis", modifier = Modifier.size(18.dp))
                 }
                 // Quick voice question — lighter than the full "AI Analysis"
                 // sheet, see ui/util/QuickVoiceAskDialog.kt.
@@ -602,72 +614,6 @@ fun SosAlertCard(article: Article) {
             if (article.description != null) {
                 Spacer(modifier = Modifier.height(4.dp))
                 Text(article.description, style = MaterialTheme.typography.bodySmall, color = Color.Gray)
-            }
-        }
-    }
-}
-
-@Composable
-fun NasaApodCard(article: Article, onPinClick: () -> Unit, onAiClick: () -> Unit, onVoiceAsk: () -> Unit = {}) {
-    Card(
-        modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
-        colors = CardDefaults.cardColors(containerColor = Color.Black),
-        shape = RoundedCornerShape(12.dp)
-    ) {
-        Column {
-            Box(modifier = Modifier.fillMaxWidth().height(200.dp)) {
-                AsyncImage(
-                    model = article.url,
-                    contentDescription = "NASA APOD",
-                    modifier = Modifier.fillMaxSize(),
-                    contentScale = ContentScale.Crop
-                )
-                
-                if (article.isPinned == true) {
-                    Icon(
-                        Icons.Default.PushPin, 
-                        null, 
-                        tint = Color.Yellow, 
-                        modifier = Modifier.align(Alignment.TopEnd).padding(12.dp).size(24.dp)
-                    )
-                }
-
-                Surface(
-                    color = Color.Black.copy(alpha = 0.6f),
-                    modifier = Modifier.align(Alignment.BottomStart).padding(8.dp),
-                    shape = RoundedCornerShape(4.dp)
-                ) {
-                    Text(
-                        "NASA APOD • ${article.title.replace("[Astro] ", "")}", 
-                        color = Color.White, 
-                        style = MaterialTheme.typography.labelSmall,
-                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
-                    )
-                }
-            }
-            Row(modifier = Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
-                Text(
-                    text = article.description ?: "",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = Color.White.copy(alpha = 0.8f),
-                    modifier = Modifier.weight(1f),
-                    maxLines = 3,
-                    overflow = TextOverflow.Ellipsis
-                )
-                IconButton(onClick = onPinClick) {
-                    Icon(
-                        if (article.isPinned == true) Icons.Default.PushPin else Icons.Default.PushPin,
-                        null,
-                        tint = if (article.isPinned == true) Color.Yellow else Color.Gray,
-                        modifier = Modifier.size(20.dp)
-                    )
-                }
-                IconButton(onClick = onAiClick) {
-                    Icon(Icons.Default.Psychology, null, tint = Color.White, modifier = Modifier.size(20.dp))
-                }
-                IconButton(onClick = onVoiceAsk) {
-                    Icon(Icons.Default.Mic, "Ask AI by voice", tint = Color.White, modifier = Modifier.size(20.dp))
-                }
             }
         }
     }
@@ -729,8 +675,7 @@ fun LocationBanner(weather: WeatherResponse?) {
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun NewsDetailScreen(article: Article, onBack: () -> Unit) {
-    val context = LocalContext.current
+fun NewsDetailScreen(article: Article, onBack: () -> Unit, onOpenBrowser: (String) -> Unit = {}) {
     Scaffold(
         topBar = {
             TopAppBar(
@@ -747,10 +692,8 @@ fun NewsDetailScreen(article: Article, onBack: () -> Unit) {
             Text(article.description ?: "No description available.", style = MaterialTheme.typography.bodyLarge)
             Spacer(modifier = Modifier.height(24.dp))
             Button(
-                onClick = { 
-                    val customTabsIntent = androidx.browser.customtabs.CustomTabsIntent.Builder().build()
-                    customTabsIntent.launchUrl(context, android.net.Uri.parse(article.url))
-                }, 
+                // Was Chrome Custom Tabs — now the real in-app browser.
+                onClick = { onOpenBrowser(article.url) },
                 modifier = Modifier.fillMaxWidth()
             ) {
                 Text("Open Source")

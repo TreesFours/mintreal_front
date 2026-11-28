@@ -7,6 +7,7 @@ import com.example.mistreal_mini.data.local.dao.ChatDao
 import com.example.mistreal_mini.data.local.migrations.MIGRATION_16_17
 import com.example.mistreal_mini.data.local.migrations.MIGRATION_18_19
 import com.example.mistreal_mini.data.local.migrations.MIGRATION_19_20
+import com.example.mistreal_mini.data.local.migrations.MIGRATION_20_21
 import com.example.mistreal_mini.util.SecurityManager
 import dagger.Module
 import dagger.Provides
@@ -67,7 +68,7 @@ object AppModule {
             dbName
         )
         .openHelperFactory(factory)
-        .addMigrations(MIGRATION_16_17, MIGRATION_18_19, MIGRATION_19_20)
+        .addMigrations(MIGRATION_16_17, MIGRATION_18_19, MIGRATION_19_20, MIGRATION_20_21)
         // Final catch-all — Room only falls back to this if no explicit
         // Migration above handles the jump, so MIGRATION_16_17 (index-only,
         // no data loss) now takes priority over wiping existing installs.

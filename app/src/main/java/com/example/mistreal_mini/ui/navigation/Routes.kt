@@ -18,6 +18,7 @@ object Routes {
     const val ARCHIVE = "archive"
     const val CONNECTIONS = "connections"
     const val DASHBOARD = "dashboard"
+    const val DASHBOARD_TEMPLATE = "dashboard?startTab={startTab}"
     const val SETTINGS = "settings"
     const val NEEDS = "needs"
     const val PENDING_REVIEWS = "pending_reviews"
@@ -38,6 +39,9 @@ object Routes {
     const val BUSINESS_ADVERTISE = "business_advertise"
     const val BUSINESS_ADS_TEMPLATE = "business_ads/{businessId}?connectedAdPlatforms={connectedAdPlatforms}"
     const val GAMES = "games"
+    const val LIBRARY_SEARCH = "library_search"
+    const val BROWSER_TEMPLATE = "browser?url={url}"
+    const val BROWSER_SETTINGS = "browser_settings"
     const val GAME_PLAY_TEMPLATE = "game_play?title={title}&playUrl={playUrl}"
     const val CALL_TEMPLATE = "call?calleeDeviceId={calleeDeviceId}&callId={callId}&callerDeviceId={callerDeviceId}"
     const val CALL_BASE = "call"
@@ -50,6 +54,16 @@ object Routes {
 
     fun chat(initialProvider: String? = null) =
         if (initialProvider != null) "chat?initialProvider=${encode(initialProvider)}" else "chat"
+
+    // startTab is a name ("intel"/"map"/"reels"/"dispatch"), not a raw index —
+    // DashboardScreen's own tab indices shift depending on persona (Architect
+    // mode inserts an extra tab before Dispatch), so only DashboardScreen
+    // itself should ever translate a name into the real index.
+    fun dashboard(startTab: String? = null) =
+        if (startTab != null) "dashboard?startTab=${encode(startTab)}" else "dashboard"
+
+    fun browser(url: String? = null) =
+        if (url != null) "browser?url=${encode(url)}" else "browser"
 
     fun ownerProfile(
         deviceId: String,

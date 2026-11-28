@@ -71,11 +71,26 @@ class PreferenceManager @Inject constructor(
     private val GOD_MODE_ENABLED_KEY = booleanPreferencesKey("god_mode_enabled")
     private val GOD_MODE_TASK_KEY = androidx.datastore.preferences.core.stringPreferencesKey("god_mode_task")
     private val GOD_MODE_STYLE_KEY = androidx.datastore.preferences.core.stringPreferencesKey("god_mode_style")
+    // In-app browser's proxy override — see BrowserSettingsScreen.kt.
+    // proxyType is one of "none"/"http"/"socks5"; applied per-WebView via
+    // androidx.webkit's ProxyController, not a system-wide VPN.
+    private val BROWSER_PROXY_TYPE_KEY = androidx.datastore.preferences.core.stringPreferencesKey("browser_proxy_type")
+    private val BROWSER_PROXY_HOST_KEY = androidx.datastore.preferences.core.stringPreferencesKey("browser_proxy_host")
+    private val BROWSER_PROXY_PORT_KEY = androidx.datastore.preferences.core.intPreferencesKey("browser_proxy_port")
 
     val isOnboarded: Flow<Boolean> = context.dataStore.data
         .map { preferences ->
             preferences[ONBOARDED_KEY] ?: false
         }
+
+    val browserProxyType: Flow<String> = context.dataStore.data
+        .map { preferences -> preferences[BROWSER_PROXY_TYPE_KEY] ?: "none" }
+
+    val browserProxyHost: Flow<String> = context.dataStore.data
+        .map { preferences -> preferences[BROWSER_PROXY_HOST_KEY] ?: "" }
+
+    val browserProxyPort: Flow<Int> = context.dataStore.data
+        .map { preferences -> preferences[BROWSER_PROXY_PORT_KEY] ?: 1080 }
 
     val isPro: Flow<Boolean> = context.dataStore.data
         .map { preferences ->
@@ -312,6 +327,14 @@ class PreferenceManager @Inject constructor(
         .map { preferences ->
             preferences[GOD_MODE_STYLE_KEY] ?: "Standard"
         }
+
+    suspend fun setBrowserProxy(type: String, host: String, port: Int) {
+        context.dataStore.edit { preferences ->
+            preferences[BROWSER_PROXY_TYPE_KEY] = type
+            preferences[BROWSER_PROXY_HOST_KEY] = host
+            preferences[BROWSER_PROXY_PORT_KEY] = port
+        }
+    }
 
     suspend fun setOnboarded(onboarded: Boolean) {
         context.dataStore.edit { preferences ->

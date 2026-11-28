@@ -169,6 +169,17 @@ interface InfoApiService {
     @GET("api/business/{businessId}")
     suspend fun getBusinessDetail(@Path("businessId") businessId: String): BusinessDetailResponse
 
+    // Searchable ebook archive (OpenLibrary) — separate from the small
+    // daily-pick "novels" buffer the intel feed shows passively.
+    @GET("api/novels/search")
+    suspend fun searchNovels(@Query("q") query: String): List<NovelSearchResult>
+
+    // Lazy on purpose — resolves one book's readable link (an Archive.org
+    // scan if one exists, else the OpenLibrary catalog page) only when the
+    // user opens that specific result, not for every result in a search.
+    @GET("api/novels/read-url")
+    suspend fun getNovelReadUrl(@Query("workKey") workKey: String): NovelReadUrlResponse
+
     @GET("api/watch/sessions")
     suspend fun getWatchSessions(
         @Query("contextType") contextType: String?,
@@ -495,6 +506,17 @@ data class RemoteBusiness(
 )
 
 data class AdAccountHandle(val platform: String, val adAccountId: String)
+
+data class NovelSearchResult(
+    val workKey: String,
+    val title: String,
+    val author: String,
+    val year: Int? = null,
+    val imageUrl: String? = null,
+    val catalogUrl: String
+)
+
+data class NovelReadUrlResponse(val url: String)
 
 data class BusinessSearchResponse(
     val success: Boolean,
@@ -1088,7 +1110,18 @@ data class Article(
     val timestamp: String? = null,
     // Only ever populated on "news" (NewsAPI urlToImage) and "novel"
     // (OpenLibrary cover) items — absent/null for every other feed type.
-    val imageUrl: String? = null
+    val imageUrl: String? = null,
+    // Only ever populated on "disaster_alert" items (USGS/GDACS, see
+    // refreshDisasters in intelligenceService.ts) — null for everything else.
+    val metadata: DisasterMetadata? = null
+)
+
+data class DisasterMetadata(
+    val latitude: Double? = null,
+    val longitude: Double? = null,
+    val severity: String? = null,
+    val disasterType: String? = null,
+    val magnitude: Double? = null
 )
 
 // Flat, matching the backend's socialActionSchema exactly — this used to

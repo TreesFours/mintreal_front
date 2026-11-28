@@ -46,6 +46,14 @@ class InfoRepository @Inject constructor(
         Resource.Success(api.getNews(category, location, firebaseUid, fastLoad, refresh))
     }
 
+    // Searchable ebook archive (OpenLibrary) — separate from the small
+    // daily-pick "novels" buffer the intel feed shows passively.
+    suspend fun searchNovels(query: String): Resource<List<com.example.mistreal_mini.data.api.NovelSearchResult>> =
+        safeApiCall("Library search failed") { Resource.Success(api.searchNovels(query)) }
+
+    suspend fun getNovelReadUrl(workKey: String): Resource<String> =
+        safeApiCall("Could not open that book") { Resource.Success(api.getNovelReadUrl(workKey).url) }
+
     // Mapped into the existing flat SocialPost shape at this boundary so
     // FeedPostCard/SocialPagerView need no branching changes for most of the
     // pipeline — sourceUrl carries a "youtube://{videoId}" sentinel the

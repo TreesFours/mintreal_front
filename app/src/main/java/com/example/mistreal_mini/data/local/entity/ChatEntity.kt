@@ -4,6 +4,8 @@ import androidx.room.Entity
 import androidx.room.Index
 import androidx.room.PrimaryKey
 import com.example.mistreal_mini.data.model.ChatMessage
+import com.google.gson.Gson
+import com.google.gson.reflect.TypeToken
 
 // Covers every ChatDao query's WHERE clause (all filter on a prefix of
 // userId/isTrend/trendTitle, see Migration 16->17) — previously a full
@@ -33,13 +35,30 @@ data class ChatEntity(
     // back to null — not a live time comparison, so nothing needs to poll.
     val revealAt: Long? = null,
     // Only ever set in real user-to-user (social) chats — see ChatMessage.replyToId.
-    val replyToId: Long? = null
+    val replyToId: Long? = null,
+    // These two never existed on this entity at all before MIGRATION_20_21 —
+    // every image/video/file attachment was silently dropped the moment
+    // Room's reactive Flow (ChatViewModel.observeMessages) re-emitted the
+    // saved row, since toChatMessage() had nothing to restore them from.
+    // attachmentPaths is JSON-encoded (Gson) rather than a real relation —
+    // same tradeoff BusinessEntity.connectedPlatforms already makes for a
+    // short, rarely-queried string list.
+    val attachmentUrl: String? = null,
+    val attachmentPathsJson: String? = null
 ) {
     fun toChatMessage() = ChatMessage(
         id = id,
         role = role,
         content = content,
         type = type,
+        attachmentUrl = attachmentUrl,
+        attachmentPaths = attachmentPathsJson?.let {
+            try {
+                Gson().fromJson<List<String>>(it, object : TypeToken<List<String>>() {}.type)
+            } catch (e: Exception) {
+                null
+            }
+        },
         provider = provider,
         isTrend = isTrend,
         trendTitle = trendTitle,
@@ -56,6 +75,8 @@ data class ChatEntity(
             role = msg.role,
             content = msg.content,
             type = msg.type,
+            attachmentUrl = msg.attachmentUrl,
+            attachmentPathsJson = msg.attachmentPaths?.let { Gson().toJson(it) },
             provider = msg.provider,
             isTrend = msg.isTrend,
             trendTitle = msg.trendTitle,

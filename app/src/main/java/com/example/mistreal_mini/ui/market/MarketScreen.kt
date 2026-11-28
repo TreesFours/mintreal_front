@@ -27,6 +27,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.example.mistreal_mini.data.api.MarketQuote
 import com.example.mistreal_mini.data.api.RemoteBusiness
@@ -57,6 +59,13 @@ fun MarketScreen(
     // exactly and reusing the same Routes.ownerProfile(...) builder
     // BusinessDetailScreen's own onViewOwnerProfile already uses.
     onViewOwnerProfile: (ownerDeviceId: String, ownerName: String?, ownerPhotoUrl: String?, businessId: String) -> Unit = { _, _, _, _ -> },
+    // Moved here from Dashboard's own bottomBar — this 5-button row now lives
+    // on each of its 5 destination screens instead, so jumping between them
+    // doesn't require detouring back through Dashboard every time.
+    onOpenGames: () -> Unit = {},
+    onOpenReels: () -> Unit = {},
+    onOpenWatchHub: () -> Unit = {},
+    onOpenChat: () -> Unit = {},
     viewModel: MarketViewModel = hiltViewModel(),
     adHostViewModel: AdHostViewModel = hiltViewModel()
 ) {
@@ -83,6 +92,14 @@ fun MarketScreen(
     val selectedTicker by viewModel.selectedTicker.collectAsState()
     val chartCandles by viewModel.chartCandles.collectAsState()
     val chartTheme by viewModel.chartTheme.collectAsState()
+    val showChartDialog by viewModel.showChartDialog.collectAsState()
+    val isLoadingChart by viewModel.isLoadingChart.collectAsState()
+    val showMovingAverage by viewModel.showMovingAverage.collectAsState()
+    val showFibonacci by viewModel.showFibonacci.collectAsState()
+    val intradayInterval by viewModel.intradayInterval.collectAsState()
+    val intradayCandles by viewModel.intradayCandles.collectAsState()
+    val timeframeDays by viewModel.timeframeDays.collectAsState()
+    val selectedAssetClass by viewModel.selectedAssetClass.collectAsState()
 
     Scaffold(
         topBar = {
@@ -95,23 +112,29 @@ fun MarketScreen(
                     }
                 }
             )
+        },
+        bottomBar = {
+            com.example.mistreal_mini.ui.chat.components.InstagramStyleBottomBar(
+                selectedTab = 1,
+                onTabSelected = { tab ->
+                    when (tab) {
+                        0 -> onOpenGames()
+                        2 -> onOpenReels()
+                        3 -> onOpenWatchHub()
+                        4 -> onOpenChat()
+                    }
+                }
+            )
         }
     ) { padding ->
         LazyColumn(modifier = Modifier.padding(padding).fillMaxSize()) {
-            // --- Interactive Candlestick Chart Grid ---
-            item {
-                InteractiveCandlestickCard(
-                    symbol = selectedTicker ?: "BTC",
-                    candles = chartCandles,
-                    themeName = chartTheme,
-                    onThemeChange = { viewModel.setChartTheme(it) }
-                )
-            }
-
             // --- Ticker bands (Endless Auto-Scrolling Marquee) ---
-            item { MarqueeTickerRow(label = "CRYPTO", quotes = tickerBands["crypto"].orEmpty(), onSelect = { viewModel.selectTicker(it.symbol, "crypto") }) }
-            item { MarqueeTickerRow(label = "FOREX", quotes = tickerBands["forex"].orEmpty(), onSelect = { viewModel.selectTicker(it.symbol, "forex") }) }
-            item { MarqueeTickerRow(label = "TICKERS & COMMODITIES", quotes = tickerBands["tickers"].orEmpty(), onSelect = { viewModel.selectTicker(it.symbol, "commodity") }) }
+            // Tapping any chip opens the real chart popup below — this used
+            // to be an always-visible inline card that didn't actually draw
+            // a chart at all (just text claiming one existed).
+            item { MarqueeTickerRow(label = "CRYPTO", quotes = tickerBands["crypto"].orEmpty(), onSelect = { viewModel.selectTicker(it.symbol, it.assetClass ?: "crypto") }) }
+            item { MarqueeTickerRow(label = "FOREX", quotes = tickerBands["forex"].orEmpty(), onSelect = { viewModel.selectTicker(it.symbol, it.assetClass ?: "forex") }) }
+            item { MarqueeTickerRow(label = "TICKERS & COMMODITIES", quotes = tickerBands["tickers"].orEmpty(), onSelect = { viewModel.selectTicker(it.symbol, it.assetClass ?: "commodity") }) }
 
             // --- Ad slot ---
             dueAd?.let { ad ->
@@ -302,6 +325,27 @@ fun MarketScreen(
         }
     }
 
+    if (showChartDialog) {
+        TickerChartDialog(
+            symbol = selectedTicker ?: "",
+            assetClass = selectedAssetClass,
+            dailyCandles = chartCandles,
+            intradayCandles = intradayCandles,
+            intradayInterval = intradayInterval,
+            timeframeDays = timeframeDays,
+            isLoading = isLoadingChart,
+            showMovingAverage = showMovingAverage,
+            showFibonacci = showFibonacci,
+            chartTheme = chartTheme,
+            onThemeChange = { viewModel.setChartTheme(it) },
+            onToggleMovingAverage = { viewModel.toggleMovingAverage() },
+            onToggleFibonacci = { viewModel.toggleFibonacci() },
+            onSelectTimeframe = { viewModel.selectTimeframeDays(it) },
+            onSelectIntraday = { viewModel.selectIntradayInterval(it) },
+            onDismiss = { viewModel.closeChartDialog() }
+        )
+    }
+
     if (showPostAdvertDialog) {
         myBusiness?.let { business ->
             PostAdvertDialog(
@@ -396,65 +440,130 @@ private fun PostAdvertDialog(
     )
 }
 
+/**
+ * Replaces what used to be an always-visible inline card that never actually
+ * drew a chart — just literal text claiming one existed ("Live Candlestick
+ * Series (N points)"). This is a real popup, triggered per-ticker-tap, built
+ * on the genuine Canvas-drawn chart (wicks/bodies/MA/trend-line) that
+ * previously only existed inside Settings' Market Alerts section, completely
+ * unreachable from this screen. Adds Fibonacci retracement on top of that
+ * existing chart (new) and the same 1M/3M/6M + real-intraday-refetch
+ * timeframe split Settings' dialog already uses, so both chart surfaces in
+ * this app now behave identically instead of one being real and one fake.
+ */
 @Composable
-private fun InteractiveCandlestickCard(
+private fun TickerChartDialog(
     symbol: String,
-    candles: List<com.example.mistreal_mini.data.api.MarketCandle>,
-    themeName: String,
-    onThemeChange: (String) -> Unit
+    assetClass: String,
+    dailyCandles: List<com.example.mistreal_mini.data.api.MarketCandle>,
+    intradayCandles: List<com.example.mistreal_mini.data.api.MarketCandle>,
+    intradayInterval: String?,
+    timeframeDays: Int,
+    isLoading: Boolean,
+    showMovingAverage: Boolean,
+    showFibonacci: Boolean,
+    chartTheme: String,
+    onThemeChange: (String) -> Unit,
+    onToggleMovingAverage: () -> Unit,
+    onToggleFibonacci: () -> Unit,
+    onSelectTimeframe: (Int) -> Unit,
+    onSelectIntraday: (String) -> Unit,
+    onDismiss: () -> Unit
 ) {
-    Card(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(16.dp),
-        shape = RoundedCornerShape(16.dp),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f))
-    ) {
-        Column(modifier = Modifier.padding(16.dp)) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    com.example.mistreal_mini.ui.components.ThinkingTreeIcon(size = 18.dp)
-                    Spacer(modifier = Modifier.width(6.dp))
-                    Text("$symbol Candlestick Grid", fontWeight = FontWeight.Bold)
+    // CoinGecko's free /ohlc tier has no hourly granularity to request —
+    // confirmed in marketDataService.ts, not assumed — so intraday chips are
+    // only offered for non-crypto, same gate Settings' dialog already uses.
+    val supportsIntraday = assetClass != "crypto"
+    val displayedCandles = if (intradayInterval != null) intradayCandles else dailyCandles.takeLast(timeframeDays)
+
+    Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false)) {
+        Surface(
+            modifier = Modifier.fillMaxWidth().padding(16.dp),
+            shape = RoundedCornerShape(20.dp),
+            color = MaterialTheme.colorScheme.surface,
+            tonalElevation = 8.dp
+        ) {
+            Column(modifier = Modifier.padding(16.dp)) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        com.example.mistreal_mini.ui.components.ThinkingTreeIcon(size = 20.dp)
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(symbol, fontWeight = FontWeight.Black, style = MaterialTheme.typography.titleMedium)
+                    }
+                    IconButton(onClick = onDismiss) { Icon(Icons.Default.ArrowBack, contentDescription = "Close") }
                 }
+
+                Spacer(modifier = Modifier.height(8.dp))
 
                 Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                     listOf("Cyber", "Neon", "Classic").forEach { theme ->
                         FilterChip(
-                            selected = themeName == theme,
+                            selected = chartTheme == theme,
                             onClick = { onThemeChange(theme) },
                             label = { Text(theme, fontSize = 10.sp) },
                             modifier = Modifier.height(28.dp)
                         )
                     }
                 }
-            }
 
-            Spacer(modifier = Modifier.height(12.dp))
+                Spacer(modifier = Modifier.height(8.dp))
 
-            // Candlestick View Container
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(160.dp)
-                    .clip(RoundedCornerShape(12.dp))
-                    .background(
-                        when (themeName) {
-                            "Neon" -> Color(0xFF0F172A)
-                            "Cyber" -> Color(0xFF0D0221)
-                            else -> Color.Black.copy(alpha = 0.8f)
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(200.dp)
+                        .clip(RoundedCornerShape(12.dp))
+                        .background(
+                            when (chartTheme) {
+                                "Neon" -> Color(0xFF0F172A)
+                                "Cyber" -> Color(0xFF0D0221)
+                                else -> Color.Black.copy(alpha = 0.8f)
+                            }
+                        ),
+                    contentAlignment = Alignment.Center
+                ) {
+                    if (isLoading && displayedCandles.isEmpty()) {
+                        CircularProgressIndicator(color = Color.White)
+                    } else {
+                        com.example.mistreal_mini.ui.settings.CandlestickChart(
+                            candles = displayedCandles,
+                            modifier = Modifier.fillMaxWidth(),
+                            showMovingAverage = showMovingAverage,
+                            showFibonacci = showFibonacci
+                        )
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(8.dp))
+
+                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    FilterChip(selected = showMovingAverage, onClick = onToggleMovingAverage, label = { Text("MA 20", fontSize = 10.sp) })
+                    FilterChip(selected = showFibonacci, onClick = onToggleFibonacci, label = { Text("Fibonacci", fontSize = 10.sp) })
+                }
+
+                Spacer(modifier = Modifier.height(8.dp))
+
+                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    listOf("1M" to 30, "3M" to 90, "6M" to 180).forEach { (label, days) ->
+                        FilterChip(
+                            selected = intradayInterval == null && timeframeDays == days,
+                            onClick = { onSelectTimeframe(days) },
+                            label = { Text(label, fontSize = 10.sp) }
+                        )
+                    }
+                    if (supportsIntraday) {
+                        listOf("1h", "4h").forEach { interval ->
+                            FilterChip(
+                                selected = intradayInterval == interval,
+                                onClick = { onSelectIntraday(interval) },
+                                label = { Text(interval, fontSize = 10.sp) }
+                            )
                         }
-                    ),
-                contentAlignment = Alignment.Center
-            ) {
-                if (candles.isEmpty()) {
-                    Text("Loading chart for $symbol...", color = Color.Gray, style = MaterialTheme.typography.bodySmall)
-                } else {
-                    Text("📊 $symbol Live Candlestick Series (${candles.size} points)", color = Color.Cyan, style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.Bold)
+                    }
                 }
             }
         }

@@ -88,16 +88,86 @@ class MarketViewModel @Inject constructor(
     private val _chartCandles = MutableStateFlow<List<com.example.mistreal_mini.data.api.MarketCandle>>(emptyList())
     val chartCandles = _chartCandles.asStateFlow()
 
+    // Was always-visible as a single static inline card showing literal text
+    // ("Live Candlestick Series (N points)") instead of an actual chart —
+    // confirmed real rendering (wicks/bodies/MA) only ever existed in
+    // Settings' MarketAlertsSection, completely disconnected from this
+    // screen. Now a real popup, triggered per-ticker-tap like the user asked.
+    private val _showChartDialog = MutableStateFlow(false)
+    val showChartDialog: StateFlow<Boolean> = _showChartDialog.asStateFlow()
+
+    private val _isLoadingChart = MutableStateFlow(false)
+    val isLoadingChart: StateFlow<Boolean> = _isLoadingChart.asStateFlow()
+
+    private val _showMovingAverage = MutableStateFlow(false)
+    val showMovingAverage: StateFlow<Boolean> = _showMovingAverage.asStateFlow()
+
+    private val _showFibonacci = MutableStateFlow(false)
+    val showFibonacci: StateFlow<Boolean> = _showFibonacci.asStateFlow()
+
+    // null = showing the daily series (client-side sliced by timeframeDays);
+    // non-null = a real intraday re-fetch shown as-is, same split as
+    // MarketAlertsSection's existing chart dialog — there's no hourly
+    // granularity to slice out of a daily series, so 1h/4h is a real second
+    // network call, not a client-side zoom.
+    private val _intradayInterval = MutableStateFlow<String?>(null)
+    val intradayInterval: StateFlow<String?> = _intradayInterval.asStateFlow()
+
+    private val _timeframeDays = MutableStateFlow(180)
+    val timeframeDays: StateFlow<Int> = _timeframeDays.asStateFlow()
+
     fun selectTicker(symbol: String, assetClass: String = "crypto") {
         _selectedTicker.value = symbol
         _selectedAssetClass.value = assetClass
+        _showChartDialog.value = true
+        _intradayInterval.value = null
+        _timeframeDays.value = 180
+        _showMovingAverage.value = false
+        _showFibonacci.value = false
         viewModelScope.launch {
+            _isLoadingChart.value = true
             val result = marketRepository.getCandles(symbol, assetClass)
             if (result is Resource.Success) {
                 _chartCandles.value = result.data.orEmpty()
             }
+            _isLoadingChart.value = false
         }
     }
+
+    fun closeChartDialog() {
+        _showChartDialog.value = false
+    }
+
+    fun toggleMovingAverage() {
+        _showMovingAverage.value = !_showMovingAverage.value
+    }
+
+    fun toggleFibonacci() {
+        _showFibonacci.value = !_showFibonacci.value
+    }
+
+    fun selectTimeframeDays(days: Int) {
+        _timeframeDays.value = days
+        _intradayInterval.value = null
+    }
+
+    /** 1h/4h re-fetch a real intraday series — there's no hourly granularity inside the daily series to slice client-side. */
+    fun selectIntradayInterval(interval: String) {
+        val symbol = _selectedTicker.value ?: return
+        val assetClass = _selectedAssetClass.value
+        _intradayInterval.value = interval
+        viewModelScope.launch {
+            _isLoadingChart.value = true
+            val result = marketRepository.getCandles(symbol, assetClass, interval)
+            if (result is Resource.Success) {
+                _intradayCandles.value = result.data.orEmpty()
+            }
+            _isLoadingChart.value = false
+        }
+    }
+
+    private val _intradayCandles = MutableStateFlow<List<com.example.mistreal_mini.data.api.MarketCandle>>(emptyList())
+    val intradayCandles: StateFlow<List<com.example.mistreal_mini.data.api.MarketCandle>> = _intradayCandles.asStateFlow()
 
     fun setChartTheme(theme: String) {
         _chartTheme.value = theme

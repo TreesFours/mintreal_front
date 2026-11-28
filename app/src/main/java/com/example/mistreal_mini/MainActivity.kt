@@ -387,7 +387,11 @@ class MainActivity : FragmentActivity() {
                                 onSettingsClick = { navController.navigate(Routes.SETTINGS) },
                                 onDashboardClick = { navController.navigate(Routes.DASHBOARD) },
                                 onArchiveClick = { navController.navigate(Routes.ARCHIVE) },
-                                onLiveAiClick = { navController.navigate(Routes.LIVE_AI) }
+                                onLiveAiClick = { navController.navigate(Routes.LIVE_AI) },
+                                onOpenGames = { navController.navigate(Routes.GAMES) },
+                                onOpenMarket = { navController.navigate(Routes.MARKET) },
+                                onOpenReels = { navController.navigate(Routes.dashboard("reels")) },
+                                onOpenWatchHub = { navController.navigate(Routes.watchHost()) }
                             )
                         }
                         composable(Routes.SUBSCRIPTION) {
@@ -409,9 +413,13 @@ class MainActivity : FragmentActivity() {
                                 onUpgradeClick = { navController.navigate(Routes.SUBSCRIPTION) }
                             )
                         }
-                        composable(Routes.DASHBOARD) {
+                        composable(
+                            Routes.DASHBOARD_TEMPLATE,
+                            arguments = listOf(navArgument("startTab") { type = NavType.StringType; nullable = true; defaultValue = null })
+                        ) { backStackEntry ->
                             DashboardScreen(
                                 onBack = { navController.popBackStack() },
+                                startTab = backStackEntry.arguments?.getString("startTab"),
                                 onDmClick = { navController.popBackStack() },
                                 onMyProfileClick = {
                                     navController.navigate(Routes.ownerProfile(deviceIdProvider.deviceId))
@@ -440,7 +448,29 @@ class MainActivity : FragmentActivity() {
                                 onOpenGames = { navController.navigate(Routes.GAMES) },
                                 onOpenMarket = { navController.navigate(Routes.MARKET) },
                                 onOpenWatchHub = { navController.navigate(Routes.watchHost()) },
-                                onOpenChat = { navController.navigate(Routes.chat()) }
+                                onOpenChat = { navController.navigate(Routes.chat()) },
+                                onOpenLibrarySearch = { navController.navigate(Routes.LIBRARY_SEARCH) },
+                                onOpenBrowser = { url -> navController.navigate(Routes.browser(url)) }
+                            )
+                        }
+                        composable(Routes.LIBRARY_SEARCH) {
+                            com.example.mistreal_mini.ui.novels.NovelSearchScreen(
+                                onBack = { navController.popBackStack() }
+                            )
+                        }
+                        composable(
+                            Routes.BROWSER_TEMPLATE,
+                            arguments = listOf(navArgument("url") { type = NavType.StringType; nullable = true; defaultValue = null })
+                        ) { backStackEntry ->
+                            com.example.mistreal_mini.ui.browser.BrowserScreen(
+                                initialUrl = backStackEntry.arguments?.getString("url"),
+                                onBack = { navController.popBackStack() },
+                                onOpenSettings = { navController.navigate(Routes.BROWSER_SETTINGS) }
+                            )
+                        }
+                        composable(Routes.BROWSER_SETTINGS) {
+                            com.example.mistreal_mini.ui.browser.BrowserSettingsScreen(
+                                onBack = { navController.popBackStack() }
                             )
                         }
                         composable(Routes.SETTINGS) {
@@ -452,6 +482,7 @@ class MainActivity : FragmentActivity() {
                                 onGuardianAlertsClick = { navController.navigate(Routes.GUARDIAN_ALERTS) },
                                 onWatchHostClick = { navController.navigate(Routes.WATCH_HOST_BASE) },
                                 onWatchViewerClick = { navController.navigate(Routes.WATCH_VIEWER_BASE) },
+                                onBrowserSettingsClick = { navController.navigate(Routes.BROWSER_SETTINGS) },
                                 onMarketClick = { navController.navigate(Routes.MARKET) },
                                 onGamesClick = { navController.navigate(Routes.GAMES) },
                                 onEmailClick = { navController.navigate(Routes.EMAIL) },
@@ -504,7 +535,11 @@ class MainActivity : FragmentActivity() {
                                 },
                                 onViewOwnerProfile = { ownerDeviceId, ownerName, ownerPhotoUrl, businessId ->
                                     navController.navigate(Routes.ownerProfile(deviceId = ownerDeviceId, ownerName = ownerName, ownerPhotoUrl = ownerPhotoUrl, businessId = businessId))
-                                }
+                                },
+                                onOpenGames = { navController.navigate(Routes.GAMES) },
+                                onOpenReels = { navController.navigate(Routes.dashboard("reels")) },
+                                onOpenWatchHub = { navController.navigate(Routes.watchHost()) },
+                                onOpenChat = { navController.navigate(Routes.chat()) }
                             )
                         }
                         composable(Routes.GAMES) {
@@ -512,7 +547,11 @@ class MainActivity : FragmentActivity() {
                                 onBack = { navController.popBackStack() },
                                 onPlayGame = { game ->
                                     navController.navigate(Routes.gamePlay(game.title, game.playUrl))
-                                }
+                                },
+                                onOpenMarket = { navController.navigate(Routes.MARKET) },
+                                onOpenReels = { navController.navigate(Routes.dashboard("reels")) },
+                                onOpenWatchHub = { navController.navigate(Routes.watchHost()) },
+                                onOpenChat = { navController.navigate(Routes.chat()) }
                             )
                         }
                         composable(
@@ -538,7 +577,11 @@ class MainActivity : FragmentActivity() {
                             com.example.mistreal_mini.ui.watch.WatchHostScreen(
                                 onBack = { navController.popBackStack() },
                                 contextType = backStackEntry.arguments?.getString("contextType") ?: "standalone",
-                                contextId = backStackEntry.arguments?.getString("contextId")
+                                contextId = backStackEntry.arguments?.getString("contextId"),
+                                onOpenGames = { navController.navigate(Routes.GAMES) },
+                                onOpenMarket = { navController.navigate(Routes.MARKET) },
+                                onOpenReels = { navController.navigate(Routes.dashboard("reels")) },
+                                onOpenChat = { navController.navigate(Routes.chat()) }
                             )
                         }
                         composable(

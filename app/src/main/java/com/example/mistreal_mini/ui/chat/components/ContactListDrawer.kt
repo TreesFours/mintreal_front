@@ -458,20 +458,6 @@ fun ModelCategoryAccordion(
                                                 }
                                             }
                                         }
-                                        Row(verticalAlignment = Alignment.CenterVertically) {
-                                            // Quota Health Bar
-                                            val health = model.health ?: 100
-                                            val barColor = when {
-                                                health > 80 -> Color.Green
-                                                health > 40 -> Color.Yellow
-                                                else -> Color.Red
-                                            }
-                                            Box(modifier = Modifier.width(40.dp).height(2.dp).background(Color.Gray.copy(alpha = 0.3f))) {
-                                                Box(modifier = Modifier.fillMaxWidth(health / 100f).fillMaxHeight().background(barColor))
-                                            }
-                                            Spacer(modifier = Modifier.width(8.dp))
-                                            Text(model.quota ?: "", style = MaterialTheme.typography.labelSmall, fontSize = 8.sp, color = Color.Gray)
-                                        }
                                     }
                                     if (isLocked) {
                                         Icon(Icons.Default.Lock, null, modifier = Modifier.size(14.dp), tint = Color.Gray)

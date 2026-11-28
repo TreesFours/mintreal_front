@@ -36,7 +36,14 @@ data class EarthCamItem(val id: String, val title: String, val location: String,
 fun WatchHostScreen(
     onBack: () -> Unit,
     contextType: String = "standalone",
-    contextId: String? = null
+    contextId: String? = null,
+    // Moved here from Dashboard's own bottomBar — this 5-button row now lives
+    // on each of its 5 destination screens instead, so jumping between them
+    // doesn't require detouring back through Dashboard every time.
+    onOpenGames: () -> Unit = {},
+    onOpenMarket: () -> Unit = {},
+    onOpenReels: () -> Unit = {},
+    onOpenChat: () -> Unit = {}
 ) {
     val context = LocalContext.current
     val clipboardManager = LocalClipboardManager.current
@@ -110,6 +117,19 @@ fun WatchHostScreen(
                 title = { Text("Watch Hub Host") },
                 navigationIcon = {
                     IconButton(onClick = onBack) { Icon(Icons.Default.ArrowBack, contentDescription = "Back") }
+                }
+            )
+        },
+        bottomBar = {
+            com.example.mistreal_mini.ui.chat.components.InstagramStyleBottomBar(
+                selectedTab = 3,
+                onTabSelected = { tab ->
+                    when (tab) {
+                        0 -> onOpenGames()
+                        1 -> onOpenMarket()
+                        2 -> onOpenReels()
+                        4 -> onOpenChat()
+                    }
                 }
             )
         }

@@ -1,6 +1,7 @@
 package com.example.mistreal_mini.ui.util
 
 import android.net.Uri
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -18,6 +19,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.example.mistreal_mini.ui.chat.ChatViewModel
 import com.example.mistreal_mini.ui.chat.components.*
 import com.example.mistreal_mini.util.VoiceRecorder
@@ -88,7 +90,70 @@ fun AiInsightPopup(
                     Icon(Icons.Default.Close, contentDescription = "Close")
                 }
             }
-            
+
+            // Quick model switcher — full parity with the main chat drawer's
+            // picker (ContactListDrawer.kt), not a flat list: same FREE/PREMIUM
+            // tabs, same category accordions (ModelCategoryAccordion, reused
+            // directly — it's self-contained, no NavController/drawer-only
+            // state needed), same capability icons so visual models
+            // (Pollinations/Imagen/Veo/free video) are identifiable here too.
+            // Reuses the same ChatViewModel instance the drawer mutates, so
+            // switching here applies everywhere immediately.
+            var showModelSwitcher by remember { mutableStateOf(false) }
+            var modelTab by remember { mutableIntStateOf(0) }
+            var expandedModelCategory by remember { mutableStateOf("") }
+            val currentModelName = viewModel.availableProviders
+                .find { it.id == viewModel.selectedProvider.value }?.name
+                ?: "Dynamic (Best Fit)"
+
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.clickable { showModelSwitcher = !showModelSwitcher }.padding(vertical = 4.dp)
+            ) {
+                Icon(Icons.Default.SwapHoriz, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(16.dp))
+                Spacer(modifier = Modifier.width(4.dp))
+                Text(currentModelName, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary, maxLines = 1)
+                Icon(
+                    if (showModelSwitcher) Icons.Default.ArrowDropUp else Icons.Default.ArrowDropDown,
+                    contentDescription = "Switch model", tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(16.dp)
+                )
+            }
+
+            if (showModelSwitcher) {
+                val categorizedModels = viewModel.categorizedModels.value
+                val sortedCategories = listOf("COMMAND CENTER", "GLOBAL OVERLORD", "OPTIC INTEL", "GHOST PROTOCOL", "OPEN INTELLIGENCE")
+                Column(modifier = Modifier.heightIn(max = 260.dp)) {
+                    TabRow(selectedTabIndex = modelTab, modifier = Modifier.padding(bottom = 4.dp)) {
+                        Tab(selected = modelTab == 0, onClick = { modelTab = 0 }, text = { Text("FREE", fontSize = 11.sp, fontWeight = FontWeight.Bold) })
+                        Tab(selected = modelTab == 1, onClick = { modelTab = 1 }, text = { Text("PREMIUM", fontSize = 11.sp, fontWeight = FontWeight.Bold) })
+                    }
+                    LazyColumn {
+                        sortedCategories.forEach { category ->
+                            val models = (categorizedModels[category] ?: emptyList())
+                                .filter { if (modelTab == 0) !it.isProOnly else it.isProOnly }
+                            if (models.isNotEmpty()) {
+                                item {
+                                    ModelCategoryAccordion(
+                                        title = category,
+                                        models = models,
+                                        selectedModelId = viewModel.selectedProvider.value,
+                                        isPro = viewModel.isPro.value,
+                                        isExpanded = expandedModelCategory == category,
+                                        onToggleExpand = {
+                                            expandedModelCategory = if (expandedModelCategory == category) "" else category
+                                        },
+                                        onModelSelect = { model ->
+                                            viewModel.setProvider(model.id)
+                                            showModelSwitcher = false
+                                        }
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
             Text(
                 text = "Context: ${contextText.take(50)}...",
                 style = MaterialTheme.typography.labelSmall,
@@ -144,8 +209,15 @@ fun AiInsightPopup(
                         if (textState.lowercase() == "yes send that") {
                             viewModel.sendMessage("Confirming reply dispatch.")
                         } else {
+                            // draftSocialReply (not sendMessage) — this popup is an AI
+                            // drafting surface, including when opened inside a real
+                            // human-to-human DM thread. sendMessage() in that context
+                            // sends the raw prompt as a literal outgoing DM and never
+                            // calls the AI at all; draftSocialReply asks the AI and only
+                            // ever sends the AI's own cleaned reply, and only if the
+                            // user has autosend explicitly enabled.
                             val fullPrompt = "Based on this context: $contextText\n\nUser Question/Instruction: $textState"
-                            viewModel.sendMessage(fullPrompt, trendTitle = "Strategy: ${textState.take(20)}...")
+                            viewModel.draftSocialReply(fullPrompt)
                         }
                         textState = ""
                     },

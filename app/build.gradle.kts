@@ -80,6 +80,10 @@ dependencies {
     implementation("androidx.camera:camera-view:1.3.4")
     implementation("androidx.camera:camera-video:1.3.4")
 
+    // In-app browser's per-WebView SOCKS/HTTP proxy override (ProxyController) —
+    // scopes a proxy to just that one WebView, no system VPN service needed.
+    implementation("androidx.webkit:webkit:1.18.0")
+
     // Hilt
     implementation(libs.hilt.android)
     ksp(libs.hilt.compiler)

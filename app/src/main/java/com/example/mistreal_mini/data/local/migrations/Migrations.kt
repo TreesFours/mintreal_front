@@ -38,3 +38,16 @@ val MIGRATION_19_20 = object : Migration(19, 20) {
         db.execSQL("ALTER TABLE chats ADD COLUMN replyToId INTEGER")
     }
 }
+
+// ChatEntity never actually persisted an image/video/file attachment at all
+// — the columns simply didn't exist, so every attachment silently vanished
+// the moment Room's reactive Flow re-emitted the saved row back into the UI
+// (ChatMessage.attachmentUrl/attachmentPaths always came back null). Written
+// explicitly rather than relying on destructive fallback, same reasoning as
+// MIGRATION_18_19.
+val MIGRATION_20_21 = object : Migration(20, 21) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL("ALTER TABLE chats ADD COLUMN attachmentUrl TEXT")
+        db.execSQL("ALTER TABLE chats ADD COLUMN attachmentPathsJson TEXT")
+    }
+}

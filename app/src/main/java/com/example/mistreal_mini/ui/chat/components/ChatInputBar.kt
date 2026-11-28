@@ -303,7 +303,21 @@ fun ChatInputBar(
                     Icon(Icons.Default.Mic, "Voice Protocol (long-press for Conversation Mode)", tint = iconTint, modifier = Modifier.size(16.dp))
                 }
                 if (onAiVoiceNoteClick != null) {
-                    IconButton(onClick = onAiVoiceNoteClick, modifier = Modifier.size(30.dp)) { Icon(Icons.Default.SmartToy, "Voice Note to AI", tint = iconTint, modifier = Modifier.size(16.dp)) }
+                    // Was a generic SmartToy icon — this app's established
+                    // "AI head" icon is Icons.Default.Psychology (see
+                    // AiInsightPopup's header, IntelDetailPopup, etc.), with a
+                    // small mic badge to signal "record and send to AI"
+                    // specifically, distinct from the plain Mic button above.
+                    IconButton(onClick = onAiVoiceNoteClick, modifier = Modifier.size(30.dp)) {
+                        Box(modifier = Modifier.size(20.dp)) {
+                            Icon(Icons.Default.Psychology, "Voice Note to AI", tint = iconTint, modifier = Modifier.size(16.dp))
+                            Icon(
+                                Icons.Default.Mic, null, tint = iconTint,
+                                modifier = Modifier.size(10.dp).align(Alignment.BottomEnd)
+                                    .background(MaterialTheme.colorScheme.surface, CircleShape)
+                            )
+                        }
+                    }
                 }
                 IconButton(onClick = onScribeClick, modifier = Modifier.size(30.dp)) { Icon(Icons.Default.HistoryEdu, "Scribe Alpha", tint = if (isScribing) Color.Green else iconTint, modifier = Modifier.size(16.dp)) }
                 

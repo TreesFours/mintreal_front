@@ -17,14 +17,26 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.PathEffect
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.drawText
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.example.mistreal_mini.data.api.MarketCandle
 
 private val GREEN = Color(0xFF2E7D32)
 private val RED = Color(0xFFC62828)
 private val MOVING_AVERAGE_COLOR = Color(0xFF2196F3)
 private val TREND_LINE_COLOR = Color(0xFFFFA000)
+private val FIBONACCI_COLOR = Color(0xFFBA68C8)
 private const val MOVING_AVERAGE_PERIOD = 20
+
+// Standard retracement ratios — drawn between the visible range's high and
+// low, same convention every charting platform uses (0%/100% are the
+// extremes themselves, the rest are the actual retracement levels traders
+// watch for support/resistance).
+private val FIBONACCI_RATIOS = listOf(0.0, 0.236, 0.382, 0.5, 0.618, 0.786, 1.0)
 
 /**
  * Deliberately minimal — up to ~180 daily candles (≈6 months), no zoom/pan/
@@ -38,7 +50,12 @@ private const val MOVING_AVERAGE_PERIOD = 20
  * persisted drawing-tools subsystem.
  */
 @Composable
-fun CandlestickChart(candles: List<MarketCandle>, modifier: Modifier = Modifier, showMovingAverage: Boolean = false) {
+fun CandlestickChart(
+    candles: List<MarketCandle>,
+    modifier: Modifier = Modifier,
+    showMovingAverage: Boolean = false,
+    showFibonacci: Boolean = false
+) {
     if (candles.isEmpty()) {
         Text("No chart data available.", style = MaterialTheme.typography.bodySmall, color = Color.Gray)
         return
@@ -46,6 +63,7 @@ fun CandlestickChart(candles: List<MarketCandle>, modifier: Modifier = Modifier,
 
     var trendLineStart by remember(candles) { mutableStateOf<Offset?>(null) }
     var trendLineEnd by remember(candles) { mutableStateOf<Offset?>(null) }
+    val textMeasurer = rememberTextMeasurer()
 
     val maxPrice = candles.maxOf { it.high }
     val minPrice = candles.minOf { it.low }
@@ -114,6 +132,29 @@ fun CandlestickChart(candles: List<MarketCandle>, modifier: Modifier = Modifier,
                 val point = Offset(index * slot + slot / 2f, yFor(average))
                 previousPoint?.let { drawLine(color = MOVING_AVERAGE_COLOR, start = it, end = point, strokeWidth = 2f) }
                 previousPoint = point
+            }
+        }
+
+        if (showFibonacci) {
+            FIBONACCI_RATIOS.forEach { ratio ->
+                // Standard top-down convention: 0% at the range high, 100% at
+                // the range low — matches how retracement levels are quoted
+                // everywhere else (price "retraces" down from a high).
+                val price = maxPrice - ratio * range
+                val y = yFor(price)
+                drawLine(
+                    color = FIBONACCI_COLOR.copy(alpha = 0.6f),
+                    start = Offset(0f, y),
+                    end = Offset(width, y),
+                    strokeWidth = 1f,
+                    pathEffect = PathEffect.dashPathEffect(floatArrayOf(6f, 6f))
+                )
+                drawText(
+                    textMeasurer = textMeasurer,
+                    text = "${(ratio * 100).toInt()}% ${"%.4f".format(price)}",
+                    topLeft = Offset(4f, (y - 14f).coerceIn(0f, height - 14f)),
+                    style = TextStyle(color = FIBONACCI_COLOR, fontSize = 9.sp, fontWeight = FontWeight.Bold)
+                )
             }
         }
 

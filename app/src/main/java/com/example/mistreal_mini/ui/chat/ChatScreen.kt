@@ -66,7 +66,14 @@ fun ChatScreen(
     onSettingsClick: () -> Unit,
     onDashboardClick: () -> Unit,
     onArchiveClick: () -> Unit,
-    onLiveAiClick: () -> Unit = {}
+    onLiveAiClick: () -> Unit = {},
+    // Moved here from Dashboard's own bottomBar — this 5-button row now lives
+    // on each of its 5 destination screens instead, so jumping between them
+    // doesn't require detouring back through Dashboard every time.
+    onOpenGames: () -> Unit = {},
+    onOpenMarket: () -> Unit = {},
+    onOpenReels: () -> Unit = {},
+    onOpenWatchHub: () -> Unit = {}
 ) {
     LaunchedEffect(initialProviderOverride) {
         initialProviderOverride?.let { viewModel.setProvider(it) }
@@ -406,6 +413,17 @@ fun ChatScreen(
         },
         bottomBar = {
             Column {
+                com.example.mistreal_mini.ui.chat.components.InstagramStyleBottomBar(
+                    selectedTab = 4,
+                    onTabSelected = { tab ->
+                        when (tab) {
+                            0 -> onOpenGames()
+                            1 -> onOpenMarket()
+                            2 -> onOpenReels()
+                            3 -> onOpenWatchHub()
+                        }
+                    }
+                )
                 if (!showInsightPopup) {
                     if (isRecording || recordedFile != null) {
                         VoiceRecordingBar(
@@ -447,7 +465,13 @@ fun ChatScreen(
                     onCameraClick = { captureImage() },
                     onVideoClick = { captureVideo() },
                     onArCameraClick = { showArCamera = true },
-                    onFileClick = { filePickerLauncher.launch("*/*") },
+                    // "*/*" previously let a user pick any file type (a .docx,
+                    // .zip, etc.) that the backend's general chat endpoint
+                    // can't actually handle — extractImageData there only
+                    // accepts image/jpeg|png|webp, so anything else failed
+                    // after the user had already picked and sent it.
+                    // Restricted to what the picker can actually deliver on.
+                    onFileClick = { filePickerLauncher.launch("image/*") },
                     onVoiceClick = { viewModel.startRecording() },
                     onVoiceLongPress = { viewModel.startHandsFreeLoop("") },
                     onScribeClick = {

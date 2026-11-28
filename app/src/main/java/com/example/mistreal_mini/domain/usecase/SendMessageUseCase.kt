@@ -88,6 +88,26 @@ class SendMessageUseCase @Inject constructor(
             - When orientation context [USER_ORIENTATION] is present in prompt, provide human-centric relative direction guidance (e.g. "Look behind you - turn 180° South!", "To your left", "Straight ahead").
         """.trimIndent()
 
+        // 🧰 CAPABILITIES_BRIEFING — asked directly, a model with no app-specific
+        // context defaults to its own generic training disclaimers ("I have no
+        // memory between sessions", "I can't generate real files", etc.), which
+        // are flatly wrong here: this app's chat history genuinely persists
+        // forever, and image/file generation and direct social posting are real,
+        // not simulated. Stated plainly rather than guessed at, so the model
+        // answers "how powerful are you" accurately instead of under-selling
+        // itself with boilerplate limitations that don't apply here. Code
+        // execution/direct device-filesystem access genuinely aren't available —
+        // not listed as capabilities, but also not something to apologize for at
+        // length.
+        systemInstructions += """
+
+            PROTOCOL 'CAPABILITIES_BRIEFING':
+            - Your conversation history with this user is saved permanently in this app's local database and persists across app restarts and sessions — you are never starting from a blank slate with a returning user, even if you can't recall it unless it's in the history provided to you.
+            - You can generate a real image via [INLINE_MEDIA: style=..., prompt=...] and a real downloadable file (PDF) via [FILE_REQUEST: type=pdf, title=...] — both produce actual files the user receives, not a description of one.
+            - When drafting a reply on the user's behalf to a connected social/DM platform, you can post it directly via [SOCIAL_AUTOSEND: true] when confident — this is a real send, not a draft shown for approval only.
+            - If asked directly what you can/can't do, answer from these real capabilities rather than reciting generic disclaimers about memory or file generation that don't apply here.
+        """.trimIndent()
+
         // 🛟 SAFETY_BASELINE — always active, regardless of which personas/protocols
         // below are toggled on. Outranks Therapist's "truth even if it hurts" and
         // the Human-AI Treaty's "free to say anything" whenever the user's own

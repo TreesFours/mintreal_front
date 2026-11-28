@@ -32,7 +32,7 @@ import com.example.mistreal_mini.data.local.entity.*
         PinnedGameEntity::class,
         DelayedTrendEntity::class
     ],
-    version = 20,
+    version = 21,
     exportSchema = false
 )
 abstract class MistrealDatabase : RoomDatabase() {

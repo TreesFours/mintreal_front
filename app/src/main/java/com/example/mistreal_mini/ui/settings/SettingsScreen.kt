@@ -53,6 +53,7 @@ fun SettingsScreen(
     onGuardianAlertsClick: () -> Unit = {},
     onWatchHostClick: () -> Unit = {},
     onWatchViewerClick: () -> Unit = {},
+    onBrowserSettingsClick: () -> Unit = {},
     onMarketClick: () -> Unit = {},
     onGamesClick: () -> Unit = {},
     onEmailClick: () -> Unit = {},
@@ -1123,6 +1124,26 @@ fun SettingsScreen(
                                 Spacer(Modifier.width(6.dp))
                                 Text("WATCH")
                             }
+                        }
+                    }
+
+                    // --- SECTION 4b-3: BROWSER ---
+                    // In-app WebView browser (address/search bar, back/forward)
+                    // that replaced Chrome Custom Tabs for journal/article
+                    // links — this is its proxy config, scoped to just that
+                    // one WebView via androidx.webkit's ProxyController, not
+                    // a system-wide VPN.
+                    SettingsSection(title = "BROWSER", icon = Icons.Default.Public) {
+                        Text(
+                            "Configure a proxy for the in-app browser used to open journal and article links.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = Color.Gray
+                        )
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Button(onClick = onBrowserSettingsClick, modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(8.dp)) {
+                            Icon(Icons.Default.Settings, null, modifier = Modifier.size(18.dp))
+                            Spacer(Modifier.width(6.dp))
+                            Text("BROWSER / PROXY SETTINGS")
                         }
                     }
 

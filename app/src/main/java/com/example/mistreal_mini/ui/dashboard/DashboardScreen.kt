@@ -46,6 +46,8 @@ import kotlinx.coroutines.launch
 @Composable
 fun DashboardScreen(
     onBack: () -> Unit,
+    // Name, not a raw index — see Routes.dashboard()'s doc comment for why.
+    startTab: String? = null,
     onDmClick: () -> Unit = {},
     onMyProfileClick: () -> Unit = {},
     onAuthorProfileClick: (String) -> Unit = {},
@@ -55,6 +57,8 @@ fun DashboardScreen(
     onOpenMarket: () -> Unit = {},
     onOpenWatchHub: () -> Unit = {},
     onOpenChat: () -> Unit = {},
+    onOpenLibrarySearch: () -> Unit = {},
+    onOpenBrowser: (String) -> Unit = {},
     viewModel: DashboardViewModel = hiltViewModel(),
     feedViewModel: FeedViewModel = hiltViewModel(),
     mapViewModel: TacticalMapViewModel = hiltViewModel(),
@@ -85,7 +89,7 @@ fun DashboardScreen(
     var selectedTab by remember { mutableIntStateOf(0) }
     var showMapPopup by remember { mutableStateOf(false) }
     var showFullSolarSystem by remember { mutableStateOf(false) }
-    var showEarthCamDialog by remember { mutableStateOf(false) }
+    var showLiveCamerasDialog by remember { mutableStateOf(false) }
 
     val weather by viewModel.weather
     val unreadCount by viewModel.unreadMessagesCount
@@ -131,22 +135,34 @@ fun DashboardScreen(
     // index is computed in exactly one place, not re-derived twice and
     // risking drift between them.
     val socialIndex = if (isArchitectMode) 3 else 2
-    val camerasIndex = socialIndex + 1
-    val dispatchIndex = camerasIndex + 1
+    val dispatchIndex = socialIndex + 1
+
+    // Resolves once per nav-in — a name ("reels"/"map"/"dispatch"), not a raw
+    // index, since socialIndex/dispatchIndex shift under Architect mode and
+    // only this screen knows that mapping. Guarded so a later persona change
+    // mid-session doesn't yank the user back to a tab they've since left.
+    var hasAppliedStartTab by remember { mutableStateOf(false) }
+    LaunchedEffect(startTab, socialIndex, dispatchIndex) {
+        if (!hasAppliedStartTab && startTab != null) {
+            selectedTab = when (startTab) {
+                "map" -> 1
+                "reels", "social" -> socialIndex
+                "dispatch" -> dispatchIndex
+                else -> selectedTab
+            }
+            hasAppliedStartTab = true
+        }
+    }
 
     Scaffold(
         snackbarHost = { SnackbarHost(snackbarHostState) },
         topBar = {
             TopAppBar(
                 title = {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        com.example.mistreal_mini.ui.components.ThinkingTreeIcon(size = 22.dp)
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text(if (isArchitectMode) "ARCHITECT HUB" else "COMMAND CENTER", fontWeight = FontWeight.Black)
-                    }
+                    com.example.mistreal_mini.ui.components.ThinkingTreeIcon(size = 28.dp)
                 },
                 actions = {
-                    IconButton(onClick = { showEarthCamDialog = true }) {
+                    IconButton(onClick = { showLiveCamerasDialog = true }) {
                         Icon(Icons.Default.Public, "World Cams", tint = MaterialTheme.colorScheme.primary)
                     }
                     IconButton(onClick = onMyProfileClick) {
@@ -165,24 +181,32 @@ fun DashboardScreen(
             )
         },
         bottomBar = {
-            com.example.mistreal_mini.ui.chat.components.InstagramStyleBottomBar(
-                // Was: `else 4`, which always lit up "Chats" while viewing any
-                // other internal Dashboard tab (Intel/Map/etc.) even though the
-                // user never navigated to Chats at all — only tab 2 (Reels) has
-                // a real correspondence to a bottom-bar item here; -1 matches
-                // none of the bar's own `selectedTab == N` checks, so nothing
-                // gets falsely highlighted otherwise.
-                selectedTab = if (selectedTab == 2) 2 else -1,
-                onTabSelected = { tab ->
-                    when (tab) {
-                        0 -> onOpenGames()
-                        1 -> onOpenMarket()
-                        2 -> selectedTab = 2
-                        3 -> onOpenWatchHub()
-                        4 -> onOpenChat()
+            // Hidden specifically on the INTEL tab (tab 0) — that's
+            // "Intelligence," and this 5-button row sitting underneath it
+            // read as confusing/out of place there. It's now the other 4
+            // destination screens' own job to carry this row (GamesListScreen,
+            // MarketScreen, WatchHostScreen, ChatScreen) — Dashboard still
+            // shows it on its own other internal tabs (Map/Reels/Dispatch).
+            if (selectedTab != 0) {
+                com.example.mistreal_mini.ui.chat.components.InstagramStyleBottomBar(
+                    // Was: `else 4`, which always lit up "Chats" while viewing any
+                    // other internal Dashboard tab (Intel/Map/etc.) even though the
+                    // user never navigated to Chats at all — only tab 2 (Reels) has
+                    // a real correspondence to a bottom-bar item here; -1 matches
+                    // none of the bar's own `selectedTab == N` checks, so nothing
+                    // gets falsely highlighted otherwise.
+                    selectedTab = if (selectedTab == 2) 2 else -1,
+                    onTabSelected = { tab ->
+                        when (tab) {
+                            0 -> onOpenGames()
+                            1 -> onOpenMarket()
+                            2 -> selectedTab = 2
+                            3 -> onOpenWatchHub()
+                            4 -> onOpenChat()
+                        }
                     }
-                }
-            )
+                )
+            }
         }
     ) { padding ->
         Column(modifier = Modifier.padding(padding).fillMaxSize()) {
@@ -227,12 +251,6 @@ fun DashboardScreen(
                     text = { Text("SOCIAL", fontSize = 11.sp, fontWeight = FontWeight.Bold) }
                 )
                 Tab(
-                    selected = selectedTab == camerasIndex,
-                    onClick = { selectedTab = camerasIndex },
-                    icon = { Icon(Icons.Default.Videocam, contentDescription = "Cameras", modifier = Modifier.size(18.dp)) },
-                    text = { Text("CAMERAS", fontSize = 11.sp, fontWeight = FontWeight.Bold) }
-                )
-                Tab(
                     selected = selectedTab == dispatchIndex,
                     onClick = { selectedTab = dispatchIndex },
                     icon = { Icon(Icons.Default.BroadcastOnPersonal, contentDescription = "Broadcast Deck", modifier = Modifier.size(18.dp)) },
@@ -259,7 +277,9 @@ fun DashboardScreen(
                         dashboardViewModel = viewModel,
                         snackbarHostState = snackbarHostState,
                         onRefresh = { feedViewModel.loadFeed(deviceId, forceRefresh = true) },
-                        onOrbitalClick = { showFullSolarSystem = true }
+                        onOrbitalClick = { showFullSolarSystem = true },
+                        onSearchLibraryClick = onOpenLibrarySearch,
+                        onOpenBrowser = onOpenBrowser
                     )
                     selectedTab == 1 -> InteractiveMapView(
                         location = weather?.location ?: "Sector Unknown",
@@ -293,7 +313,6 @@ fun DashboardScreen(
                         onAuthorClick = onAuthorProfileClick,
                         onVoiceAsk = { showQuickVoiceAsk = true }
                     )
-                    selectedTab == camerasIndex -> CamerasTabView(snackbarHostState = snackbarHostState)
                     selectedTab == dispatchIndex -> DispatchCenterView(
                         deviceId = deviceId,
                         connectedSocials = chatViewModel.availablePlatforms.filter { it.isConnected }.map { it.id.lowercase() },
@@ -385,14 +404,36 @@ fun DashboardScreen(
         )
     }
 
-    if (showEarthCamDialog) {
-        com.example.mistreal_mini.ui.dashboard.components.EarthCamOverlay(
-            onDismiss = { showEarthCamDialog = false }
-        )
+    if (showLiveCamerasDialog) {
+        // Previously opened EarthCamOverlay here — a fully hardcoded,
+        // non-functional mock (fake PTZ joystick, placeholder stream URLs
+        // that were never confirmed live, a "connect drone by IP" field
+        // with no real connection logic). The real, backend-driven live-cam
+        // discovery feed (CamerasTabView/CamerasViewModel, submitted camera
+        // profiles reviewed and served from cameraRoutes.ts) previously only
+        // lived as a tab buried inside this screen's internal TabRow, which
+        // didn't belong there — this is its new home, matching the original
+        // "reachable near the Intelligence button" placement. EarthCamOverlay
+        // itself is left in place, just unused, pending a decision on whether
+        // to build it for real or delete it outright.
+        androidx.compose.ui.window.Dialog(
+            onDismissRequest = { showLiveCamerasDialog = false },
+            properties = androidx.compose.ui.window.DialogProperties(usePlatformDefaultWidth = false)
+        ) {
+            Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
+                Column {
+                    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(start = 4.dp, top = 8.dp)) {
+                        IconButton(onClick = { showLiveCamerasDialog = false }) { Icon(Icons.Default.ArrowBack, "Back") }
+                        Text("WORLD CAMS", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Black)
+                    }
+                    CamerasTabView(snackbarHostState = snackbarHostState)
+                }
+            }
+        }
     }
 
     if (selectedArticle != null) {
-        NewsDetailScreen(article = selectedArticle!!, onBack = { selectedArticle = null })
+        NewsDetailScreen(article = selectedArticle!!, onBack = { selectedArticle = null }, onOpenBrowser = onOpenBrowser)
     }
 
     if (showInsightPopup) {

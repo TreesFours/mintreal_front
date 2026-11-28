@@ -735,6 +735,12 @@ class ChatViewModel @Inject constructor(
         val file = _recordedFile.value ?: return
         _recordedFile.value = null
         val uri = Uri.fromFile(file)
+        // A file picked via the attach button before recording used to be
+        // silently dropped here — this call went straight to
+        // sendMessageUseCase with only the audio URI, never looking at
+        // _pendingAttachments at all.
+        val filesToSend = _pendingAttachments.toList()
+        clearPendingAttachments()
         _isLoading.value = true
         viewModelScope.launch {
             val result = sendMessageUseCase(
@@ -744,12 +750,13 @@ class ChatViewModel @Inject constructor(
                 history = _messages.takeLast(5),
                 provider = _selectedProvider.value,
                 deviceId = deviceIdProvider.deviceId,
-                audioUri = uri
+                audioUri = uri,
+                imageUris = filesToSend.takeIf { it.isNotEmpty() }
             )
             if (result is Resource.Success) {
                 _messages.add(ChatMessage(
                     role = "user", content = "", type = "audio",
-                    attachmentPaths = listOf(uri.toString()), provider = "you"
+                    attachmentPaths = listOf(uri.toString()) + filesToSend.map { it.toString() }, provider = "you"
                 ))
                 _messages.add(ChatMessage(
                     role = "assistant",
@@ -767,7 +774,13 @@ class ChatViewModel @Inject constructor(
     fun handleAudioInput(uri: Uri?) {
         _isListening.value = false
         if (uri != null) {
-            sendMessage("", listOf(uri), "audio")
+            // A file picked via the attach button before recording voice used
+            // to be silently dropped — sendMessage's overrideAttachments
+            // param fully replaces _pendingAttachments rather than merging,
+            // so passing just [uri] here discarded anything already pending.
+            // Audio stays first so sendMessage's attachmentUris[0] (used to
+            // resolve audioUri) still picks the right file.
+            sendMessage("", listOf(uri) + _pendingAttachments.toList(), "audio")
         }
     }
 
@@ -1444,6 +1457,24 @@ class ChatViewModel @Inject constructor(
 
     fun sendMessage(rawText: String, overrideAttachments: List<Uri>? = null, attachmentType: String = "text", trendTitle: String? = null) {
         val attachmentUris = overrideAttachments ?: _pendingAttachments.toList()
+        // The main chat input's send button (ChatScreen.kt) calls sendMessage()
+        // with no attachmentType at all, regardless of what's actually pending
+        // — leaving it at this function's "text" default even with a real
+        // image/video attached. ChatBubble gates image/video rendering strictly
+        // on `message.type`, not on attachmentPaths being non-empty, so an
+        // unresolved "text" type silently drops the attachment at render time.
+        // Infer the real type from the first URI's MIME whenever the caller
+        // left it at the default, instead of trusting every call site to pass
+        // it correctly (explicit non-default types, e.g. "audio" from the
+        // voice-note path, are left untouched).
+        val attachmentType = if (attachmentType == "text" && attachmentUris.isNotEmpty()) {
+            when (FileUtil.getMimeType(context, attachmentUris[0])?.substringBefore("/")) {
+                "video" -> "video"
+                "image" -> "image"
+                "audio" -> "audio"
+                else -> attachmentType
+            }
+        } else attachmentType
         val autoRoutedProvider = detectAutoRoutedProvider(rawText, attachmentUris, attachmentType)
 
         // Fold any per-segment instructions (from the attachment editor's "Split into 6"
@@ -1692,6 +1723,13 @@ class ChatViewModel @Inject constructor(
                         )
                         if (trendTitle != null && _delayEnabledTrendTitles.contains(trendTitle)) {
                             scheduleDelayedReveal(assistantMsg)
+                        } else if (_isSocialChat.value) {
+                            // Mirrors the Resource.Error branch below — _messages is what
+                            // social-DM-chat mode (including the AiInsightPopup minichat)
+                            // actually renders from, not the Room-backed pagedMessages.
+                            // This branch was missing, so a successful AI reply here saved
+                            // to Room and just never appeared anywhere the user was looking.
+                            _messages.add(assistantMsg)
                         } else {
                             repository.saveMessage(assistantMsg)
                         }

@@ -31,6 +31,13 @@ import com.example.mistreal_mini.data.api.GameSummary
 fun GamesListScreen(
     onBack: () -> Unit,
     onPlayGame: (GameSummary) -> Unit,
+    // Moved here from Dashboard's own bottomBar — this 5-button row now lives
+    // on each of its 5 destination screens instead, so jumping between them
+    // doesn't require detouring back through Dashboard every time.
+    onOpenMarket: () -> Unit = {},
+    onOpenReels: () -> Unit = {},
+    onOpenWatchHub: () -> Unit = {},
+    onOpenChat: () -> Unit = {},
     viewModel: GamesViewModel = hiltViewModel()
 ) {
     val gamesResource by viewModel.games.collectAsState()
@@ -47,6 +54,19 @@ fun GamesListScreen(
                 title = { Text("Games") },
                 navigationIcon = {
                     IconButton(onClick = onBack) { Icon(Icons.Default.ArrowBack, contentDescription = "Back") }
+                }
+            )
+        },
+        bottomBar = {
+            com.example.mistreal_mini.ui.chat.components.InstagramStyleBottomBar(
+                selectedTab = 0,
+                onTabSelected = { tab ->
+                    when (tab) {
+                        1 -> onOpenMarket()
+                        2 -> onOpenReels()
+                        3 -> onOpenWatchHub()
+                        4 -> onOpenChat()
+                    }
                 }
             )
         }
